@@ -6,13 +6,15 @@
     "scripts": {
         "test": "echo \"Error: no test specified\" && exit 1",
         "prettier-format": "prettier --config .prettierrc --ignore-path .prettierignore --write **/*.js",
-        "build-tag": "browserify pngjs/index.js -o build/bundle.js --standalone"
+        "build-tag": "browserify ./pngjs/index.js -o ./build/bundle.js --standalone"
     },
     "keywords": [],
     "author": "",
     "license": "ISC",
     "dependencies": {
-        "browserify": "^17.0.0",
-        "webpack": "^5.91.0"
+        "pngjs": "^7.0.0"
+    },
+    "devDependencies": {
+        "browserify": "^17.0.0"
     }
 }
