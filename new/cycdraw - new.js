@@ -1957,7 +1957,7 @@ class Image {
 
     drawPoints(points, color, size) {
         if (points.length % 2 !== 0) {
-            throw "Invalid points array";
+            throw new DrawingError("Invalid points array");
         }
 
         let pixel = this.setPixel;
@@ -2381,70 +2381,51 @@ function writeImg() {
     Benchmark.startTiming("total");
     Benchmark.startTiming("create_img");
 
-    for (let i = 0; i < 1; i++) {
-        const w = 640,
-            h = 360;
+    const w = 1920,
+        h = 1080;
 
-        let img = new Image(w, h);
+    let img = new Image(w, h);
 
-        Benchmark.stopTiming("create_img" + i);
-        Benchmark.startTiming("draw_img" + i);
+    Benchmark.stopTiming("create_img" + i);
+    Benchmark.startTiming("draw_img" + i);
 
-        img = drawImg(img, i);
+    img = drawImg(img);
 
-        Benchmark.stopTiming("draw_img" + i);
-        Benchmark.startTiming("encode_img" + i);
+    Benchmark.stopTiming("draw_img" + i);
+    Benchmark.startTiming("encode_img" + i);
 
-        let buf = img.encode();
+    let buf = img.encode();
 
-        Benchmark.stopTiming("encode_img" + i);
-        Benchmark.startTiming("write_file" + i);
+    Benchmark.stopTiming("encode_img" + i);
+    Benchmark.startTiming("write_file" + i);
 
-        fs.writeFileSync(`./amongus${i + 1}.png`, Buffer.from(buf));
+    fs.writeFileSync(`./amongus${i + 1}.png`, Buffer.from(buf));
 
-        Benchmark.stopTiming("write_file" + i);
-    }
+    Benchmark.stopTiming("write_file" + i);
 
     Benchmark.stopTiming("total");
 
     console.log("\nBenchmark times:\n\n" + Benchmark.getAll() + "\n");
 }
 
-function drawImg(img, idx) {
-    const fs = require("fs");
-
-    let script = fs.readFileSync("./raymarcher.js", {
-        encoding: "utf-8"
-    });
-
-    script += "\n; return img;";
-
-    const ctxVars = [
-        "",
-        img,
-        {},
-        {},
-        {},
-        Image,
-        Color,
-        Colors,
-        Point,
-        Grid,
-        Font,
-        Benchmark,
-        {},
-        Utils,
-        Buffer2,
-        OptionTypes,
-        Option,
-        ArgsParser,
-        _ => {},
-        idx
-    ];
-
-    img = Function(...ctxNames, "idx", script).apply(undefined, ctxVars);
-
-    return img;
+function drawImg(img) {
+    img.fill(0, 0, 500, 400, Colors.green);
+    img.fill(0, 0, 500, 400, Colors.green);
+    img.fillRadius(500,400,Colors.red,50);
+    img.fillRadius(0, 0, Colors.yellow, 2);
+    img.drawLine(0, 0, img.w, img.h, Colors.blue);
+    img.drawLine(img.w - 20, img.h - 20, 50, 70, Colors.yellow);
+    img.drawLine(20, img.h - 20, img.w - 20, 20, Colors.lime);
+    img.drawLine(50, 50, 100, 300, Colors.red);
+    img.drawLine(70,100,700,100, Colors.brown);
+    img.drawLine(700,300,70,300, Colors.brown);
+    img.drawLine(90, 200, 90, 400, Colors.cyan);
+    img.drawLine(600, 400, 600, 200, Colors.cyan);
+    img.drawLineThick(40,40,img.w-70,img.h-40, Colors.red,40);
+    img.drawLineThick(40,40,img.w-70,img.h-40, Colors.red,40);
+    img.fillTriangle(img.w / 2, 20, img.w / 2 + 100, img.h / 2, img.w / 2 + 200, img.h / 2 - 100, Colors.red);
+    img.rotate(180);
+    img.flipHorizontal();
 }
 
 //debugger;
