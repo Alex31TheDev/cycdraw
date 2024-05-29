@@ -10,6 +10,8 @@ Custom image drawing library made for Leveret tags
 
 `pngjs` contains a WIP rewrite built around the pngjs library.
 
+`scripts` contains all of the scripts I've written using the library.
+
 # TODO
 
 -   [ ] Add some examples
