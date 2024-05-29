@@ -1,4 +1,4 @@
-const CustomError = require("../errors/CustomError.js")
+const CustomError = require("../errors/CustomError.js");
 
 const Util = {
     capitalize: str => {

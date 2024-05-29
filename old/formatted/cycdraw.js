@@ -1574,7 +1574,7 @@ class Zlib {
 
 class EncoderPNG {
     constructor(pixels, w, h) {
-        if (!pixels instanceof Uint8Array) {
+        if (!(pixels instanceof Uint8Array)) {
             throw new EncoderError("Invalid pixel array type.");
         }
 
@@ -1935,7 +1935,7 @@ function handleMsg() {
         output = output.toString();
     }
 
-    if (!img || !img instanceof Image || img.w == null || img.h == null || img.pixels == null || !img.pixels.length) {
+    if (!img || !(img instanceof Image) || img.w == null || img.h == null || img.pixels == null || !img.pixels.length) {
         throw new DrawingError("Invalid image.");
     }
     benchmark["draw_img"] = Date.now() - d1;

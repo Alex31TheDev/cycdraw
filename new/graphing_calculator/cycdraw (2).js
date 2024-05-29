@@ -862,7 +862,7 @@ class ChunkPNG {
 
 class EncoderPNG {
     constructor(pixels, w, h) {
-        if (!pixels instanceof Uint8Array) {
+        if ((!pixels) instanceof Uint8Array) {
             throw new Error("Invalid pixel array type.");
         }
 

@@ -1001,7 +1001,7 @@ class EncoderPNG {
     static idatFlags = "\x08\x02\x00\x00\x00";
 
     constructor(pixels, w, h) {
-        if (!pixels instanceof Uint8Array) {
+        if (!(pixels instanceof Uint8Array)) {
             throw new EncoderError("Invalid pixel array type");
         }
 
@@ -2338,7 +2338,7 @@ function handleMsg() {
 
     if (
         !img ||
-        !img instanceof Image ||
+        (!img) instanceof Image ||
         img.w === null ||
         img.h === null ||
         img.pixels === null ||
@@ -2381,29 +2381,30 @@ function writeImg() {
     Benchmark.startTiming("total");
     Benchmark.startTiming("create_img");
 
-    for(let i = 0; i < 1; i++) {
-    const w = 640,
-        h = 360;
+    for (let i = 0; i < 1; i++) {
+        const w = 640,
+            h = 360;
 
-    let img = new Image(w, h);
+        let img = new Image(w, h);
 
-    Benchmark.stopTiming("create_img" + i);
-    Benchmark.startTiming("draw_img" + i);
+        Benchmark.stopTiming("create_img" + i);
+        Benchmark.startTiming("draw_img" + i);
 
-    img = drawImg(img, i);
+        img = drawImg(img, i);
 
-    Benchmark.stopTiming("draw_img" + i);
-    Benchmark.startTiming("encode_img" + i);
+        Benchmark.stopTiming("draw_img" + i);
+        Benchmark.startTiming("encode_img" + i);
 
-    let buf = img.encode();
+        let buf = img.encode();
 
-    Benchmark.stopTiming("encode_img" + i);
-    Benchmark.startTiming("write_file" + i);
+        Benchmark.stopTiming("encode_img" + i);
+        Benchmark.startTiming("write_file" + i);
 
-    fs.writeFileSync(`./amongus${i + 1}.png`, Buffer.from(buf));
+        fs.writeFileSync(`./amongus${i + 1}.png`, Buffer.from(buf));
 
-    Benchmark.stopTiming("write_file" + i);
+        Benchmark.stopTiming("write_file" + i);
     }
+
     Benchmark.stopTiming("total");
 
     console.log("\nBenchmark times:\n\n" + Benchmark.getAll() + "\n");
@@ -2416,7 +2417,7 @@ function drawImg(img, idx) {
         encoding: "utf-8"
     });
 
-    script += "\n; return img;"
+    script += "\n; return img;";
 
     const ctxVars = [
         "",
