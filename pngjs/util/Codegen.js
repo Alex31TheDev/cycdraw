@@ -21,7 +21,15 @@ const Codegen = {
         }
 
         code = code.trim();
-        const replaced = code.replace(/\s|\n/g, "");
+
+        let replaced;
+        const last_nl = code.lastIndexOf("\n");
+
+        if (last_nl === -1) {
+            replaced = code.replaceAll(" ", "");
+        } else {
+            replaced = code.slice(last_nl);
+        }
 
         if (/[\s\S]+[\w\d$_)\]]$/.test(replaced)) {
             return code + ";";
