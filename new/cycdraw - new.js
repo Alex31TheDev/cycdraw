@@ -210,7 +210,7 @@ class Color {
     }
 
     toHex() {
-        return `#${this.r.toString(16)}, ${this.g.toString(16)}, ${this.b.toString(16)}`;
+        return `#${this.r.toString(16)}${this.g.toString(16)}${this.b.toString(16)}`;
     }
 
     static fromHSV(h, s, v) {
@@ -2411,18 +2411,18 @@ function writeImg() {
 function drawImg(img) {
     img.fill(0, 0, 500, 400, Colors.green);
     img.fill(0, 0, 500, 400, Colors.green);
-    img.fillRadius(500,400,Colors.red,50);
+    img.fillRadius(500, 400, Colors.red, 50);
     img.fillRadius(0, 0, Colors.yellow, 2);
     img.drawLine(0, 0, img.w, img.h, Colors.blue);
     img.drawLine(img.w - 20, img.h - 20, 50, 70, Colors.yellow);
     img.drawLine(20, img.h - 20, img.w - 20, 20, Colors.lime);
     img.drawLine(50, 50, 100, 300, Colors.red);
-    img.drawLine(70,100,700,100, Colors.brown);
-    img.drawLine(700,300,70,300, Colors.brown);
+    img.drawLine(70, 100, 700, 100, Colors.brown);
+    img.drawLine(700, 300, 70, 300, Colors.brown);
     img.drawLine(90, 200, 90, 400, Colors.cyan);
     img.drawLine(600, 400, 600, 200, Colors.cyan);
-    img.drawLineThick(40,40,img.w-70,img.h-40, Colors.red,40);
-    img.drawLineThick(40,40,img.w-70,img.h-40, Colors.red,40);
+    img.drawLineThick(40, 40, img.w - 70, img.h - 40, Colors.red, 40);
+    img.drawLineThick(40, 40, img.w - 70, img.h - 40, Colors.red, 40);
     img.fillTriangle(img.w / 2, 20, img.w / 2 + 100, img.h / 2, img.w / 2 + 200, img.h / 2 - 100, Colors.red);
     img.rotate(180);
     img.flipHorizontal();
