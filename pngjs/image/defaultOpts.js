@@ -1,4 +1,4 @@
-const constructorOpts = {
+const imageOpts = {
     width: 640,
     height: 480,
     colorType: 2
@@ -7,6 +7,6 @@ const constructorOpts = {
 const filename = "image.png";
 
 module.exports = {
-    constructorOpts,
+    imageOpts,
     filename
 };

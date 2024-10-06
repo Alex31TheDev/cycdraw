@@ -6,14 +6,14 @@ const Util = require("./util/Util.js");
 const Benchmark = require("./util/Benchmark.js");
 
 const ImageUtil = require("./image/ImageUtil.js");
-const { consturctorOpts, filename } = require("./image/defaultOpts.js");
+const { imageOpts, filename } = require("./image/defaultOpts.js");
 
 const EvalContext = require("./eval/EvalContext.js");
 
 function createImage() {
     Benchmark.startTiming("create_img");
 
-    const img = new PNG(constructorOpts);
+    const img = new PNG(imageOpts);
 
     Benchmark.stopTiming("create_img");
     Benchmark.startTiming("clear_img");
