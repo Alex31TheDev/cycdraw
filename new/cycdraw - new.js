@@ -1052,7 +1052,7 @@ class EncoderPNG {
 
     compressPixels() {
         const zlib = new Zlib(this.pixels);
-        this.pixels = zlib.deflate(2);
+        this.pixels = zlib.deflate(0);
     }
 
     getChunksSize() {
@@ -1626,7 +1626,7 @@ class Image {
             let pos1 = 3 * (y1 * this.w + x1),
                 pos2 = 3 * (y2 * this.w + x2);
 
-            while (pos1 <= pos2) {
+            while (pos1 < pos2) {
                 this.pixels[pos1++] = color.r;
                 this.pixels[pos1++] = color.g;
                 this.pixels[pos1++] = color.b;
@@ -1637,7 +1637,7 @@ class Image {
             let pos1 = 3 * (y1 * this.w + x1),
                 pos2 = 3 * (y2 * this.w + x2);
 
-            while (pos1 <= pos2) {
+            while (pos1 < pos2) {
                 this.pixels[pos1++] = color.r;
                 this.pixels[pos1++] = color.g;
                 this.pixels[pos1++] = color.b;
@@ -1645,15 +1645,15 @@ class Image {
                 pos1 += yi;
             }
         } else {
-            const yi = -3 * (w - this.w + 1);
+            const yi = -3 * (w - this.w);
 
             let i = 0,
                 j;
 
             let pos = 3 * (y1 * this.w + x1);
 
-            for (; i <= h; i++) {
-                for (j = 0; j <= w; j++) {
+            for (; i < h; i++) {
+                for (j = 0; j < w; j++) {
                     this.pixels[pos++] = color.r;
                     this.pixels[pos++] = color.g;
                     this.pixels[pos++] = color.b;
@@ -1792,7 +1792,7 @@ class Image {
                 pos2 = tmp;
             }
 
-            while (pos1 <= pos2) {
+            while (pos1 < pos2) {
                 this.pixels[pos1++] = color.r;
                 this.pixels[pos1++] = color.g;
                 this.pixels[pos1++] = color.b;
@@ -1809,7 +1809,7 @@ class Image {
                 pos2 = tmp;
             }
 
-            while (pos1 <= pos2) {
+            while ((pos1 = pos2)) {
                 this.pixels[pos1++] = color.r;
                 this.pixels[pos1++] = color.g;
                 this.pixels[pos1++] = color.b;
@@ -1843,7 +1843,7 @@ class Image {
 
             let pos = 3 * (y1 * this.w + x1);
 
-            for (; x1 <= x2; x1++) {
+            for (; x1 < x2; x1++) {
                 this.pixels[pos++] = color.r;
                 this.pixels[pos++] = color.g;
                 this.pixels[pos++] = color.b;
@@ -1883,7 +1883,7 @@ class Image {
 
             let pos = 3 * (y1 * this.w + x1);
 
-            for (; y1 <= y2; y1++) {
+            for (; y1 < y2; y1++) {
                 this.pixels[pos++] = color.r;
                 this.pixels[pos++] = color.g;
                 this.pixels[pos++] = color.b;
