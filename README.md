@@ -8,7 +8,9 @@ Custom image drawing library made for Leveret tags
 
 `new` contains the refactored versions for El Levert and standalone use.
 
-`pngjs` contains a WIP rewrite built around the pngjs library.
+`pngjs` contains a drawing tag built around the pngjs library.
+
+`canvaskit` contains a drawing tag built around the canvaskit library.
 
 `scripts` contains all of the scripts I've written using the library.
 
