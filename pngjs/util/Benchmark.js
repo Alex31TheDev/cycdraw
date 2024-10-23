@@ -26,7 +26,7 @@ const Benchmark = {
         const time = Benchmark.data[key];
 
         if (typeof time === "undefined") {
-            return "not found";
+            return "Key not found";
         }
 
         return time.toLocaleString() + "ms";
@@ -40,12 +40,8 @@ const Benchmark = {
         this.timepoints.clear();
     },
 
-    getAll: _ => {
-        const times = Object.entries(Benchmark.data).map(x => {
-            const [key, time] = x;
-            return `${key}: ${time.toLocaleString()}ms`;
-        });
-
+    getAll() {
+        const times = Object.entries(Benchmark.data).map(([key, time]) => `${key}: ${time.toLocaleString()}ms`);
         return times.join(",\n");
     },
 
