@@ -83,26 +83,26 @@ class Benchmark {
 
     static startTiming(key) {
         const t1 = Date.now();
-        Benchmark.timepoints.set(key, t1);
+        this.timepoints.set(key, t1);
     }
 
     static stopTiming(key) {
-        const t1 = Benchmark.timepoints.get(key);
+        const t1 = this.timepoints.get(key);
 
         if (typeof t1 === "undefined") {
             return;
         }
 
-        Benchmark.timepoints.delete(key);
+        this.timepoints.delete(key);
 
         const t2 = Date.now(),
             diff = t2 - t1;
 
-        Benchmark.data[key] = diff;
+        this.data[key] = diff;
     }
 
     static getTime(key) {
-        const time = Benchmark.data[key];
+        const time = this.data[key];
 
         if (typeof time === "undefined") {
             return "Key not found";
@@ -120,7 +120,7 @@ class Benchmark {
     }
 
     static getAll() {
-        const times = Object.entries(Benchmark.data).map(([key, time]) => `${key}: ${time.toLocaleString()}ms`);
+        const times = Object.entries(this.data).map(([key, time]) => `${key}: ${time.toLocaleString()}ms`);
         return times.join(",\n");
     }
 }
