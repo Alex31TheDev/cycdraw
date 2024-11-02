@@ -17,7 +17,7 @@ const tags = {
         PromisePolyfillTagName: "ck_promise_polyfill",
 
         CanvasKitLoaderTagName: "ck_loader_init",
-        CanvasKitWasmTagName: "ck_wasm"
+        CanvasKitWasmTagName: /^ck_wasm\d+$/
     },
     tagOwner = "883072834790916137";
 
@@ -304,11 +304,13 @@ globalThis.Util = {
         const tag = util.fetchTag(name);
 
         if (tag === null || typeof tag === "undefined") {
-            throw new LoaderError("Unknown tag: " + name);
+            throw new UtilError("Unknown tag: " + name);
         }
 
-        if (owner !== null && typeof owner !== "undefined" && tag.owner !== owner) {
-            throw new LoaderError(`Incorrect tag owner (${tag.owner} =/= ${owner}) for tag: ${name}`);
+        if (owner !== null && typeof owner !== "undefined") {
+            if (tag.owner !== owner) {
+                throw new UtilError(`Incorrect tag owner (${tag.owner} =/= ${owner}) for tag: ${name}`);
+            }
         }
 
         return tag;
@@ -494,7 +496,20 @@ globalThis.ModuleLoader = class ModuleLoader {
                 throw new LoaderError("Invalid tag name");
             }
 
-            const tags = tagNames.map(name => Util.getTag(name, owner));
+            const tags = tagNames
+                .map(name => {
+                    try {
+                        return Util.fetchTag(name, owner);
+                    } catch (err) {
+                        if (err.name === "UtilError") {
+                            return null;
+                        }
+
+                        throw err;
+                    }
+                })
+                .filter(tag => tag !== null);
+
             moduleCode = tags.map(tag => Util.getTagBody(tag)).join("");
         }
 
