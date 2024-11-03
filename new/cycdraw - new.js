@@ -78,15 +78,43 @@ const Utils = {
 };
 
 class Benchmark {
-    static data = {};
+    static data = Object.create(null);
     static timepoints = new Map();
 
+    static timeToUse = (_ => {
+        if (typeof performance !== "undefined") {
+            return "performanceNow";
+        }
+
+        if (typeof vm !== "undefined") {
+            return "vmTime";
+        }
+
+        return "dateNow";
+    })();
+
+    static ns_per_ms = 10n ** 6n;
+
+    static getCurrentTime() {
+        switch (this.timeToUse) {
+            case "performanceNow":
+                return performance.now();
+            case "vmTime":
+                return vm.getWallTime();
+            case "dateNow":
+                return Date.now();
+        }
+    }
+
     static startTiming(key) {
-        const t1 = Date.now();
+        key = this._formatKey(key);
+
+        const t1 = this.getCurrentTime();
         this.timepoints.set(key, t1);
     }
 
     static stopTiming(key) {
+        key = this._formatKey(key);
         const t1 = this.timepoints.get(key);
 
         if (typeof t1 === "undefined") {
@@ -95,33 +123,68 @@ class Benchmark {
 
         this.timepoints.delete(key);
 
-        const t2 = Date.now(),
-            diff = t2 - t1;
+        let t2 = this.getCurrentTime(),
+            dt = t2 - t1;
 
-        this.data[key] = diff;
+        switch (this.timeToUse) {
+            case "performanceNow":
+                dt = Math.floor(dt);
+                break;
+            case "vmTime":
+                dt = Number(dt / this.ns_per_ms);
+                break;
+            case "dateNow":
+                break;
+        }
+
+        this.data[key] = dt;
     }
 
     static getTime(key) {
+        key = this._formatKey(key);
         const time = this.data[key];
 
         if (typeof time === "undefined") {
             return "Key not found";
         }
 
-        return time.toLocaleString() + "ms";
+        return `${key}: ${time.toLocaleString()}ms`;
+    }
+
+    static deleteTime(key) {
+        key = this._formatKey(key);
+        this.timepoints.delete(key);
+
+        if (key in this.data) {
+            delete this.data[key];
+            return true;
+        }
+
+        return false;
     }
 
     static clear() {
+        this.timepoints.clear();
+
         for (const key of Object.keys(this.data)) {
             delete this.data[key];
         }
-
-        this.timepoints.clear();
     }
 
     static getAll() {
-        const times = Object.entries(this.data).map(([key, time]) => `${key}: ${time.toLocaleString()}ms`);
+        const times = Object.keys(this.data).map(key => this.getTime(key));
         return times.join(",\n");
+    }
+
+    static _formatKey(key) {
+        switch (typeof key) {
+            case "number":
+                return key.toString();
+            case "string":
+                return key;
+            default:
+                throw new Error("Time keys must be strings");
+        }
     }
 }
 
@@ -1805,7 +1868,7 @@ class Image {
                 pos2 = tmp;
             }
 
-            while ((pos1 = pos2)) {
+            while (pos1 < pos2) {
                 this.pixels[pos1++] = color.r;
                 this.pixels[pos1++] = color.g;
                 this.pixels[pos1++] = color.b;
