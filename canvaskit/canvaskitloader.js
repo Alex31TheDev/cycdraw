@@ -85,7 +85,6 @@ globalThis.CustomError = class CustomError extends Error {
 class LoggerError extends CustomError {}
 class LoaderError extends CustomError {}
 class UtilError extends CustomError {}
-class CanvasUtilError extends CustomError {}
 
 // globals
 const globals = {

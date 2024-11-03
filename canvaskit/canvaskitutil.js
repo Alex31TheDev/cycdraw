@@ -1,4 +1,6 @@
-const CanvasKitUtil = CanvasKit => ({
+class CanvasUtilError extends CustomError {}
+
+const CanvasKitUtil = {
     downloadImage: url => {
         const imgData = http.request({
             url: url,
@@ -29,6 +31,17 @@ const CanvasKitUtil = CanvasKit => ({
         return [typeface, fontData];
     },
 
+    getFontFamilies: fontMgr => {
+        const familyCount = fontMgr.countFamilies(),
+            families = [];
+
+        for (let i = 0; i < familyCount; i++) {
+            families.push(fontMgr.getFamilyName(i));
+        }
+
+        return families;
+    },
+
     encodeSurface: (surface, format, quality) => {
         surface.flush();
 
@@ -43,6 +56,6 @@ const CanvasKitUtil = CanvasKit => ({
 
         return encodedBytes;
     }
-});
+};
 
 module.exports = CanvasKitUtil;

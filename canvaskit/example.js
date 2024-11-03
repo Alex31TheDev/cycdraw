@@ -1,6 +1,6 @@
 // Load canvaskit & utils
 util.executeTag("canvaskitloader");
-const CanvasKitUtil = ModuleLoader.loadModuleFromTag("canvaskitutil")(CanvasKit);
+const CanvasKitUtil = ModuleLoader.loadModuleFromTag("canvaskitutil");
 
 // Start timing
 Benchmark.clearExcept("load_total");
