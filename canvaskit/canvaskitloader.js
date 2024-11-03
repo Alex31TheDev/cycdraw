@@ -4,7 +4,7 @@
 const urls = {
     PromisePolyfillUrl: "https://cdn.jsdelivr.net/npm/promise-polyfill",
 
-    CanvasKitLoaderUrl: "https://unpkg.com/canvaskit-wasm@0.39.1/bin/canvakit.js",
+    CanvasKitLoaderUrl: "https://unpkg.com/canvaskit-wasm@0.39.1/bin/canvaskit.js",
     CanvasKitWasmUrl: "https://unpkg.com/canvaskit-wasm@0.39.1/bin/canvaskit.wasm"
 };
 
@@ -16,12 +16,13 @@ const tags = {
 
         PromisePolyfillTagName: "ck_promise_polyfill",
 
-        CanvasKitLoaderTagName: "ck_loader_init",
+        CanvasKitLoaderTagName: /^ck_loader_init\d+$/,
         CanvasKitWasmTagName: /^ck_wasm\d+$/
     },
     tagOwner = "883072834790916137";
 
-const loadSource = 0 ? "url" : "tag";
+const loadSource = 0 ? "url" : "tag",
+    enableDebugger = false;
 
 const consoleOpts = {};
 
@@ -212,6 +213,10 @@ globalThis.Util = {
         return arr[a + ~~(Math.random() * (b - a))];
     },
 
+    isArray: arr => {
+        return Array.isArray(arr) || ArrayBuffer.isView(arr);
+    },
+
     urlRegex: /\w+?:\/\/(.+\.)?[\w|\d]+\.\w+\/?.*/,
     validUrl: url => {
         return Util.urlRegex.test(url);
@@ -316,7 +321,7 @@ globalThis.Util = {
         return tag;
     },
 
-    leveretScriptBodyRegex: /^`{3}([\S]+)?\n([\s\S]+)`{3}$/u,
+    leveretScriptBodyRegex: /^`{3}([\S]+)?\n([\s\S]+)\n`{3}$/u,
     getTagBody: tag => {
         let body = tag.body,
             match = body.match(Util.leveretScriptBodyRegex);
@@ -363,7 +368,7 @@ globalThis.Util = {
 
 globalThis.FileDataTypes = {
     text: "text",
-    binary: "arraybuffer"
+    binary: "binary"
 };
 
 const TextEncoder = {
@@ -389,7 +394,7 @@ const TextEncoder = {
 };
 
 globalThis.Benchmark = class Benchmark {
-    static data = {};
+    static data = Object.create(null);
     static timepoints = new Map();
 
     static useVmTime = typeof vm !== "undefined";
@@ -400,11 +405,14 @@ globalThis.Benchmark = class Benchmark {
     }
 
     static startTiming(key) {
+        key = this._formatKey(key);
+
         const t1 = this.getCurrentTime();
         this.timepoints.set(key, t1);
     }
 
     static stopTiming(key) {
+        key = this._formatKey(key);
         const t1 = this.timepoints.get(key);
 
         if (typeof t1 === "undefined") {
@@ -414,25 +422,42 @@ globalThis.Benchmark = class Benchmark {
         this.timepoints.delete(key);
 
         let t2 = this.getCurrentTime(),
-            diff;
+            dt = t2 - t1;
 
-        if (this.useVmTime) {
-            diff = Number((t2 - t1) / Benchmark.ns_per_ms);
-        } else {
-            diff = t2 - t1;
+        switch (this.timeToUse) {
+            case "performanceNow":
+                dt = Math.floor(dt);
+                break;
+            case "vmTime":
+                dt = Number(dt / this.ns_per_ms);
+            case "dateNow":
+                break;
         }
 
-        this.data[key] = diff;
+        this.data[key] = dt;
     }
 
     static getTime(key) {
+        key = this._formatKey(key);
         const time = this.data[key];
 
         if (typeof time === "undefined") {
             return "Key not found";
         }
 
-        return time.toLocaleString() + "ms";
+        return `${key}: ${time.toLocaleString()}ms`;
+    }
+
+    static deleteTime(key) {
+        key = this._formatKey(key);
+        this.timepoints.delete(key);
+
+        if (key in this.data) {
+            delete this.data[key];
+            return true;
+        }
+
+        return false;
     }
 
     static clear() {
@@ -444,10 +469,26 @@ globalThis.Benchmark = class Benchmark {
     }
 
     static getAll() {
-        const times = Object.entries(this.data).map(([key, time]) => `${key}: ${time.toLocaleString()}ms`);
+        const times = Object.keys(this.data).map(key => this.getTime(key));
         return times.join(",\n");
     }
+
+    static _formatKey(key) {
+        switch (typeof key) {
+            case "number":
+                return key.toString();
+            case "string":
+                return key;
+            default:
+                throw new UtilError("Time keys must be strings");
+        }
+    }
 };
+
+// module loader
+let URL_FETCH_COUNT = 0,
+    TAG_FETCH_COUNT = 0,
+    DECODE_COUNT = 0;
 
 globalThis.ModuleLoader = class ModuleLoader {
     static loadSource = loadSource;
@@ -457,11 +498,8 @@ globalThis.ModuleLoader = class ModuleLoader {
             throw new LoaderError("Invalid URL");
         }
 
-        return http.request({
-            url,
-            method: "get",
-            responseType: returnType
-        }).data;
+        const moduleCode = this._fetchFromUrl(url, returnType);
+        this._parseModuleCode(moduleCode, returnType);
     }
 
     static getModuleCodeFromTag(tagName, returnType = FileDataTypes.text, options = {}) {
@@ -469,76 +507,16 @@ globalThis.ModuleLoader = class ModuleLoader {
             throw new LoaderError("Invalid tag name");
         }
 
-        const useName = typeof tagName === "string",
-            useArray = Array.isArray(tagName),
-            usePattern = tagName instanceof RegExp;
-
         const encoded = options.encoded ?? false,
             owner = options.owner;
 
-        let moduleCode;
-
-        if (useName) {
-            if (tagName.length < 1) {
-                throw new LoaderError("Invalid tag name");
-            }
-
-            const tag = Util.fetchTag(tagName, owner);
-            moduleCode = Util.getTagBody(tag);
-        } else {
-            let tagNames;
-
-            if (useArray) {
-                tagNames = tagName;
-            } else if (usePattern) {
-                tagNames = Util.dumpTags(tagName);
-            } else {
-                throw new LoaderError("Invalid tag name");
-            }
-
-            const tags = tagNames
-                .map(name => {
-                    try {
-                        return Util.fetchTag(name, owner);
-                    } catch (err) {
-                        if (err.name === "UtilError") {
-                            return null;
-                        }
-
-                        throw err;
-                    }
-                })
-                .filter(tag => tag !== null);
-
-            moduleCode = tags.map(tag => Util.getTagBody(tag)).join("");
-        }
+        let moduleCode = this._fetchTagBody(tagName, owner);
 
         if (encoded) {
-            if (typeof decodeBase2n === "undefined" || typeof table === "undefined") {
-                throw new LoaderError("Base2n decoder not initialized");
-            }
-
-            moduleCode = decodeBase2n(moduleCode, table, {
-                predictSize: true
-            });
+            moduleCode = this._decodeModuleCode(moduleCode);
         }
 
-        switch (returnType) {
-            case FileDataTypes.text:
-                if (Array.isArray(moduleCode) || ArrayBuffer.isView(moduleCode)) {
-                    return TextEncoder.bytesToString(moduleCode);
-                }
-
-                return moduleCode;
-            case FileDataTypes.binary:
-                if (Array.isArray(moduleCode) || ArrayBuffer.isView(moduleCode)) {
-                    return moduleCode;
-                }
-
-                return TextEncoder.stringToBytes(moduleCode);
-            default:
-                throw new LoaderError("Unknown return type: " + returnType);
-        }
+        return this._parseModuleCode(moduleCode, returnType);
     }
 
     static getModuleCode(url, tagName, ...args) {
@@ -628,6 +606,115 @@ globalThis.ModuleLoader = class ModuleLoader {
 
         throw new LoaderError("No URL or tag name provided");
     }
+
+    static _fetchFromUrl(url, returnType) {
+        URL_FETCH_COUNT++;
+        Benchmark.startTiming("url_fetch_" + URL_FETCH_COUNT);
+
+        let responseType;
+
+        switch (returnType) {
+            case FileDataTypes.text:
+                responseType = "text";
+                break;
+            case FileDataTypes.binary:
+                responseType = "arraybuffer";
+                break;
+        }
+
+        const data = http.request({
+            url,
+            method: "get",
+            responseType
+        }).data;
+
+        Benchmark.stopTiming("url_fetch_" + URL_FETCH_COUNT);
+        return data;
+    }
+
+    static _fetchTagBody(tagName, owner) {
+        const useName = typeof tagName === "string",
+            useArray = Array.isArray(tagName),
+            usePattern = tagName instanceof RegExp;
+
+        let body;
+
+        TAG_FETCH_COUNT++;
+        Benchmark.startTiming("tag_fetch_" + TAG_FETCH_COUNT);
+
+        if (useName) {
+            if (tagName.length < 1) {
+                throw new LoaderError("Invalid tag name");
+            }
+
+            const tag = Util.fetchTag(tagName, owner);
+            body = Util.getTagBody(tag);
+        } else {
+            let tagNames;
+
+            if (useArray) {
+                tagNames = tagName;
+            } else if (usePattern) {
+                tagNames = Util.dumpTags(tagName);
+            } else {
+                throw new LoaderError("Invalid tag name");
+            }
+
+            const tags = tagNames
+                .map(name => {
+                    try {
+                        return Util.fetchTag(name, owner);
+                    } catch (err) {
+                        if (err.name === "UtilError") {
+                            return null;
+                        }
+
+                        throw err;
+                    }
+                })
+                .filter(tag => tag !== null);
+
+            body = tags.map(tag => Util.getTagBody(tag)).join("");
+        }
+
+        Benchmark.stopTiming("tag_fetch_" + TAG_FETCH_COUNT);
+        return body;
+    }
+
+    static _decodeModuleCode(moduleCode) {
+        if (typeof decodeBase2n === "undefined" || typeof table === "undefined") {
+            throw new LoaderError("Base2n decoder not initialized");
+        }
+
+        DECODE_COUNT++;
+        Benchmark.startTiming("decode_" + DECODE_COUNT);
+
+        const decoded = decodeBase2n(moduleCode, table, {
+            predictSize: true
+        });
+
+        Benchmark.stopTiming("decode_" + DECODE_COUNT);
+        return decoded;
+    }
+
+    static _parseModuleCode(moduleCode, returnType) {
+        switch (returnType) {
+            case FileDataTypes.text:
+                if (Util.isArray(moduleCode)) {
+                    return TextEncoder.bytesToString(moduleCode);
+                }
+
+                return moduleCode;
+            case FileDataTypes.binary:
+                if (Util.isArray(moduleCode)) {
+                    return moduleCode;
+                }
+
+                return TextEncoder.stringToBytes(moduleCode);
+            default:
+                throw new LoaderError("Unknown return type: " + returnType);
+        }
+    }
 };
 
 // patches
@@ -652,12 +739,17 @@ const Patches = {
     },
 
     polyfillPromise: _ => {
-        globals.Promise = ModuleLoader.loadModule(urls.PromisePolyfillUrl, tags.PromisePolyfillTagName, [
-            undefined,
-            {
-                owner: tagOwner
-            }
-        ]);
+        globals.Promise = ModuleLoader.loadModule(
+            urls.PromisePolyfillUrl,
+            tags.PromisePolyfillTagName,
+            [
+                undefined,
+                {
+                    owner: tagOwner
+                }
+            ],
+            [undefined, enableDebugger]
+        );
     },
 
     patchGlobalContext: objs => {
@@ -699,7 +791,7 @@ function loadBase2nDecoder() {
         {
             owner: tagOwner
         }
-    ]);
+    ]).base2n;
 
     if (typeof base2n === "undefined") {
         return;
@@ -737,30 +829,39 @@ function loadXzDecompressor() {
 
 // canvaskit loader
 function loadCanvasKit() {
-    Benchmark.startTiming("load canvaskit");
-
-    const CanvasKitInit = ModuleLoader.loadModule(urls.CanvasKitLoaderUrl, tags.CanvasKitLoaderTagName, [
-        undefined,
-        {
-            owner: tagOwner
-        }
-    ]);
+    const CanvasKitInit = ModuleLoader.loadModule(
+        urls.CanvasKitLoaderUrl,
+        tags.CanvasKitLoaderTagName,
+        [
+            undefined,
+            {
+                owner: tagOwner
+            }
+        ],
+        [undefined, enableDebugger]
+    );
 
     console.replyWithLogs();
 
-    const wasm = XzDecompressor.decompress(
-        ModuleLoader.getModuleCode(urls.CanvasKitWasmUrl, tags.CanvasKitWasmTagName, FileDataTypes.binary, {
-            encoded: true,
-            owner: tagOwner
-        })
-    );
+    let wasm = ModuleLoader.getModuleCode(urls.CanvasKitWasmUrl, tags.CanvasKitWasmTagName, FileDataTypes.binary, {
+        encoded: true,
+        owner: tagOwner
+    });
 
+    if (loadSource === "tag") {
+        Benchmark.startTiming("canvaskit_decomp");
+        wasm = XzDecompressor.decompress(wasm);
+        Benchmark.stopTiming("canvaskit_decomp");
+    }
+
+    Benchmark.startTiming("canvaskit_init");
     let CanvasKit;
     CanvasKitInit({
         wasmBinary: wasm
     })
         .then(ck => (CanvasKit = ck))
         .catch(err => console.error("Error occured while loading CanvasKit:", err));
+    Benchmark.stopTiming("canvaskit_init");
 
     console.replyWithLogs();
     globalThis.CanvasKit = CanvasKit;
@@ -788,54 +889,5 @@ Benchmark.stopTiming("load_canvaskit");
 
 Benchmark.stopTiming("load_total");
 
-debugger;
-
-// canvas util
-globalThis.CanvasUtil = {
-    downloadImage: url => {
-        const imgData = http.request({
-            url: url,
-            responseType: "arraybuffer"
-        }).data;
-
-        const image = CanvasKit.MakeImageFromEncoded(imgData);
-
-        if (image === null) {
-            throw new CanvasUtilError("Corrupted image or unsupported format");
-        }
-
-        return image;
-    },
-
-    downloadTypeface: url => {
-        const fontData = http.request({
-            url: url,
-            responseType: "arraybuffer"
-        }).data;
-
-        const typeface = CanvasKit.Typeface.MakeFreeTypeFaceFromData(fontData);
-
-        if (typeface === null) {
-            throw new CanvasUtilError("Invalid font. Fonts have to be opentype fonts");
-        }
-
-        return [typeface, fontData];
-    },
-
-    encodeSurface: (surface, format, quality) => {
-        surface.flush();
-
-        const snapshot = surface.makeImageSnapshot(),
-            encodedBytes = snapshot.encodeToBytes(format, quality);
-
-        snapshot.delete();
-
-        if (encodedBytes === null) {
-            throw new CanvasUtilError("Unkown format or invalid quality");
-        }
-
-        return encodedBytes;
-    }
-};
-
-("a");
+if (enableDebugger) debugger;
+else "a";
