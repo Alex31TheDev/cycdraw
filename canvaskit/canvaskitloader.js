@@ -26,6 +26,16 @@ const loadSource = 0 ? "url" : "tag",
 
 const consoleOpts = {};
 
+// info
+const usage = `Leveret: \`util.executeTag("canvaskitloader");\`
+El Levert: \`eval(util.fetchTag("canvaskitloader").body);\``;
+
+const scripts = `%t canvaskitexample
+%t caption`;
+
+const docs = `CanvasKit GitHub: https://github.com/google/skia/tree/main/modules/canvaskit
+CanvasKit API docs: https://github.com/google/skia/blob/a004a27085d7dcc4efc3766c9abe92df03654c7c/modules/canvaskit/npm_build/types/index.d.ts`;
+
 // eval check
 function insideEval() {
     const evalExp = new RegExp(
@@ -40,11 +50,25 @@ function insideEval() {
 }
 
 if (!insideEval()) {
-    msg.reply(`:information_source: This is meant to be used inside eval, not as a standalone tag.
+    msg.reply(":information_source: This is meant to be used inside eval, not as a standalone tag.", {
+        embed: {
+            fields: [
+                {
+                    name: "Usage examples",
+                    value: usage
+                },
+                {
+                    name: "Script examples",
+                    value: scripts
+                },
+                {
+                    name: "Docs",
+                    value: docs
+                }
+            ]
+        }
+    });
 
-Usage example:
-\`util.executeTag("canvaskitloader");\`
-\`eval(util.fetchTag("canvaskitloader").body);\``);
     throw String.fromCodePoint(0x200b);
 }
 
@@ -285,8 +309,23 @@ globalThis.Util = {
         return all;
     },
 
-    fullDump: search => {
-        const all = Util.dumpTags(search);
+    fullDump: (search, excludedNames = [], excludedUsers = []) => {
+        let all = Util.dumpTags(search);
+
+        const enableNameBlacklist = excludedNames.length > 0,
+            enableUserBlacklist = excludedUsers.length > 0;
+
+        if (enableNameBlacklist) {
+            all = all.filter(name =>
+                excludedNames.every(bl => {
+                    if (bl instanceof RegExp) {
+                        return !bl.test(name);
+                    }
+
+                    return bl !== name;
+                })
+            );
+        }
 
         return all.reduce((tags, name) => {
             let tag;
@@ -296,7 +335,9 @@ globalThis.Util = {
             } catch (err) {}
 
             if (tag !== null && typeof tag !== "undefined") {
-                if (tag.owner !== tagOwner) {
+                const userExcluded = enableUserBlacklist && excludedUsers.includes(tag.owner);
+
+                if (!userExcluded && tag.owner !== tagOwner) {
                     tags.push(tag);
                 }
             }
@@ -462,6 +503,26 @@ globalThis.Benchmark = class Benchmark {
 
     static clear() {
         for (const key of Object.keys(this.data)) {
+            delete this.data[key];
+        }
+
+        this.timepoints.clear();
+    }
+
+    static clearExcept(...keys) {
+        const clearKeys = Object.keys(this.data).filter(key => !keys.includes(key));
+
+        for (const key of clearKeys) {
+            delete this.data[key];
+        }
+
+        this.timepoints.clear();
+    }
+
+    static clearExceptLast(n = 1) {
+        const clearKeys = Object.keys(this.data).slice(0, -n);
+
+        for (const key of clearKeys) {
             delete this.data[key];
         }
 
