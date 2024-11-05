@@ -261,39 +261,21 @@ globalThis.Util = {
         return [first, second];
     },
 
-    fetchAttachment: (msg, allowedType, returnType = FileDataTypes.text) => {
+    fetchAttachment: (msg, returnType = FileDataTypes.text, allowedContentType) => {
         if (msg.attachments.length < 1) {
-            throw new CustomError("Message doesn't have any attachments");
+            throw new UtilError("Message doesn't have any attachments");
         }
 
         const attach = msg.attachments[0],
             url = attach.url;
 
-        if (allowedType !== null && typeof allowedType !== "undefined") {
-            if (attach.contentType !== allowedType) {
+        if (allowedContentType !== null && typeof allowedContentType !== "undefined") {
+            if (!attach.contentType.includes(allowedContentType)) {
                 throw new UtilError("Invalid content type: " + attach.contentType);
             }
         }
 
-        const opts = {
-            url,
-            method: "get",
-            responseType: returnType
-        };
-
-        let res;
-
-        try {
-            res = http.request(opts);
-        } catch (err) {
-            throw new UtilError("Could not fetch attachment file. Error: " + err.message);
-        }
-
-        if (res.status !== 200) {
-            throw new UtilError("Could not fetch attachment file. Code: " + res.status);
-        }
-
-        return res.data;
+        return ModuleLoader.getModuleCodeFromUrl(url, returnType);
     },
 
     dumpTags: search => {
@@ -682,14 +664,26 @@ globalThis.ModuleLoader = class ModuleLoader {
                 break;
         }
 
-        const data = http.request({
+        const opts = {
             url,
             method: "get",
             responseType
-        }).data;
+        };
+
+        let res;
+
+        try {
+            res = http.request(opts);
+        } catch (err) {
+            throw new LoaderError("Could not file. Error: " + err.message);
+        }
+
+        if (res.status !== 200) {
+            throw new LoaderError("Could not file. Code: " + res.status);
+        }
 
         Benchmark.stopTiming("url_fetch_" + URL_FETCH_COUNT);
-        return data;
+        return res.data;
     }
 
     static _fetchTagBody(tagName, owner) {
