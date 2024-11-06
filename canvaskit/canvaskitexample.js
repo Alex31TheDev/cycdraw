@@ -1,5 +1,10 @@
 // Load canvaskit & utils
-util.executeTag("canvaskitloader");
+if (util.env) {
+    eval(util.fetchTag("canvaskitloader").body);
+} else {
+    util.executeTag("canvaskitloader");
+}
+
 const CanvasKitUtil = ModuleLoader.loadModuleFromTag("canvaskitutil");
 
 // Start timing

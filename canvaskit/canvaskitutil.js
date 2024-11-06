@@ -1,12 +1,7 @@
 class CanvasUtilError extends CustomError {}
 
 const CanvasKitUtil = {
-    downloadImage: url => {
-        const imgData = http.request({
-            url: url,
-            responseType: "arraybuffer"
-        }).data;
-
+    makeImageFromEncoded: imgData => {
         const image = CanvasKit.MakeImageFromEncoded(imgData);
 
         if (image === null) {
@@ -16,18 +11,32 @@ const CanvasKitUtil = {
         return image;
     },
 
-    downloadTypeface: url => {
-        const fontData = http.request({
+    downloadImage: url => {
+        const imgData = http.request({
             url: url,
             responseType: "arraybuffer"
         }).data;
 
+        return CanvasKitUtil.makeImageFromEncoded(imgData);
+    },
+
+    makeTypefaceFromData: fontData => {
         const typeface = CanvasKit.Typeface.MakeFreeTypeFaceFromData(fontData);
 
         if (typeface === null) {
             throw new CanvasUtilError("Invalid font. Fonts have to be opentype fonts");
         }
 
+        return typeface;
+    },
+
+    downloadTypeface: url => {
+        const fontData = http.request({
+            url: url,
+            responseType: "arraybuffer"
+        }).data;
+
+        const typeface = CanvasKitUtil.makeTypefaceFromData(fontData);
         return [typeface, fontData];
     },
 
