@@ -528,8 +528,7 @@ try {
 
     // module loader
     let URL_FETCH_COUNT = 0,
-        TAG_FETCH_COUNT = 0,
-        DECODE_COUNT = 0;
+        TAG_FETCH_COUNT = 0;
 
     class ModuleLoader {
         static loadSource = loadSource;
@@ -739,15 +738,9 @@ try {
                 throw new LoaderError("Base2n decoder not initialized");
             }
 
-            DECODE_COUNT++;
-            Benchmark.startTiming("decode_" + DECODE_COUNT);
-
-            const decoded = decodeBase2n(moduleCode, table, {
+            return decodeBase2n(moduleCode, table, {
                 predictSize: true
             });
-
-            Benchmark.stopTiming("decode_" + DECODE_COUNT);
-            return decoded;
         }
 
         static _parseModuleCode(moduleCode, returnType) {
@@ -771,6 +764,8 @@ try {
     }
 
     // patches
+    let WASM_LOAD_COUNT = 0;
+
     const Patches = {
         polyfillConsole: _ => {
             globals.console = new Logger(true, consoleOpts);
@@ -810,10 +805,15 @@ try {
 
             WebAssembly.instantiate = (bufferSource, importObject) => {
                 try {
+                    WASM_LOAD_COUNT++;
+                    Benchmark.startTiming("wasm_load_" + WASM_LOAD_COUNT);
+
                     const wasmModule = new WebAssembly.Module(bufferSource),
                         instance = new WebAssembly.Instance(wasmModule, importObject);
 
                     instance.instance = instance;
+                    Benchmark.stopTiming("wasm_load_" + WASM_LOAD_COUNT);
+
                     return Promise.resolve(instance);
                 } catch (err) {
                     console.error(err);
@@ -837,7 +837,8 @@ try {
                 FileDataTypes,
                 LoaderUtils,
                 Benchmark,
-                ModuleLoader
+                ModuleLoader,
+                loadSource
             };
 
             Patches.patchGlobalContext(globalObjs);
@@ -856,6 +857,9 @@ try {
     };
 
     // misc loader
+    let DECODE_COUNT = 0,
+        XZ_DECOMPRESS_COUNT = 0;
+
     function loadBase2nDecoder() {
         const { base2n } = ModuleLoader.loadModule(null, tags.Base2nTagName, [
             undefined,
@@ -879,8 +883,20 @@ try {
                 generateTables: [base2n.Base2nTableNames.decode]
             });
 
+        const originalDecode = base2n.decodeBase2n,
+            patchedDecode = function (...args) {
+                DECODE_COUNT++;
+
+                Benchmark.startTiming("decode_" + DECODE_COUNT);
+                const decoded = originalDecode.apply(this, args);
+                Benchmark.stopTiming("decode_" + DECODE_COUNT);
+
+                return decoded;
+            };
+
         Patches.patchGlobalContext({
             ...base2n,
+            decodeBase2n: patchedDecode,
             table
         });
     }
@@ -903,6 +919,18 @@ try {
         });
 
         XzDecompressor.loadWasm(xzWasm);
+
+        const originalDecompress = XzDecompressor.decompress;
+        XzDecompressor.decompress = function (...args) {
+            XZ_DECOMPRESS_COUNT++;
+
+            Benchmark.startTiming("xz_decompress_" + XZ_DECOMPRESS_COUNT);
+            const decompressed = originalDecompress.apply(this, args);
+            Benchmark.stopTiming("xz_decompress_" + XZ_DECOMPRESS_COUNT);
+
+            return decompressed;
+        };
+
         Patches.patchGlobalContext({ XzDecompressor });
     }
 
@@ -928,9 +956,7 @@ try {
         });
 
         if (loadSource === "tag") {
-            Benchmark.startTiming("canvaskit_decomp");
             wasm = XzDecompressor.decompress(wasm);
-            Benchmark.stopTiming("canvaskit_decomp");
         }
 
         Benchmark.startTiming("canvaskit_init");
