@@ -148,7 +148,7 @@ class Benchmark {
             return "Key not found";
         }
 
-        return `${key}: ${time.toLocaleString()}ms`;
+        return this._formatTime(key, time);
     }
 
     static deleteTime(key) {
@@ -164,16 +164,60 @@ class Benchmark {
     }
 
     static clear() {
-        this.timepoints.clear();
-
         for (const key of Object.keys(this.data)) {
             delete this.data[key];
         }
+
+        this.timepoints.clear();
     }
 
-    static getAll() {
+    static clearExcept(...keys) {
+        const clearKeys = Object.keys(this.data).filter(key => !keys.includes(key));
+
+        for (const key of clearKeys) {
+            delete this.data[key];
+        }
+
+        this.timepoints.clear();
+    }
+
+    static clearExceptLast(n = 1) {
+        const clearKeys = Object.keys(this.data).slice(0, -n);
+
+        for (const key of clearKeys) {
+            delete this.data[key];
+        }
+
+        this.timepoints.clear();
+    }
+
+    static getSum(...keys) {
+        let sumTimes;
+
+        if (keys.length > 0) {
+            sumTimes = keys.map(key => this.data[key]).filter(time => typeof time !== "undefined");
+        } else {
+            sumTimes = Object.values(this.data);
+        }
+
+        return sumTimes.reduce((a, b) => a + b, 0);
+    }
+
+    static getAll(...includeSum) {
         const times = Object.keys(this.data).map(key => this.getTime(key));
+
+        if (includeSum[0]) {
+            const keys = includeSum[0] === true ? [] : includeSum,
+                sum = this.getSum(...keys);
+
+            times.push(this._formatTime("sum", sum));
+        }
+
         return times.join(",\n");
+    }
+
+    static _formatTime(key, time) {
+        return `${key}: ${time.toLocaleString()}ms`;
     }
 
     static _formatKey(key) {

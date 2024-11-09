@@ -466,7 +466,7 @@ try {
                 return "Key not found";
             }
 
-            return `${key}: ${time.toLocaleString()}ms`;
+            return this._formatTime(key, time);
         }
 
         static deleteTime(key) {
@@ -509,9 +509,33 @@ try {
             this.timepoints.clear();
         }
 
-        static getAll() {
+        static getSum(...keys) {
+            let sumTimes;
+
+            if (keys.length > 0) {
+                sumTimes = keys.map(key => this.data[key]).filter(time => typeof time !== "undefined");
+            } else {
+                sumTimes = Object.values(this.data);
+            }
+
+            return sumTimes.reduce((a, b) => a + b, 0);
+        }
+
+        static getAll(...includeSum) {
             const times = Object.keys(this.data).map(key => this.getTime(key));
+
+            if (includeSum[0]) {
+                const keys = includeSum[0] === true ? [] : includeSum,
+                    sum = this.getSum(...keys);
+
+                times.push(this._formatTime("sum", sum));
+            }
+
             return times.join(",\n");
+        }
+
+        static _formatTime(key, time) {
+            return `${key}: ${time.toLocaleString()}ms`;
         }
 
         static _formatKey(key) {
@@ -527,7 +551,8 @@ try {
     }
 
     // module loader
-    let URL_FETCH_COUNT = 0,
+    let MODULE_LOAD_COUNT = 0,
+        URL_FETCH_COUNT = 0,
         TAG_FETCH_COUNT = 0;
 
     class ModuleLoader {
@@ -583,6 +608,9 @@ try {
                 throw new LoaderError("Invalid module code");
             }
 
+            MODULE_LOAD_COUNT++;
+            Benchmark.startTiming("load_module_" + MODULE_LOAD_COUNT);
+
             if (breakpoint) {
                 moduleCode = `debugger;\n\n${moduleCode}`;
             }
@@ -613,6 +641,7 @@ try {
             const loaderFn = new Function(loaderParams, moduleCode);
             loaderFn(...loaderArgs);
 
+            Benchmark.stopTiming("load_module_" + MODULE_LOAD_COUNT);
             return module.exports;
         }
 
@@ -838,6 +867,9 @@ try {
                 LoaderUtils,
                 Benchmark,
                 ModuleLoader,
+                Patches: {
+                    patchGlobalContext: Patches.patchGlobalContext
+                },
                 loadSource
             };
 

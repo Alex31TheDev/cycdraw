@@ -48,7 +48,7 @@ const Benchmark = {
             return "Key not found";
         }
 
-        return `${key}: ${time.toLocaleString()}ms`;
+        return Benchmark._formatTime(key, time);
     },
 
     deleteTime: key => {
@@ -71,8 +71,48 @@ const Benchmark = {
         }
     },
 
-    getAll() {
+    clearExcept: (...keys) => {
+        const clearKeys = Object.keys(Benchmark.data).filter(key => !keys.includes(key));
+
+        for (const key of clearKeys) {
+            delete Benchmark.data[key];
+        }
+
+        Benchmark.timepoints.clear();
+    },
+
+    clearExceptLast: (n = 1) => {
+        const clearKeys = Object.keys(Benchmark.data).slice(0, -n);
+
+        for (const key of clearKeys) {
+            delete Benchmark.data[key];
+        }
+
+        Benchmark.timepoints.clear();
+    },
+
+    getSum: (...keys) => {
+        let sumTimes;
+
+        if (keys.length > 0) {
+            sumTimes = keys.map(key => Benchmark.data[key]).filter(time => typeof time !== "undefined");
+        } else {
+            sumTimes = Object.values(Benchmark.data);
+        }
+
+        return sumTimes.reduce((a, b) => a + b, 0);
+    },
+
+    getAll: (...includeSum) => {
         const times = Object.keys(Benchmark.data).map(key => Benchmark.getTime(key));
+
+        if (includeSum[0]) {
+            const keys = includeSum[0] === true ? [] : includeSum,
+                sum = Benchmark.getSum(...keys);
+
+            times.push(Benchmark._formatTime("sum", sum));
+        }
+
         return times.join(",\n");
     },
 
@@ -90,6 +130,10 @@ const Benchmark = {
             };
 
         return Table.drawTable(columns, rows, style, extraSpacing);
+    },
+
+    _formatTime: (key, time) => {
+        return `${key}: ${time.toLocaleString()}ms`;
     },
 
     _formatKey: key => {
