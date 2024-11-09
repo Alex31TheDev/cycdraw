@@ -64,6 +64,25 @@ const CanvasKitUtil = {
         }
 
         return encodedBytes;
+    },
+
+    readSurfacePixels: (surface, alphaType = CanvasKit.AlphaType.Unpremul) => {
+        surface.flush();
+
+        const snapshot = surface.makeImageSnapshot(),
+            width = snapshot.width(),
+            height = snapshot.height();
+
+        const pixels = snapshot.readPixels(0, 0, {
+            width,
+            height,
+            colorType: CanvasKit.ColorType.RGBA_8888,
+            colorSpace: CanvasKit.ColorSpace.SRGB,
+            alphaType
+        });
+
+        snapshot.delete();
+        return pixels;
     }
 };
 
