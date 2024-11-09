@@ -691,102 +691,47 @@ class Image {
     }
 }
 
-class Buffer2 extends Uint8Array {
-    static alloc(size) {
-        return new Buffer2(size);
-    }
+Buffer.prototype.toString = function (viewSize = 32) {
+    const lenChars = this.length.toString().length;
+    let str = `Buffer Size: ${this.length} bytes`;
 
-    toString(viewSize = 32) {
-        const lenChars = this.length.toString().length;
-        let str = `Buffer2 Size: ${this.length} bytes`;
+    let len = this.length,
+        i = 0;
 
-        let len = this.length,
-            i = 0;
+    while (len) {
+        let chunkLen = Math.min(len, viewSize);
+        len -= chunkLen;
 
-        while (len) {
-            let chunkLen = Math.min(len, viewSize);
-            len -= chunkLen;
+        str += `\n${i.toString().padEnd(lenChars, " ")} - [ `;
+        let view = "";
 
-            str += `\n${i.toString().padEnd(lenChars, " ")} - [ `;
-            let view = "";
-
-            while (chunkLen--) {
-                const hex = this[i++].toString(16);
-                view += ("0" + hex).slice(-2) + " ";
-            }
-
-            str += `${view.padEnd(3 * viewSize, ";")}] - ${i - 1}`;
+        while (chunkLen--) {
+            const hex = this[i++].toString(16);
+            view += ("0" + hex).slice(-2) + " ";
         }
 
-        return str;
+        str += `${view.padEnd(3 * viewSize, ";")}] - ${i - 1}`;
     }
 
-    inspect(depth, opts) {
-        return this.toString();
+    return str;
+};
+
+Buffer.prototype.writeCRC32 = function (start, end) {
+    let crc = CRC32.checksum(this, start, end);
+    this.writeUInt32BE(crc, end);
+};
+
+Buffer.prototype.blit = function (src, offset, start, length) {
+    if (offset >= this.length || start >= src.length) {
+        return;
     }
 
-    writeUInt32BE(value, offset) {
-        this[offset] = (value >> 24) & 0xff;
-        this[offset + 1] = (value >> 16) & 0xff;
-        this[offset + 2] = (value >> 8) & 0xff;
-        this[offset + 3] = value & 0xff;
+    if (length + offset >= this.length || length + start >= src.length) {
+        length = Math.min(this.length - offset, src.length - start);
     }
 
-    writeUInt16LE(value, offset) {
-        this[offset] = value & 0xff;
-        this[offset + 1] = (value >> 8) & 0xff;
-    }
-
-    write(value, offset, a) {
-        for (let i = 0; i < value.length; i++) {
-            const code = value.charCodeAt(i);
-            this[offset++] = code & 0xff;
-        }
-    }
-
-    blit(src, offset, start, length) {
-        if (offset >= this.length || start >= src.length) {
-            return;
-        }
-
-        if (length + offset >= this.length || length + start >= src.length) {
-            length = Math.min(this.length - offset, src.length - start);
-        }
-
-        for (let i = 0; i < length; i++) {
-            this[i + offset] = src[i + start] & 0xff;
-        }
-    }
-
-    writeCRC32(start, end) {
-        let crc = CRC32.checksum(this, start, end);
-        this.writeUInt32BE(crc, end);
-    }
-}
-
-const Adler32 = {
-    checksum: function (buf, start, end) {
-        let a = 1,
-            b = 0;
-
-        let len = end,
-            i = start;
-
-        while (len) {
-            let chunkLen = Math.min(len, 4096);
-            len -= chunkLen;
-
-            while (chunkLen--) {
-                a += buf[i++];
-                b += a;
-            }
-
-            a %= 65521;
-            b %= 65521;
-        }
-
-        const sum = (b << 16) | a;
-        return sum >>> 0;
+    for (let i = 0; i < length; i++) {
+        this[i + offset] = src[i + start] & 0xff;
     }
 };
 
@@ -880,8 +825,8 @@ class EncoderPNG {
     }
 
     filterPixels() {
-        let d1 = Date.now();
-        let buf = Buffer2.alloc(this.pixels.length + this.h);
+        let d1 = performance.now();
+        let buf = Buffer.alloc(this.pixels.length + this.h);
 
         for (let y = 0; y < this.h; y++) {
             buf[y * this.w * 3 + y] = 1;
@@ -908,12 +853,12 @@ class EncoderPNG {
         }
 
         this.pixels = buf;
-        benchmark["enc_filter"] = Date.now() - d1;
+        benchmark["enc_filter"] = Math.floor(performance.now() - d1);
     }
 
     compressPixels() {
         const zlib = new Zlib(this.pixels);
-        this.pixels = zlib.deflate(2);
+        this.pixels = zlib.deflate();
     }
 
     getChunksSize() {
@@ -983,9 +928,9 @@ class EncoderPNG {
         this.chunks.push(iend);
 
         const sigSize = 8;
-        this.buf = new Buffer2(this.getChunksSize() + sigSize);
+        this.buf = Buffer.alloc(this.getChunksSize() + sigSize);
 
-        this.buf.write("\x89PNG\x0d\x0a\x1a\x0a", 0);
+        this.buf.write("\x89PNG\x0d\x0a\x1a\x0a", 0, "ascii");
         this.offset += sigSize;
 
         this.writeChunks();
@@ -996,71 +941,25 @@ class EncoderPNG {
 
 class Zlib {
     constructor(data) {
-        if (!(data instanceof Buffer2 || data instanceof Uint8Array)) {
+        if (!(data instanceof Buffer)) {
             throw new Error("Invalid data array type.");
         }
 
         this.data = data;
     }
 
-    blurredCompress() {
-        const chunks = Math.ceil(this.data.length / 65535);
-
-        const buf = Buffer2.alloc(this.data.length + 6 + 5 * chunks);
-        buf.write("\x78\x01", 0);
-
-        let len = this.data.length,
-            i = 2,
-            doffset = 0;
-
-        while (len) {
-            const chunkLen = Math.min(len, 65535);
-            len -= chunkLen;
-
-            buf[i] = len ? 0 : 1;
-
-            buf.writeUInt16LE(chunkLen, i + 1);
-            buf.writeUInt16LE(~chunkLen, i + 3);
-
-            buf.blit(this.data, i + 5, doffset, chunkLen);
-
-            i += chunkLen + 5;
-            doffset += chunkLen;
-        }
-
-        const sum = Adler32.checksum(this.data, 0, this.data.length);
-        buf.writeUInt32BE(sum, i);
-
-        this.data = buf;
-    }
-
-    dynamicHuffmannDeflate() {}
-
     nodejsDeflate() {
         const zlib = require("zlib");
 
-        const buf = zlib.deflateSync(Buffer.from(this.data));
+        const buf = zlib.deflateSync(this.data);
         this.data = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength / Uint8Array.BYTES_PER_ELEMENT);
     }
 
-    deflate(ctype) {
-        let d1 = Date.now();
+    deflate() {
+        let d1 = performance.now();
+        this.nodejsDeflate();
+        benchmark["enc_compress"] = Math.floor(performance.now() - d1);
 
-        switch (ctype) {
-            case 0:
-                this.blurredCompress();
-                break;
-            case 1:
-                this.dynamicHuffmannDeflate();
-                break;
-            case 2:
-                this.nodejsDeflate();
-                break;
-            default:
-                throw new Error("Invalid compression type.");
-        }
-
-        benchmark["enc_compress"] = Date.now() - d1;
         return this.data;
     }
 }
@@ -1072,29 +971,28 @@ writeImg();
 function writeImg() {
     const fs = require("fs");
 
-    let d1 = Date.now(),
-        d2 = Date.now();
+    let d1 = performance.now(),
+        d2 = performance.now();
     let w = 720,
         h = 480;
 
     let img = new Image(w, h);
-    benchmark["create_img"] = Date.now() - d1;
-    d1 = Date.now();
+    benchmark["create_img"] = Math.floor(performance.now() - d1);
 
+    d1 = performance.now();
     drawImg(img);
+    benchmark["draw_img"] = Math.floor(performance.now() - d1);
+    d1 = performance.now();
 
-    benchmark["draw_img"] = Date.now() - d1;
-    d1 = Date.now();
     let buf = img.encode();
-    benchmark["encode_img"] = Date.now() - d1;
+    benchmark["encode_img"] = Math.floor(performance.now() - d1);
 
-    d1 = Date.now();
-    fs.writeFileSync("./amongus1.png", Buffer.from(buf));
-    benchmark["write_file"] = Date.now() - d1;
+    d1 = performance.now();
+    fs.writeFileSync("./amongus1.png", buf);
+    benchmark["write_file"] = Math.floor(performance.now() - d1);
 
-    benchmark["total"] = Date.now() - d2;
+    benchmark["total"] = Math.floor(performance.now() - d2);
     console.log(benchmark);
-    console.log(img.pixels);
 }
 
 function drawAxis(
