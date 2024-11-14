@@ -741,6 +741,12 @@ try {
                     throw new LoaderError("Invalid tag name");
                 }
 
+                tagNames.sort((a, b) =>
+                    a.localeCompare(b, "en", {
+                        numeric: true
+                    })
+                );
+
                 const tags = tagNames
                     .map(name => {
                         try {
@@ -1004,6 +1010,7 @@ try {
         Patches.patchGlobalContext({ CanvasKit });
     }
 
+    // main
     Benchmark.startTiming("load_total");
 
     Benchmark.startTiming("apply_patches");
@@ -1029,6 +1036,7 @@ try {
     if (enableDebugger) debugger;
     else throw new ExitError(".");
 } catch (err) {
+    // output
     if (err instanceof ExitError) {
         const out = err.message;
         out;
