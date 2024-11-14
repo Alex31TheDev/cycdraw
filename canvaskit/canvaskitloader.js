@@ -47,11 +47,18 @@ class CustomError extends Error {
     }
 }
 
+class RefError extends CustomError {
+    constructor(message = "", ref, ...args) {
+        super(message, ...args);
+        this.ref = ref;
+    }
+}
+
 class ExitError extends CustomError {}
 
 class LoggerError extends CustomError {}
-class LoaderError extends CustomError {}
-class UtilError extends CustomError {}
+class LoaderError extends RefError {}
+class UtilError extends RefError {}
 
 try {
     // eval check
@@ -218,7 +225,88 @@ try {
         binary: "binary"
     };
 
+    const HttpUtil = {
+        protocolRegex: /^[^/:]+:\/*$/,
+        leadingSlashRegex: /^[\/]+/,
+        trailingSlashRegex: /[\/]+$/,
+        paramSlashRegex: /\/(\?|&|#[^!])/g,
+        paramSplitRegex: /(?:\?|&)+/,
+
+        joinUrl: (...parts) => {
+            const input = [].slice.call(parts);
+
+            let firstPart = input[0],
+                result = [];
+
+            if (typeof firstPart !== "string") {
+                throw new TypeError("URL part must be a string");
+            }
+
+            if (HttpUtil.protocolRegex.test(firstPart) && input.length > 1) {
+                firstPart = input.shift() + firstPart;
+            }
+
+            input[0] = firstPart;
+
+            for (let i = 0; i < input.length; i++) {
+                let part = input[i];
+
+                if (typeof part !== "string") {
+                    throw new TypeError("URL part must be a string");
+                }
+
+                if (part.length < 1) {
+                    continue;
+                }
+
+                if (i > 0) {
+                    part = part.replace(HttpUtil.leadingSlashRegex, "");
+                }
+
+                if (i === input.length - 1) {
+                    part = part.replace(HttpUtil.trailingSlashRegex, "/");
+                } else {
+                    part = part.replace(HttpUtil.trailingSlashRegex, "");
+                }
+
+                result.push(part);
+            }
+
+            let str = result.join("/");
+            str = str.replace(HttpUtil.paramSlashRegex, "$1");
+
+            const [beforeHash, afterHash] = str.split("#"),
+                hash = afterHash?.length > 0 ? "#" + afterHash : "";
+
+            let paramParts = beforeHash.split(HttpUtil.paramSplitRegex);
+            paramParts = paramParts.filter(part => part.length > 0);
+
+            const beforeParams = paramParts.shift(),
+                params = (paramParts.length > 0 ? "?" : "") + paramParts.join("&");
+
+            str = beforeParams + params + hash;
+            return str;
+        },
+
+        getQueryString: params => {
+            if (typeof params === "undefined" || params.length < 1) {
+                return "";
+            }
+
+            const query = [];
+
+            Object.keys(params).forEach(x => {
+                query.push(x + "=" + encodeURIComponent(params[x]));
+            });
+
+            const queryString = query.join("&");
+            return "?" + queryString;
+        }
+    };
+
     const LoaderUtils = {
+        HttpUtil,
+
         capitalize: str => {
             str = String(str).toLowerCase();
             return str[0].toUpperCase() + str.substring(1);
@@ -289,7 +377,7 @@ try {
 
                 if (allowedContentType !== null && typeof allowedContentType !== "undefined") {
                     if (!attach.contentType.includes(allowedContentType)) {
-                        throw new UtilError("Invalid content type: " + attach.contentType);
+                        throw new UtilError("Invalid content type: " + attach.contentType, attach.contentType);
                     }
                 }
             }
@@ -350,12 +438,15 @@ try {
             const tag = util.fetchTag(name);
 
             if (tag === null || typeof tag === "undefined") {
-                throw new UtilError("Unknown tag: " + name);
+                throw new UtilError("Unknown tag: " + name, name);
             }
 
             if (owner !== null && typeof owner !== "undefined") {
                 if (tag.owner !== owner) {
-                    throw new UtilError(`Incorrect tag owner (${tag.owner} =/= ${owner}) for tag: ${name}`);
+                    throw new UtilError(`Incorrect tag owner (${tag.owner} =/= ${owner}) for tag: ${name}`, {
+                        original: tag.owner,
+                        needed: owner
+                    });
                 }
             }
 
@@ -404,6 +495,23 @@ try {
 
         removeUndefinedValues: obj => {
             return Object.fromEntries(Object.entries(obj).filter(([_, value]) => typeof value !== "undefined"));
+        },
+
+        statusRegex: /Request failed with status code (\d+)/,
+        getReqErrStatus: err => {
+            if (!err.message) {
+                return;
+            }
+
+            const statusStr = err.message,
+                statusMatch = statusStr.match(LoaderUtils.statusRegex);
+
+            if (!statusMatch) {
+                return;
+            }
+
+            const status = parseInt(statusMatch[1], 10);
+            return status;
         }
     };
 
@@ -574,7 +682,7 @@ try {
                 throw new LoaderError("Invalid URL");
             }
 
-            const moduleCode = this._fetchFromUrl(url, returnType);
+            const moduleCode = this._fetchFromUrl(url, returnType, options);
             return this._parseModuleCode(moduleCode, returnType);
         }
 
@@ -610,7 +718,7 @@ try {
 
                     return this.getModuleCodeFromTag(tagName, ...args);
                 default:
-                    throw new LoaderError("Invalid load source: " + loadSource);
+                    throw new LoaderError("Invalid load source: " + loadSource, loadSource);
             }
         }
 
@@ -681,13 +789,13 @@ try {
 
                     return this.loadModuleFromTag(tagName, ...args);
                 default:
-                    throw new LoaderError("Invalid load source: " + this.loadSource);
+                    throw new LoaderError("Invalid load source: " + this.loadSource, loadSource);
             }
 
             throw new LoaderError("No URL or tag name provided");
         }
 
-        static _fetchFromUrl(url, returnType) {
+        static _fetchFromUrl(url, returnType, options = {}) {
             URL_FETCH_COUNT++;
             Benchmark.startTiming("url_fetch_" + URL_FETCH_COUNT);
 
@@ -702,10 +810,15 @@ try {
                     break;
             }
 
+            const configReqOpts = options.requestOptions,
+                parseError = options.parseError ?? true,
+                returnRes = options.returnResponse ?? false;
+
             const opts = {
                 url,
                 method: "get",
-                responseType
+                responseType,
+                ...configReqOpts
             };
 
             let res;
@@ -713,15 +826,21 @@ try {
             try {
                 res = http.request(opts);
             } catch (err) {
-                throw new LoaderError("Could not file. Error: " + err.message);
-            }
+                if (!parseError) {
+                    throw err;
+                }
 
-            if (res.status !== 200) {
-                throw new LoaderError("Could not file. Code: " + res.status);
+                const status = LoaderUtils.getReqErrStatus(err);
+
+                if (status) {
+                    throw new LoaderError("Could not fetch file. Code: " + status, status);
+                } else {
+                    throw new LoaderError("Could not fetch file. Error: " + err.message);
+                }
             }
 
             Benchmark.stopTiming("url_fetch_" + URL_FETCH_COUNT);
-            return res.data;
+            return returnRes ? res : res.data;
         }
 
         static _fetchTagBody(tagName, owner) {
@@ -804,7 +923,7 @@ try {
 
                     return TextEncoder.stringToBytes(moduleCode);
                 default:
-                    throw new LoaderError("Unknown return type: " + returnType);
+                    throw new LoaderError("Unknown return type: " + returnType, returnType);
             }
         }
     }
@@ -880,14 +999,18 @@ try {
         addGlobalObjects: _ => {
             const globalObjs = {
                 CustomError,
+                RefError,
+
                 FileDataTypes,
                 LoaderUtils,
                 Benchmark,
+
+                loadSource,
                 ModuleLoader,
+
                 Patches: {
                     patchGlobalContext: Patches.patchGlobalContext
-                },
-                loadSource
+                }
             };
 
             Patches.patchGlobalContext(globalObjs);
