@@ -1,6 +1,12 @@
 "use strict";
 
 // config
+const loadSource = 0 ? "url" : "tag",
+    enableDebugger = false;
+
+const consoleOpts = {};
+
+// sources
 const urls = {
     PromisePolyfillUrl: "https://cdn.jsdelivr.net/npm/promise-polyfill",
 
@@ -20,11 +26,6 @@ const tags = {
         CanvasKitWasmTagName: /^ck_wasm\d+$/
     },
     tagOwner = "883072834790916137";
-
-const loadSource = 0 ? "url" : "tag",
-    enableDebugger = false;
-
-const consoleOpts = {};
 
 // info
 const usage = `Leveret: \`util.executeTag("canvaskitloader");\`
@@ -248,9 +249,10 @@ try {
             return Array.isArray(arr) || ArrayBuffer.isView(arr);
         },
 
-        urlRegex: /\w+?:\/\/(.+\.)?[\w|\d]+\.\w+\/?.*/,
+        urlRegex: /(\S*?):\/\/(?:([^\/\.]+)\.)?([^\/\.]+)\.([^\/\s]+)\/?(\S*)?/,
         validUrl: url => {
-            return LoaderUtils.urlRegex.test(url);
+            const exp = new RegExp(`^${LoaderUtils.urlRegex.toString()}$`);
+            return exp.test(url);
         },
 
         splitAt: (str, sep = " ") => {
@@ -270,16 +272,25 @@ try {
         },
 
         fetchAttachment: (msg, returnType = FileDataTypes.text, allowedContentType) => {
-            if (msg.attachments.length < 1) {
+            let attach, url;
+
+            if (msg.attachments.length > 0) {
+                attach = msg.attachments[0];
+            } else if (typeof msg.file !== "undefined") {
+                attach = msg.file;
+            } else if (typeof msg.fileUrl !== "undefined") {
+                url = msg.fileUrl;
+            } else {
                 throw new UtilError("Message doesn't have any attachments");
             }
 
-            const attach = msg.attachments[0],
+            if (attach) {
                 url = attach.url;
 
-            if (allowedContentType !== null && typeof allowedContentType !== "undefined") {
-                if (!attach.contentType.includes(allowedContentType)) {
-                    throw new UtilError("Invalid content type: " + attach.contentType);
+                if (allowedContentType !== null && typeof allowedContentType !== "undefined") {
+                    if (!attach.contentType.includes(allowedContentType)) {
+                        throw new UtilError("Invalid content type: " + attach.contentType);
+                    }
                 }
             }
 

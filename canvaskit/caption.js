@@ -2,14 +2,7 @@
 const maxHeight = 2048,
     maxHeightDelta = 20;
 
-// help
-const helpOption = ["help", "-help", "--help", "-h", "usage", "-usage", "-u"],
-    showTimesOption = "-show_times";
-
-const help = `Usage: \`%t ${tag.name} [-show_time] [url] <caption>\`
-Captions the given image (from the message you answered or the URL)`,
-    usage = `See \`%t ${tag.name} help\` for usage.`;
-
+// sources
 const urls = {
     fonts: {
         futura: "https://github.com/kelsanford/portfolio/raw/refs/heads/master/Fonts/futura/Futura%20Extra%20Black%20Condensed%20BT.ttf",
@@ -25,6 +18,18 @@ const tags = {
     },
     tagOwner = "883072834790916137";
 
+// help
+const helpOption = ["help", "-help", "--help", "-h", "usage", "-usage", "-u"],
+    showTimesOption = "-show_times";
+
+const help = `Usage: \`%t ${tag.name} [-show_time] [url] <caption>\`
+Captions the given image (from the message you answered or the URL)`,
+    usage = `See \`%t ${tag.name} help\` for usage.`;
+
+// misc
+const urlRegex = /(\S*?):\/\/(?:([^\/\.]+)\.)?([^\/\.]+)\.([^\/\s]+)\/?(\S*)?/,
+    attachRegex = /^(https:\/\/cdn.discordapp.com\/attachments\/\d+?\/\d+?\/[^?]+?)(?:\?|$)/;
+
 // errors
 class ExitError extends Error {}
 
@@ -32,11 +37,63 @@ try {
     // parse args and attachment
     let showTimes = false;
 
-    const text = (() => {
-        let text = tag.args,
-            split = text?.split(" ");
+    const rmsg = (() => {
+        let rmsg;
 
-        checkArgs: if (split) {
+        if (msg.reference) {
+            const msgs = util.fetchMessages();
+            rmsg = msgs.findLast(x => x.id === msg.reference.messageId);
+        } else {
+            rmsg = msg;
+        }
+
+        if (rmsg.attachments.length > 0) {
+            rmsg.file = rmsg.attachments[0];
+        } else {
+            const urlMatch = rmsg.content.match(urlRegex);
+
+            if (urlMatch) {
+                const fileUrl = urlMatch[0],
+                    attachMatch = fileUrl.match(attachRegex);
+
+                if (attachMatch) {
+                    const attachPrefix = attachMatch[0],
+                        embed = rmsg.embeds.find(embed => embed.thumbnail.url.startsWith(attachPrefix));
+
+                    if (!embed) {
+                        const out = ":warning: Attachment embed not found. (it's needed because discord is dumb)";
+                        throw new ExitError(out);
+                    }
+
+                    rmsg.fileUrl = embed.thumbnail.url;
+                } else {
+                    rmsg.fileUrl = fileUrl;
+                }
+
+                let leftoverStr = rmsg.content;
+                leftoverStr = leftoverStr.slice(0, urlMatch.index) + leftoverStr.slice(urlMatch.index + fileUrl.length);
+
+                rmsg.content = leftoverStr.trim();
+            } else {
+                const out = `:warning: Message doesn't have any attachments.\n${usage}`;
+                throw new ExitError(out);
+            }
+        }
+
+        if (msg.reference) {
+            rmsg.content = msg.content;
+            rmsg.attachments = msg.attachments;
+        }
+
+        return rmsg;
+    })();
+
+    const text = (() => {
+        const split = rmsg.content.split(" ").slice(2);
+
+        let text = (tag.args = split.join(" "));
+
+        checkArgs: if (split.length > 0) {
             const option = split[0];
 
             if (helpOption.includes(option)) {
@@ -61,25 +118,6 @@ try {
         }
 
         return text;
-    })();
-
-    const rmsg = (() => {
-        let rmsg;
-
-        if (msg.reference) {
-            const msgs = util.fetchMessages();
-            rmsg = msgs.findLast(x => x.id === msg.reference.messageId);
-        } else {
-            rmsg = msg;
-        }
-
-        if (rmsg.attachments.length < 1) {
-            const out = `:warning: Message doesn't have any attachments.\n${usage}`;
-
-            throw new ExitError(out);
-        }
-
-        return rmsg;
     })();
 
     // load canvaskit
