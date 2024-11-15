@@ -312,6 +312,14 @@ try {
             return str[0].toUpperCase() + str.substring(1);
         },
 
+        removeRangeStr: (str, i, length = 1) => {
+            return str.slice(0, i) + str.slice(i + length);
+        },
+
+        replaceRangeStr: (str, replacement, i, length = 1) => {
+            return str.slice(0, i) + replacement + str.slice(i + length);
+        },
+
         clamp: (x, a, b) => {
             return Math.max(Math.min(x, b), a);
         },
