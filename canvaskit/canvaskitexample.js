@@ -1,3 +1,5 @@
+"use strict";
+
 // Load canvaskit & utils
 if (util.env) {
     eval(util.fetchTag("canvaskitloader").body);
@@ -116,7 +118,7 @@ Benchmark.stopTiming("encode_png");
 surface.delete();
 
 // Send image & benchmark times
-msg.reply(Benchmark.getAll(), {
+msg.reply(Benchmark.getAll(true), {
     file: {
         name: "wireless.png",
         data: pngBytes

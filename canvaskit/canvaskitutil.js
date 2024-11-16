@@ -1,3 +1,5 @@
+"use strict";
+
 class CanvasUtilError extends CustomError {}
 
 const CanvasKitUtil = {

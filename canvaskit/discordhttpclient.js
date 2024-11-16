@@ -1,3 +1,5 @@
+"use strict";
+
 class ClientError extends CustomError {}
 class DiscordRequestError extends CustomError {}
 

@@ -1,3 +1,5 @@
+"use strict";
+
 // config
 const maxHeight = 2048,
     maxHeightDelta = 20;
