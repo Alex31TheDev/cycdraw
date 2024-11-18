@@ -852,7 +852,17 @@ try {
                 originalKeys = Object.keys(globalThis);
 
                 for (const key of Object.keys(globalThis)) {
-                    if (key !== "global") delete globalThis[key];
+                    try {
+                        if (key !== "global") delete globalThis[key];
+                    } catch (err) {
+                        if (err instanceof TypeError) {
+                            throw new LoaderError(
+                                "You're not allowed to have functions defined via the function keyword or vars in the same scope as the load call. Use an object or an IIFE to isolate them."
+                            );
+                        } else {
+                            throw err;
+                        }
+                    }
                 }
 
                 for (const key of filteredKeys) {
