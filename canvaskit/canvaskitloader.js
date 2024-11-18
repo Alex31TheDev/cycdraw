@@ -1,7 +1,8 @@
 "use strict";
 
 // config
-const loadSource = 0 ? "url" : "tag",
+const loadLibrary = "canvaskit",
+    loadSource = 0 ? "url" : "tag",
     enableDebugger = false;
 
 const consoleOpts = {};
@@ -9,9 +10,16 @@ const consoleOpts = {};
 // sources
 const urls = {
     PromisePolyfillUrl: "https://cdn.jsdelivr.net/npm/promise-polyfill",
+    TextEncoderDecoderPolyfillUrl:
+        "https://cdn.jsdelivr.net/npm/fastestsmallesttextencoderdecoder@1.0.22/NodeJS/EncoderAndDecoderNodeJS.min.js",
+    BufferPolyfillUrl: "https://files.catbox.moe/6wyu2h.js",
+    WebWorkerPolyfillUrl: "https://files.catbox.moe/or9q01.js",
 
     CanvasKitLoaderUrl: "https://unpkg.com/canvaskit-wasm@0.39.1/bin/canvaskit.js",
-    CanvasKitWasmUrl: "https://unpkg.com/canvaskit-wasm@0.39.1/bin/canvaskit.wasm"
+    CanvasKitWasmUrl: "https://unpkg.com/canvaskit-wasm@0.39.1/bin/canvaskit.wasm",
+
+    LibVipsLoaderUrl: "https://files.catbox.moe/j1uor5.js",
+    LibVipsWasmUrl: "https://cdn.jsdelivr.net/npm/wasm-vips@0.0.11/lib/vips.wasm"
 };
 
 const tags = {
@@ -21,9 +29,15 @@ const tags = {
         XzWasmTagName: "ck_xz_wasm",
 
         PromisePolyfillTagName: "ck_promise_polyfill",
+        BufferPolyfillTagName: "",
+        TextEncoderDecoderPolyfillTagName: "ck_textdecenc_polyfill",
+        WebWorkerPolyfillTagName: "",
 
         CanvasKitLoaderTagName: /^ck_loader_init\d+$/,
-        CanvasKitWasmTagName: /^ck_wasm\d+$/
+        CanvasKitWasmTagName: /^ck_wasm\d+$/,
+
+        LibVipsLoaderTagName: "",
+        LibVipsWasmTagName: ""
     },
     tagOwner = "883072834790916137";
 
@@ -61,6 +75,8 @@ class LoaderError extends RefError {}
 class UtilError extends RefError {}
 
 try {
+    if (enableDebugger) debugger;
+
     // eval check
     function insideEval() {
         const evalExp = new RegExp(
@@ -106,7 +122,14 @@ try {
 
         console: undefined,
 
-        Promise: undefined
+        Promise: undefined,
+        Buffer: undefined,
+        TextEncoder: undefined,
+        TextDecoder: undefined,
+        Blob: undefined,
+        XMLHttpRequest: undefined,
+        Event: undefined,
+        Worker: undefined
     };
 
     // classes
@@ -367,6 +390,50 @@ try {
             return [first, second];
         },
 
+        shallowClone: (obj, options) => {
+            switch (typeof options) {
+                case "undefined":
+                    options = ["both"];
+                    break;
+                case "string":
+                    options = [options];
+                    break;
+            }
+
+            let enumerable, nonEnumerable, both;
+
+            if (options.includes("both")) {
+                enumerable = nonEnumerable = both = true;
+            } else {
+                enumerable = options.includes("enum");
+                nonEnumerable = options.includes("nonenum");
+            }
+
+            let clone = Object.create(Object.getPrototypeOf(obj)),
+                descriptors = {};
+
+            if (both) {
+                descriptors = Object.getOwnPropertyDescriptors(obj);
+            } else if (enumerable) {
+                const enumerableProps = Object.keys(obj);
+                enumerableProps.forEach(prop => {
+                    descriptors[prop] = Object.getOwnPropertyDescriptor(obj, prop);
+                });
+            } else if (nonEnumerable) {
+                const nonEnumerableProps = Object.getOwnPropertyNames(obj).filter(
+                    prop => !obj.propertyIsEnumerable(prop)
+                );
+                nonEnumerableProps.forEach(prop => {
+                    descriptors[prop] = Object.getOwnPropertyDescriptor(obj, prop);
+                });
+            } else {
+                throw new UtilError("Invalid options: " + options.join(", "));
+            }
+
+            Object.defineProperties(clone, descriptors);
+            return clone;
+        },
+
         fetchAttachment: (msg, returnType = FileDataTypes.text, allowedContentType) => {
             let attach, url;
 
@@ -523,7 +590,7 @@ try {
         }
     };
 
-    const TextEncoder = {
+    const LoaderTextEncoder = {
         stringToBytes: str => {
             const bytes = new Uint8Array(str.length);
 
@@ -682,8 +749,15 @@ try {
         URL_FETCH_COUNT = 0,
         TAG_FETCH_COUNT = 0;
 
+    const cleanGlobal = LoaderUtils.shallowClone(globalThis, "nonenum"),
+        globalKeys = ["global", "globalThis"];
+
     class ModuleLoader {
         static loadSource = loadSource;
+
+        static tagOwner;
+        static breakpoint = false;
+        static isolateGlobals = true;
 
         static getModuleCodeFromUrl(url, returnType = FileDataTypes.text, options = {}) {
             if (url === null || typeof url === "undefined" || url.length < 1) {
@@ -700,7 +774,7 @@ try {
             }
 
             const encoded = options.encoded ?? false,
-                owner = options.owner;
+                owner = options.owner ?? this.tagOwner;
 
             let moduleCode = this._fetchTagBody(tagName, owner);
 
@@ -730,17 +804,17 @@ try {
             }
         }
 
-        static loadModuleFromSource(moduleCode, loaderScope = {}, breakpoint = false) {
+        static loadModuleFromSource(moduleCode, loaderScope = {}, breakpoint = this.breakpoint, options = {}) {
             if (typeof moduleCode !== "string" || moduleCode.length < 1) {
                 throw new LoaderError("Invalid module code");
             }
 
+            const isolateGlobals = options.isolateGlobals ?? this.isolateGlobals;
+
             MODULE_LOAD_COUNT++;
             Benchmark.startTiming("load_module_" + MODULE_LOAD_COUNT);
 
-            if (breakpoint) {
-                moduleCode = `debugger;\n\n${moduleCode}`;
-            }
+            moduleCode = ModuleLoader._addDebuggerStmt(moduleCode, breakpoint);
 
             let module = { exports: {} },
                 exports = {};
@@ -753,20 +827,51 @@ try {
             const filteredGlobals = LoaderUtils.removeUndefinedValues(globals),
                 filteredScope = LoaderUtils.removeUndefinedValues(loaderScope);
 
+            const filteredKeys = Object.keys(filteredGlobals),
+                patchedGlobal = LoaderUtils.shallowClone(isolateGlobals ? cleanGlobal : globalThis);
+            Object.assign(patchedGlobal, filteredGlobals);
+
             const loaderParams = [
                 ...Object.keys(moduleObjs),
-                ...Object.keys(filteredGlobals),
+                ...globalKeys,
+                ...filteredKeys,
                 ...Object.keys(filteredScope)
             ];
 
             const loaderArgs = [
                 ...Object.values(moduleObjs),
+                ...Array(globalKeys.length).fill(patchedGlobal),
                 ...Object.values(filteredGlobals),
                 ...Object.values(filteredScope)
             ];
 
+            let originalGlobal, originalKeys;
+
+            if (isolateGlobals) {
+                originalGlobal = LoaderUtils.shallowClone(globalThis, "enum");
+                originalKeys = Object.keys(globalThis);
+
+                for (const key of Object.keys(globalThis)) {
+                    if (key !== "global") delete globalThis[key];
+                }
+
+                for (const key of filteredKeys) {
+                    globalThis[key] = patchedGlobal[key];
+                }
+            }
+
             const loaderFn = new Function(loaderParams, moduleCode);
             loaderFn(...loaderArgs);
+
+            if (isolateGlobals) {
+                for (const key of Object.keys(globalThis)) {
+                    if (key !== "global") delete globalThis[key];
+                }
+
+                for (const key of originalKeys) {
+                    if (key !== "global") globalThis[key] = originalGlobal[key];
+                }
+            }
 
             Benchmark.stopTiming("load_module_" + MODULE_LOAD_COUNT);
             return module.exports;
@@ -934,6 +1039,10 @@ try {
                     throw new LoaderError("Unknown return type: " + returnType, returnType);
             }
         }
+
+        static _addDebuggerStmt(moduleCode, breakpoint) {
+            return breakpoint ? `debugger;\n\n${moduleCode}` : moduleCode;
+        }
     }
 
     // patches
@@ -962,15 +1071,84 @@ try {
         polyfillPromise: _ => {
             globals.Promise = ModuleLoader.loadModule(
                 urls.PromisePolyfillUrl,
-                tags.PromisePolyfillTagName,
-                [
-                    undefined,
-                    {
-                        owner: tagOwner
-                    }
-                ],
-                [undefined, enableDebugger]
+                tags.PromisePolyfillTagName
+
+                /*, [undefined, enableDebugger] */
             );
+        },
+
+        polyfillBuffer: _ => {
+            const { Buffer } = ModuleLoader.loadModule(
+                urls.BufferPolyfillUrl,
+                tags.BufferPolyfillTagName
+
+                /*, [undefined, enableDebugger] */
+            );
+
+            globals.Buffer = Buffer;
+        },
+
+        polyfillTextEncoderDecoder: _ => {
+            const { TextEncoder, TextDecoder } = ModuleLoader.loadModule(
+                urls.TextEncoderDecoderPolyfillUrl,
+                tags.TextEncoderDecoderPolyfillTagName
+
+                /*, [undefined, enableDebugger] */
+            );
+
+            globals.TextEncoder = TextEncoder;
+            globals.TextDecoder = TextDecoder;
+        },
+
+        polyfillBlob: _ => {
+            globals.Blob = class Blob {
+                constructor(data) {
+                    this.data = data;
+                }
+
+                text() {
+                    if (typeof this.data === "string") {
+                        return globals.Promise.resolve(this.data);
+                    }
+
+                    const str = LoaderTextEncoder.bytesToString(this.data);
+                    return globals.Promise.resolve(str);
+                }
+
+                startsWith() {
+                    return true;
+                }
+            };
+        },
+
+        polyfillXHR: _ => {
+            globals.XMLHttpRequest = class XMLHttpRequest {};
+        },
+
+        polyfillEvent: _ => {
+            globals.Event = class Event {
+                constructor(type) {
+                    this.type = type;
+                }
+            };
+        },
+
+        polyfillWebWorker: _ => {
+            globals.Worker = ModuleLoader.loadModule(
+                urls.WebWorkerPolyfillUrl,
+                tags.WebWorkerrPolyfillTagName,
+
+                undefined,
+                [
+                    {
+                        document: {},
+                        window: { navigator: {} },
+                        self: {
+                            requestAnimationFrame: _ => false
+                        }
+                    } /*, enableDebugger*/
+                ]
+            ).default;
         },
 
         patchWasmInstantiate: _ => {
@@ -984,10 +1162,11 @@ try {
                     const wasmModule = new WebAssembly.Module(bufferSource),
                         instance = new WebAssembly.Instance(wasmModule, importObject);
 
-                    instance.instance = instance;
                     Benchmark.stopTiming("wasm_load_" + WASM_LOAD_COUNT);
-
-                    return Promise.resolve(instance);
+                    return Promise.resolve({
+                        module: wasmModule,
+                        instance
+                    });
                 } catch (err) {
                     console.error(err);
                 }
@@ -1027,7 +1206,23 @@ try {
         applyAll: _ => {
             Patches.polyfillConsole();
             Patches.polyfillTimers();
+
             Patches.polyfillPromise();
+
+            switch (loadLibrary) {
+                case "canvaskit":
+                    break;
+                case "libvips":
+                    Patches.polyfillBuffer();
+                    Patches.polyfillTextEncoderDecoder();
+                    Patches.polyfillBlob();
+                    Patches.polyfillXHR();
+                    Patches.polyfillEvent();
+                    Patches.polyfillWebWorker();
+                    break;
+                default:
+                    throw new LoaderError("Unknown library: " + loadLibrary);
+            }
 
             Patches.addContextGlobals();
             Patches.addGlobalObjects();
@@ -1041,12 +1236,7 @@ try {
         XZ_DECOMPRESS_COUNT = 0;
 
     function loadBase2nDecoder() {
-        const { base2n } = ModuleLoader.loadModule(null, tags.Base2nTagName, [
-            undefined,
-            {
-                owner: tagOwner
-            }
-        ]);
+        const { base2n } = ModuleLoader.loadModule(null, tags.Base2nTagName);
 
         if (typeof base2n === "undefined") {
             return;
@@ -1082,20 +1272,14 @@ try {
     }
 
     function loadXzDecompressor() {
-        const XzDecompressor = ModuleLoader.loadModule(null, tags.XzDecompressorTagName, [
-            undefined,
-            {
-                owner: tagOwner
-            }
-        ]);
+        const XzDecompressor = ModuleLoader.loadModule(null, tags.XzDecompressorTagName);
 
         if (typeof XzDecompressor === "undefined") {
             return;
         }
 
         const xzWasm = ModuleLoader.getModuleCode(null, tags.XzWasmTagName, FileDataTypes.binary, {
-            encoded: true,
-            owner: tagOwner
+            encoded: true
         });
 
         XzDecompressor.loadWasm(xzWasm);
@@ -1116,23 +1300,15 @@ try {
 
     // canvaskit loader
     function loadCanvasKit() {
-        const CanvasKitInit = ModuleLoader.loadModule(
-            urls.CanvasKitLoaderUrl,
-            tags.CanvasKitLoaderTagName,
-            [
-                undefined,
-                {
-                    owner: tagOwner
-                }
-            ],
-            [undefined, enableDebugger]
-        );
+        const CanvasKitInit = ModuleLoader.loadModule(urls.CanvasKitLoaderUrl, tags.CanvasKitLoaderTagName, undefined, [
+            undefined,
+            enableDebugger
+        ]);
 
         console.replyWithLogs();
 
         let wasm = ModuleLoader.getModuleCode(urls.CanvasKitWasmUrl, tags.CanvasKitWasmTagName, FileDataTypes.binary, {
-            encoded: true,
-            owner: tagOwner
+            encoded: true
         });
 
         if (loadSource === "tag") {
@@ -1152,8 +1328,56 @@ try {
         Patches.patchGlobalContext({ CanvasKit });
     }
 
+    // libvips loader
+    function loadLibVips() {
+        const initCode = ModuleLoader._addDebuggerStmt(
+                ModuleLoader.getModuleCode(urls.LibVipsLoaderUrl, tags.LibVipsLoaderTagName),
+                enableDebugger
+            ),
+            LibVipsInit = ModuleLoader.loadModuleFromSource(
+                initCode,
+
+                {
+                    navigator: {
+                        hardwareConcurrency: 1
+                    },
+                    document: {},
+                    self: {
+                        location: {
+                            href: new Blob(initCode)
+                        }
+                    },
+                    clearInterval: _ => 1
+                }
+            );
+
+        console.replyWithLogs();
+
+        let wasm = ModuleLoader.getModuleCode(urls.LibVipsWasmUrl, tags.LibVipsWasmTagName, FileDataTypes.binary, {
+            encoded: true
+        });
+
+        if (loadSource === "tag") {
+            wasm = XzDecompressor.decompress(wasm);
+        }
+
+        Benchmark.startTiming("libvips_init");
+        let vips;
+        LibVipsInit({
+            wasmBinary: wasm,
+            dynamicLibraries: []
+        })
+            .then(lib => (vips = lib))
+            .catch(err => console.error("Error occured while loading LibVips:", err));
+        Benchmark.stopTiming("libvips_init");
+
+        console.replyWithLogs();
+        Patches.patchGlobalContext({ vips });
+    }
+
     // main
     Benchmark.startTiming("load_total");
+    ModuleLoader.tagOwner = tagOwner;
 
     Benchmark.startTiming("apply_patches");
     Patches.applyAll();
@@ -1169,10 +1393,23 @@ try {
         Benchmark.stopTiming("load_decompressor");
     }
 
-    Benchmark.startTiming("load_canvaskit");
-    loadCanvasKit();
-    Benchmark.stopTiming("load_canvaskit");
+    switch (loadLibrary) {
+        case "canvaskit":
+            Benchmark.startTiming("load_canvaskit");
+            loadCanvasKit();
+            Benchmark.stopTiming("load_canvaskit");
+            break;
+        case "libvips":
+            Benchmark.startTiming("load_libvips");
+            loadLibVips();
+            Benchmark.stopTiming("load_libvips");
+            break;
+        default:
+            throw new LoaderError("Unknown library: " + loadLibrary);
+    }
 
+    ModuleLoader.tagOwner = undefined;
+    ModuleLoader.isolateGlobals = false;
     Benchmark.stopTiming("load_total");
 
     if (enableDebugger) debugger;
