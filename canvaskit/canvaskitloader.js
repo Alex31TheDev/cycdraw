@@ -49,7 +49,9 @@ const scripts = `%t canvaskitexample
 %t caption`;
 
 const docs = `CanvasKit GitHub: https://github.com/google/skia/tree/main/modules/canvaskit
-CanvasKit API docs: https://github.com/google/skia/blob/a004a27085d7dcc4efc3766c9abe92df03654c7c/modules/canvaskit/npm_build/types/index.d.ts`;
+CanvasKit API docs: https://github.com/google/skia/blob/a004a27085d7dcc4efc3766c9abe92df03654c7c/modules/canvaskit/npm_build/types/index.d.ts
+
+Tag repo: https://github.com/Alex31TheDev/cycdraw/tree/main/canvaskit`;
 
 // errors
 class CustomError extends Error {
@@ -80,13 +82,15 @@ try {
     // eval check
     function insideEval() {
         const evalExp = new RegExp(
-            `^.+\\n\\s+at\\s${insideEval.name}\\s\\(eval\\sat\\s.+\\)\\n\\s+at eval\\s\\(eval at\\s.+\\)`
+            util.env
+                ? `^.+\\n\\s+at\\s${insideEval.name}\\s\\(eval\\sat\\s.+\\)\\n\\s+at eval\\s\\(eval at\\s.+\\)`
+                : `^.+\\n\\s+at\\s${insideEval.name}\\s\\(eval\\sat\\s.+?\\(eval\\sat\\s.+\\)\\n\\s+at\\seval\\s\\(eval\\sat\\s.+?\\(eval\\sat\\s.+\\)`
         );
 
         try {
             throw new Error();
-        } catch (e) {
-            return Boolean(e.stack.match(evalExp));
+        } catch (err) {
+            return Boolean(err.stack.match(evalExp));
         }
     }
 
