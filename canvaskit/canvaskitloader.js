@@ -1,11 +1,15 @@
 "use strict";
 
 // config
-const loadLibrary = "canvaskit",
-    loadSource = 0 ? "url" : "tag",
-    enableDebugger = false;
+const loadLibrary = util.loadLibrary ?? "canvaskit",
+    loadSource = util.loadSource ?? (0 ? "url" : "tag"),
+    enableDebugger = util.inspectorEnabled ?? false;
 
 const consoleOpts = {};
+
+delete util.loadLibrary;
+delete util.loadSource;
+delete util._isolateGlobals;
 
 // sources
 const urls = {
@@ -18,6 +22,9 @@ const urls = {
     CanvasKitLoaderUrl: "https://unpkg.com/canvaskit-wasm@0.39.1/bin/canvaskit.js",
     CanvasKitWasmUrl: "https://unpkg.com/canvaskit-wasm@0.39.1/bin/canvaskit.wasm",
 
+    ResvgLoaderUrl: "https://files.catbox.moe/5fiy8q.js",
+    ResvgWasmUrl: "https://cdn.jsdelivr.net/npm/@resvg/resvg-wasm@2.6.2/index_bg.wasm",
+
     LibVipsLoaderUrl: "https://files.catbox.moe/j1uor5.js",
     LibVipsWasmUrl: "https://cdn.jsdelivr.net/npm/wasm-vips@0.0.11/lib/vips.wasm"
 };
@@ -29,12 +36,15 @@ const tags = {
         XzWasmTagName: "ck_xz_wasm",
 
         PromisePolyfillTagName: "ck_promise_polyfill",
-        BufferPolyfillTagName: "",
+        BufferPolyfillTagName: "ck_buffer_polyfill",
         TextEncoderDecoderPolyfillTagName: "ck_textdecenc_polyfill",
         WebWorkerPolyfillTagName: "",
 
         CanvasKitLoaderTagName: /^ck_loader_init\d+$/,
         CanvasKitWasmTagName: /^ck_wasm\d+$/,
+
+        ResvgLoaderTagName: "ck_resvg_init",
+        ResvgWasmTagName: /^ck_resvg_wasm\d+$/,
 
         LibVipsLoaderTagName: "",
         LibVipsWasmTagName: ""
@@ -118,23 +128,38 @@ try {
     }
 
     // globals
-    const globals = {
-        setTimeout: undefined,
-        setImmediate: undefined,
-        clearTimeout: undefined,
-        clearImmediate: undefined,
 
-        console: undefined,
+    const globalsProxyHandler = {
+        set(target, key, value) {
+            target[key] = value;
+            Patches._loadedPatch(key);
 
-        Promise: undefined,
-        Buffer: undefined,
-        TextEncoder: undefined,
-        TextDecoder: undefined,
-        Blob: undefined,
-        XMLHttpRequest: undefined,
-        Event: undefined,
-        Worker: undefined
+            return true;
+        }
     };
+
+    const globals = new Proxy(
+        {
+            setTimeout: undefined,
+            setImmediate: undefined,
+            clearTimeout: undefined,
+            clearImmediate: undefined,
+
+            console: undefined,
+
+            Promise: undefined,
+            Buffer: undefined,
+            TextEncoder: undefined,
+            TextDecoder: undefined,
+            Blob: undefined,
+            XMLHttpRequest: undefined,
+            Event: undefined,
+            Worker: undefined
+        },
+        globalsProxyHandler
+    );
+
+    const globalObjs = new Proxy({}, globalsProxyHandler);
 
     // classes
     class Logger {
@@ -758,10 +783,10 @@ try {
 
     class ModuleLoader {
         static loadSource = loadSource;
+        static isolateGlobals = isolateGlobals;
 
         static tagOwner;
         static breakpoint = false;
-        static isolateGlobals = true;
 
         static getModuleCodeFromUrl(url, returnType = FileDataTypes.text, options = {}) {
             if (url === null || typeof url === "undefined" || url.length < 1) {
@@ -1064,26 +1089,26 @@ try {
 
     const Patches = {
         polyfillConsole: _ => {
-            globals.console = new Logger(true, consoleOpts);
+            globals.console ??= new Logger(true, consoleOpts);
         },
 
         polyfillTimers: _ => {
-            globals.setTimeout = f => {
+            globals.setTimeout ??= f => {
                 f();
                 return 0;
             };
 
-            globals.setImmediate = f => {
+            globals.setImmediate ??= f => {
                 f();
                 return 0;
             };
 
-            globals.clearTimeout = _ => {};
-            globals.clearImmediate = _ => {};
+            globals.clearTimeout ??= _ => {};
+            globals.clearImmediate ??= _ => {};
         },
 
         polyfillPromise: _ => {
-            globals.Promise = ModuleLoader.loadModule(
+            globals.Promise ??= ModuleLoader.loadModule(
                 urls.PromisePolyfillUrl,
                 tags.PromisePolyfillTagName
 
@@ -1092,6 +1117,8 @@ try {
         },
 
         polyfillBuffer: _ => {
+            if (typeof globals.Buffer !== "undefined") return;
+
             const { Buffer } = ModuleLoader.loadModule(
                 urls.BufferPolyfillUrl,
                 tags.BufferPolyfillTagName
@@ -1103,6 +1130,8 @@ try {
         },
 
         polyfillTextEncoderDecoder: _ => {
+            if (typeof globals.TextDecoder !== "undefined") return;
+
             const { TextEncoder, TextDecoder } = ModuleLoader.loadModule(
                 urls.TextEncoderDecoderPolyfillUrl,
                 tags.TextEncoderDecoderPolyfillTagName
@@ -1115,7 +1144,7 @@ try {
         },
 
         polyfillBlob: _ => {
-            globals.Blob = class Blob {
+            globals.Blob ??= class Blob {
                 constructor(data) {
                     this.data = data;
                 }
@@ -1136,11 +1165,11 @@ try {
         },
 
         polyfillXHR: _ => {
-            globals.XMLHttpRequest = class XMLHttpRequest {};
+            globals.XMLHttpRequest ??= class XMLHttpRequest {};
         },
 
         polyfillEvent: _ => {
-            globals.Event = class Event {
+            globals.Event ??= class Event {
                 constructor(type) {
                     this.type = type;
                 }
@@ -1148,9 +1177,11 @@ try {
         },
 
         polyfillWebWorker: _ => {
-            globals.Worker = ModuleLoader.loadModule(
+            if (typeof globals.Worker !== "undefined") return;
+
+            const { default: Worker } = ModuleLoader.loadModule(
                 urls.WebWorkerPolyfillUrl,
-                tags.WebWorkerrPolyfillTagName,
+                tags.WebWorkerPolyfillTagName,
 
                 undefined,
                 [
@@ -1162,10 +1193,14 @@ try {
                         }
                     } /*, enableDebugger*/
                 ]
-            ).default;
+            );
+
+            globals.Worker = Worker;
         },
 
         patchWasmInstantiate: _ => {
+            if (WebAssembly.patched === true) return;
+
             const original = WebAssembly.instantiate;
 
             WebAssembly.instantiate = (bufferSource, importObject) => {
@@ -1173,8 +1208,15 @@ try {
                     WASM_LOAD_COUNT++;
                     Benchmark.startTiming("wasm_load_" + WASM_LOAD_COUNT);
 
-                    const wasmModule = new WebAssembly.Module(bufferSource),
-                        instance = new WebAssembly.Instance(wasmModule, importObject);
+                    let wasmModule;
+
+                    if (bufferSource instanceof WebAssembly.Module) {
+                        wasmModule = bufferSource;
+                    } else {
+                        wasmModule = new WebAssembly.Module(bufferSource);
+                    }
+
+                    const instance = new WebAssembly.Instance(wasmModule, importObject);
 
                     Benchmark.stopTiming("wasm_load_" + WASM_LOAD_COUNT);
                     return Promise.resolve({
@@ -1186,6 +1228,8 @@ try {
                 }
             };
 
+            WebAssembly.patched = true;
+
             return original;
         },
 
@@ -1194,37 +1238,52 @@ try {
         },
 
         addContextGlobals: _ => {
-            Patches.patchGlobalContext(globals);
+            Patches._safePatchGlobals(globals);
         },
 
-        addGlobalObjects: _ => {
-            const globalObjs = {
-                CustomError,
-                RefError,
+        addGlobalObjects: (library = loadLibrary) => {
+            globalObjs.CustomError ??= CustomError;
+            globalObjs.RefError ??= RefError;
 
-                FileDataTypes,
-                LoaderUtils,
-                Benchmark,
+            globalObjs.FileDataTypes ??= FileDataTypes;
+            globalObjs.LoaderUtils ??= LoaderUtils;
+            globalObjs.Benchmark ??= Benchmark;
 
-                loadSource,
-                ModuleLoader,
+            globalObjs.loadSource ??= loadSource;
+            globalObjs.ModuleLoader ??= ModuleLoader;
 
-                Patches: {
-                    patchGlobalContext: Patches.patchGlobalContext
-                }
+            globalObjs.Patches ??= {
+                patchGlobalContext: Patches.patchGlobalContext
             };
 
-            Patches.patchGlobalContext(globalObjs);
+            switch (library) {
+                case "canvaskit":
+                    break;
+                case "resvg":
+                    break;
+                case "libvips":
+                    break;
+                default:
+                    throw new LoaderError("Unknown library: " + library);
+            }
+
+            Patches._safePatchGlobals(globalObjs);
         },
 
-        applyAll: _ => {
+        applyAll: (library = loadLibrary) => {
+            Patches._clearPatches();
+
             Patches.polyfillConsole();
             Patches.polyfillTimers();
 
             Patches.polyfillPromise();
 
-            switch (loadLibrary) {
+            switch (library) {
                 case "canvaskit":
+                    break;
+                case "resvg":
+                    Patches.polyfillBuffer();
+                    Patches.polyfillTextEncoderDecoder();
                     break;
                 case "libvips":
                     Patches.polyfillBuffer();
@@ -1235,13 +1294,39 @@ try {
                     Patches.polyfillWebWorker();
                     break;
                 default:
-                    throw new LoaderError("Unknown library: " + loadLibrary);
+                    throw new LoaderError("Unknown library: " + library);
             }
 
             Patches.addContextGlobals();
-            Patches.addGlobalObjects();
+            Patches.addGlobalObjects(library);
 
             Patches.patchWasmInstantiate();
+        },
+
+        _loadedPatches: [],
+
+        _loadedPatch: (...names) => {
+            for (const name of names) {
+                if (!Patches._loadedPatches.includes(name)) {
+                    Patches._loadedPatches.push(name);
+                }
+            }
+        },
+
+        _clearPatches: _ => {
+            Patches._loadedPatches.length = 0;
+        },
+
+        _safePatchGlobals: objs => {
+            const newObjs = {};
+
+            for (const name of Object.keys(objs)) {
+                if (Patches._loadedPatches.includes(name)) {
+                    newObjs[name] = objs[name];
+                }
+            }
+
+            Patches.patchGlobalContext(newObjs);
         }
     };
 
@@ -1342,6 +1427,35 @@ try {
         Patches.patchGlobalContext({ CanvasKit });
     }
 
+    // resvg loader
+    function loadResvg() {
+        const ResvgInit = ModuleLoader.loadModule(urls.ResvgLoaderUrl, tags.ResvgLoaderTagName, undefined, [
+            undefined,
+            enableDebugger
+        ]);
+
+        console.replyWithLogs();
+
+        let wasm = ModuleLoader.getModuleCode(urls.ResvgWasmUrl, tags.ResvgWasmTagName, FileDataTypes.binary, {
+            encoded: true
+        });
+
+        if (loadSource === "tag") {
+            wasm = XzDecompressor.decompress(wasm);
+        }
+
+        Benchmark.startTiming("resvg_init");
+        try {
+            ResvgInit.initWasm(wasm);
+        } catch (err) {
+            console.error("Error occured while loading resvg:", err);
+        }
+        Benchmark.stopTiming("resvg_init");
+
+        console.replyWithLogs();
+        Patches.patchGlobalContext({ Resvg: ResvgInit.Resvg });
+    }
+
     // libvips loader
     function loadLibVips() {
         const initCode = ModuleLoader._addDebuggerStmt(
@@ -1390,41 +1504,82 @@ try {
     }
 
     // main
-    Benchmark.startTiming("load_total");
-    ModuleLoader.tagOwner = tagOwner;
+    function mainPatch() {
+        function subPatch(library) {
+            let timeKey = "apply_patches";
 
-    Benchmark.startTiming("apply_patches");
-    Patches.applyAll();
-    Benchmark.stopTiming("apply_patches");
+            if (typeof library !== "undefined") {
+                timeKey += `_${library.toLowerCase()}`;
+            }
 
-    if (loadSource === "tag") {
-        Benchmark.startTiming("load_encoder");
-        loadBase2nDecoder();
-        Benchmark.stopTiming("load_encoder");
+            Benchmark.startTiming(timeKey);
+            Patches.applyAll(library);
+            Benchmark.stopTiming(timeKey);
+        }
 
-        Benchmark.startTiming("load_decompressor");
-        loadXzDecompressor();
-        Benchmark.stopTiming("load_decompressor");
+        if (Array.isArray(loadLibrary)) {
+            loadLibrary.forEach(subPatch);
+        } else {
+            subPatch();
+        }
     }
 
-    switch (loadLibrary) {
-        case "canvaskit":
-            Benchmark.startTiming("load_canvaskit");
-            loadCanvasKit();
-            Benchmark.stopTiming("load_canvaskit");
-            break;
-        case "libvips":
-            Benchmark.startTiming("load_libvips");
-            loadLibVips();
-            Benchmark.stopTiming("load_libvips");
-            break;
-        default:
-            throw new LoaderError("Unknown library: " + loadLibrary);
+    function mainLoadMisc() {
+        if (loadSource === "tag") {
+            Benchmark.startTiming("load_encoder");
+            loadBase2nDecoder();
+            Benchmark.stopTiming("load_encoder");
+
+            Benchmark.startTiming("load_decompressor");
+            loadXzDecompressor();
+            Benchmark.stopTiming("load_decompressor");
+        }
     }
 
-    ModuleLoader.tagOwner = undefined;
-    ModuleLoader.isolateGlobals = false;
-    Benchmark.stopTiming("load_total");
+    function mainLoadLibrary() {
+        function subLoadLibrary(library = loadLibrary) {
+            switch (library) {
+                case "canvaskit":
+                    Benchmark.startTiming("load_canvaskit");
+                    loadCanvasKit();
+                    Benchmark.stopTiming("load_canvaskit");
+                    break;
+                case "resvg":
+                    Benchmark.startTiming("load_resvg");
+                    loadResvg();
+                    Benchmark.stopTiming("load_resvg");
+                    break;
+                case "libvips":
+                    Benchmark.startTiming("load_libvips");
+                    loadLibVips();
+                    Benchmark.stopTiming("load_libvips");
+                    break;
+                default:
+                    throw new LoaderError("Unknown library: " + library);
+            }
+        }
+
+        if (Array.isArray(loadLibrary)) {
+            loadLibrary.forEach(subLoadLibrary);
+        } else {
+            subLoadLibrary();
+        }
+    }
+
+    function main() {
+        Benchmark.startTiming("load_total");
+        ModuleLoader.tagOwner = tagOwner;
+
+        mainPatch();
+        mainLoadMisc();
+        mainLoadLibrary();
+
+        ModuleLoader.tagOwner = undefined;
+        ModuleLoader.isolateGlobals = false;
+        Benchmark.stopTiming("load_total");
+    }
+
+    main();
 
     if (enableDebugger) debugger;
     else throw new ExitError(".");

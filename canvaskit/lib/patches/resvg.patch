@@ -1,0 +1,67 @@
+--- "a/.\\canvaskit\\libs\\js\\original\\resvg.js"
++++ "b/.\\canvaskit\\libs\\js\\new\\resvg.js"
+@@ -435,29 +435,10 @@ var Resvg = class {
+     }
+   }
+ };
+-async function __wbg_load(module2, imports) {
+-  if (typeof Response === "function" && module2 instanceof Response) {
+-    if (typeof WebAssembly.instantiateStreaming === "function") {
+-      try {
+-        return await WebAssembly.instantiateStreaming(module2, imports);
+-      } catch (e) {
+-        if (module2.headers.get("Content-Type") != "application/wasm") {
+-          console.warn("`WebAssembly.instantiateStreaming` failed because your server does not serve wasm with `application/wasm` MIME type. Falling back to `WebAssembly.instantiate` which is slower. Original error:\n", e);
+-        } else {
+-          throw e;
+-        }
+-      }
+-    }
+-    const bytes = await module2.arrayBuffer();
+-    return await WebAssembly.instantiate(bytes, imports);
+-  } else {
+-    const instance = await WebAssembly.instantiate(module2, imports);
+-    if (instance instanceof WebAssembly.Instance) {
+-      return { instance, module: module2 };
+-    } else {
+-      return instance;
+-    }
+-  }
++function __wbg_load(module2, imports) {
++  let instance;
++  WebAssembly.instantiate(module2, imports).then(inst => (instance = inst)).catch(err => { throw err });
++  return instance;
+ }
+ function __wbg_get_imports() {
+   const imports = {};
+@@ -554,7 +535,7 @@ function __wbg_finalize_init(instance, module2) {
+   cachedUint8Memory0 = null;
+   return wasm;
+ }
+-async function __wbg_init(input) {
++function __wbg_init(input) {
+   if (wasm !== void 0)
+     return wasm;
+   if (typeof input === "undefined") {
+@@ -565,18 +546,18 @@ async function __wbg_init(input) {
+     input = fetch(input);
+   }
+   __wbg_init_memory(imports);
+-  const { instance, module: module2 } = await __wbg_load(await input, imports);
++  const { instance, module: module2 } = __wbg_load(input, imports);
+   return __wbg_finalize_init(instance, module2);
+ }
+ var dist_default = __wbg_init;
+ 
+ // wasm-binding.ts
+ var initialized = false;
+-var initWasm = async (module_or_path) => {
++var initWasm = (module_or_path) => {
+   if (initialized) {
+     throw new Error("Already initialized. The `initWasm()` function can be used only once.");
+   }
+-  await dist_default(await module_or_path);
++  dist_default(module_or_path);
+   initialized = true;
+ };
+ var Resvg2 = class extends Resvg {
