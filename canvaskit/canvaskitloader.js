@@ -3,7 +3,8 @@
 // config
 const loadLibrary = util.loadLibrary ?? "canvaskit",
     loadSource = util.loadSource ?? (0 ? "url" : "tag"),
-    enableDebugger = util.inspectorEnabled ?? false;
+    enableDebugger = util.inspectorEnabled ?? false,
+    isolateGlobals = util._isolateGlobals ?? true;
 
 const consoleOpts = {};
 
@@ -1042,6 +1043,10 @@ try {
                         }
                     })
                     .filter(tag => tag !== null);
+
+                if (tags.length < 1) {
+                    throw new LoaderError("No matching tag(s) found");
+                }
 
                 body = tags.map(tag => LoaderUtils.getTagBody(tag)).join("");
             }
