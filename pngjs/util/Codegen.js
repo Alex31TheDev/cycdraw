@@ -1,16 +1,22 @@
 const Codegen = {
     indentation: 4,
+    statementExp: /[\s\S]*[\w\d$_)\]]$/,
 
     getSpacing: _ => {
         return " ".repeat(Codegen.indentation);
     },
 
     indent: (code, times = 1) => {
-        const spaces = Codegen.getSpacing();
+        const spaces = Codegen.getSpacing().repeat(times);
+
+        if (typeof code === "undefined" || code.length < 1) {
+            return spaces;
+        }
+
         code = code.trim();
 
         let lines = code.split("\n");
-        lines = lines.map(line => spaces.repeat(times) + line);
+        lines = lines.map(line => spaces + line);
 
         return lines.join("\n");
     },
@@ -31,7 +37,7 @@ const Codegen = {
             replaced = code.slice(last_nl);
         }
 
-        if (/[\s\S]+[\w\d$_)\]]$/.test(replaced)) {
+        if (Codegen.statementExp.test(replaced)) {
             return code + ";";
         }
 
@@ -49,6 +55,14 @@ const Codegen = {
         }
 
         return Codegen.statement(`${type} ${name} = ${value}`);
+    },
+
+    block: body => {
+        const header = "{\n",
+            footer = "\n}";
+
+        body = Codegen.indent(Codegen.statement(body));
+        return header + body + footer;
     },
 
     return: value => {
@@ -70,25 +84,21 @@ const Codegen = {
     tryCatch: (tryBody, catchBody, errName = "err") => {
         errName = errName.trim();
 
-        const tryHeader = "try {\n",
-            catchHeader = `catch (${errName}) {\n`,
-            footer = "\n}";
+        const tryHeader = "try ",
+            catchHeader = `catch (${errName}) `;
 
-        tryBody = Codegen.indent(Codegen.statement(tryBody));
-        catchBody = Codegen.indent(Codegen.statement(catchBody));
-
-        const tryBlock = tryHeader + tryBody + footer,
-            catchBlock = catchHeader + catchBody + footer;
+        const tryBlock = tryHeader + Codegen.block(tryBody),
+            catchBlock = catchHeader + Codegen.block(catchBody);
 
         return `${tryBlock} ${catchBlock}`;
     },
 
     closure: body => {
-        const header = "(function() {\n",
-            footer = Codegen.statement("})()");
+        const header = "(function() ",
+            footer = Codegen.statement(")()");
 
-        body = Codegen.indent(Codegen.statement(body));
-        return header + body + "\n" + footer;
+        const block = Codegen.block(body);
+        return header + block + footer;
     },
 
     wrapCode: code => {
