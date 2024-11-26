@@ -1,8 +1,11 @@
 "use strict";
 
 // config
-const maxHeight = 2048,
+const maxWidth = 1000,
+    maxHeight = 2048,
     maxHeightDelta = 20;
+
+const enableDebugger = util.inspectorEnabled ?? false;
 
 // sources
 const urls = {
@@ -32,7 +35,7 @@ Captions the given image (from the message you answered or the URL)`,
 
 // misc
 const urlRegex = /(\S*?):\/\/(?:([^\/\.]+)\.)?([^\/\.]+)\.([^\/\s]+)\/?(\S*)?/,
-    attachRegex = /^(https:\/\/cdn.discordapp.com\/attachments\/\d+?\/\d+?\/[^?]+?)(?:\?|$)/;
+    attachRegex = /^(https:\/\/(?:cdn|media).discordapp.(?:com|net)\/attachments\/\d+?\/\d+?\/[^?]+?)(?:\?|$)/;
 
 const customEmojiRegex = /<:(.+?):(\d+?)>/g,
     customEmojiReplacement = "\ue000";
@@ -46,11 +49,14 @@ const Endpoints = {
 };
 
 try {
+    if (enableDebugger) debugger;
+
     // parse args and attachment
     let showTimes = false;
 
-    const rmsg = (() => {
+    const [rmsg, content] = (() => {
         let rmsg;
+        msg.content = `%t ${tag.name}${tag.args ? " " + tag.args : ""}`;
 
         if (msg.reference) {
             const msgs = util.fetchMessages();
@@ -97,18 +103,11 @@ try {
             }
         }
 
-        if (msg.reference) {
-            rmsg.content = msg.content;
-            rmsg.attachments = msg.attachments;
-        }
-
-        return rmsg;
+        return [rmsg, msg.content];
     })();
 
     let text = (() => {
-        const split = rmsg.content.split(" ").slice(2);
-
-        let text = (tag.args = split.join(" "));
+        const split = content.split(" ").slice(2);
 
         checkArgs: if (split.length > 0) {
             const option = split[0];
@@ -126,10 +125,12 @@ try {
                     break checkArgs;
             }
 
-            text = split.slice(1).join(" ");
+            split.shift();
         }
 
-        if (!text || text.length < 1) {
+        let text = (tag.args = split.join(" "));
+
+        if (text.length < 1) {
             const out = `:warning: No caption text provided.\n${usage}`;
             throw new ExitError(out);
         }
@@ -247,18 +248,23 @@ try {
         }
 
         function calcClampedSize(width, height, totalHeight = 0, maxHeight) {
-            if (totalHeight <= maxHeight) {
-                return [width, height];
+            let newWidth = width,
+                newHeight = height;
+
+            if (totalHeight > maxHeight) {
+                const aspect = width / totalHeight,
+                    heightRatio = maxHeight / totalHeight;
+
+                newWidth = Math.round(aspect * maxHeight);
+                newHeight = Math.round(height * heightRatio);
             }
 
-            const aspect = width / totalHeight,
-                heightRatio = maxHeight / totalHeight;
+            if (width > maxWidth) {
+                const aspect = height / width;
 
-            let newWidth = aspect * maxHeight,
-                newHeight = height * heightRatio;
-
-            newWidth = Math.round(newWidth);
-            newHeight = Math.round(newHeight);
+                newWidth = maxWidth;
+                newHeight = Math.round(aspect * maxWidth);
+            }
 
             return [newWidth, newHeight];
         }
@@ -449,6 +455,8 @@ try {
             const pngBytes = CanvasKitUtil.encodeSurface(surface);
             Benchmark.stopTiming("encode_png");
             surface.delete();
+
+            if (enableDebugger) debugger;
 
             const out = showTimes
                 ? Benchmark.getAll("load_total", "load_ranges", "caption_total", "encode_png")
