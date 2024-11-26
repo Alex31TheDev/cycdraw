@@ -769,21 +769,25 @@ try {
 
         static getCount(name) {
             name = this._formatCountName(name);
-            const count = this.counts[name];
 
-            if (typeof count === "undefined") {
+            const count = this.counts[name],
+                origName = this._origCountNames.get(name);
+
+            if (typeof count === "undefined" || typeof origName === "undefined") {
                 return "Count not found";
             }
 
-            return this._formatCount(name, count);
+            return this._formatCount(origName, count);
         }
 
         static incrementCount(name) {
+            if (typeof this.counts[name] === "undefined") {
+                this._defineCount(name);
+            }
+
             name = this._formatCountName(name);
 
-            this._defineCount(name);
             this.counts[name]++;
-
             return this.counts[name];
         }
 
@@ -805,7 +809,10 @@ try {
         }
 
         static wrapFunction(name, func) {
+            const formattedName = this._formatCountName(name);
+
             this._defineCount(name);
+            this._origCountFuncs.set(formattedName, func);
 
             const _this = this;
             return function (...args) {
@@ -818,6 +825,22 @@ try {
                 return ret;
             };
         }
+
+        static removeWrapper(name) {
+            const formattedName = this._formatCountName(name);
+
+            if (typeof this.counts[formattedName] === "undefined") {
+                return "Wrapper not found";
+            }
+
+            const origFunc = this._origCountFuncs.get(formattedName);
+            this._deleteCount(name);
+
+            return origFunc;
+        }
+
+        static _origCountNames = new Map();
+        static _origCountFuncs = new Map();
 
         static _formatTime(key, time) {
             return `${key}: ${time.toLocaleString()}ms`;
@@ -835,10 +858,16 @@ try {
         }
 
         static _formatCount(name, count) {
-            name = name.toLowerCase();
-            name = name.replace("_count", "");
-
             return `${name}_${count}`;
+        }
+
+        static _formatCountOrigName(name) {
+            if (typeof name !== "string") {
+                throw new UtilError("Count names must be strings");
+            }
+
+            name = name.replaceAll(" ", "_");
+            return name.toLowerCase();
         }
 
         static _formatCountName(name) {
@@ -852,8 +881,19 @@ try {
         }
 
         static _defineCount(name) {
+            const origName = this._formatCountOrigName(name);
             name = this._formatCountName(name);
+
             this.counts[name] ??= 0;
+            this._origCountNames.set(name, origName);
+        }
+
+        static _deleteCount(name) {
+            name = this._formatCountName(name);
+
+            delete this.counts[name];
+            this._origCountNames.delete(name);
+            this._origCountFuncs.delete(name);
         }
     }
 
