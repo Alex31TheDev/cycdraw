@@ -6,7 +6,9 @@
     "scripts": {
         "test": "echo \"Error: no test specified\" && exit 1",
         "prettier-format": "prettier --config .prettierrc --ignore-path .prettierignore --write **/*.js",
-        "build-tag": "browserify ./pngjs/index.js -o ./build/bundle.js"
+        "build-pngjs-tag": "browserify ./pngjs/index.js -o ./build/bundle.js",
+        "split-canvaskit-loader": "node ../base2n/scripts/splitter.cjs ./canvaskit/canvaskitloader.js",
+        "build-min-base2nwasm": "terser ./canvaskit/lib/custom/Base2nWasmDec.js -o ./canvaskit/lib/build/Base2nWasmDec.min.js  -c -m toplevel --mangle-props \"regex=/^#|_$/\""
     },
     "keywords": [],
     "author": "",
@@ -16,6 +18,7 @@
     },
     "devDependencies": {
         "browserify": "^17.0.0",
-        "prettier": "^3.2.5"
+        "prettier": "^3.2.5",
+        "terser": "^5.36.0"
     }
 }

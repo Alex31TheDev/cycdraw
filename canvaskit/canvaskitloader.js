@@ -3,8 +3,10 @@
 // config
 const loadLibrary = util.loadLibrary ?? "canvaskit",
     loadSource = util.loadSource ?? (0 ? "url" : "tag"),
-    enableDebugger = util.inspectorEnabled ?? false,
-    isolateGlobals = util._isolateGlobals ?? true;
+    enableDebugger = util.inspectorEnabled ?? false;
+
+const isolateGlobals = util._isolateGlobals ?? true,
+    useWasmBase2nDecoder = util._useWasmBase2nDecoder ?? true;
 
 const consoleOpts = {};
 
@@ -32,6 +34,9 @@ const urls = {
 
 const tags = {
         Base2nTagName: "ck_base2n",
+        Base2nWasmWrapperTagName: "ck_base2nwasm_dec",
+        Base2nWasmInitTagName: "ck_base2nwasm_init",
+        Base2nWasmWasmTagName: "ck_base2nwasm_wasm",
 
         XzDecompressorTagName: "ck_xz_decomp",
         XzWasmTagName: "ck_xz_wasm",
@@ -644,6 +649,7 @@ try {
 
     class Benchmark {
         static data = Object.create(null);
+        static counts = Object.create(null);
         static timepoints = new Map();
 
         static useVmTime = typeof vm !== "undefined";
@@ -654,14 +660,14 @@ try {
         }
 
         static startTiming(key) {
-            key = this._formatKey(key);
+            key = this._formatTimeKey(key);
 
             const t1 = this.getCurrentTime();
             this.timepoints.set(key, t1);
         }
 
         static stopTiming(key) {
-            key = this._formatKey(key);
+            key = this._formatTimeKey(key);
             const t1 = this.timepoints.get(key);
 
             if (typeof t1 === "undefined") {
@@ -683,7 +689,7 @@ try {
         }
 
         static getTime(key) {
-            key = this._formatKey(key);
+            key = this._formatTimeKey(key);
             const time = this.data[key];
 
             if (typeof time === "undefined") {
@@ -694,7 +700,7 @@ try {
         }
 
         static deleteTime(key) {
-            key = this._formatKey(key);
+            key = this._formatTimeKey(key);
             this.timepoints.delete(key);
 
             if (key in this.data) {
@@ -711,6 +717,7 @@ try {
             }
 
             this.timepoints.clear();
+            this.clearCounts();
         }
 
         static clearExcept(...keys) {
@@ -721,6 +728,7 @@ try {
             }
 
             this.timepoints.clear();
+            this.clearCounts();
         }
 
         static clearExceptLast(n = 1) {
@@ -731,6 +739,7 @@ try {
             }
 
             this.timepoints.clear();
+            this.clearCounts();
         }
 
         static getSum(...keys) {
@@ -758,11 +767,63 @@ try {
             return times.join(",\n");
         }
 
+        static getCount(name) {
+            name = this._formatCountName(name);
+            const count = this.counts[name];
+
+            if (typeof count === "undefined") {
+                return "Count not found";
+            }
+
+            return this._formatCount(name, count);
+        }
+
+        static incrementCount(name) {
+            name = this._formatCountName(name);
+
+            this._defineCount(name);
+            this.counts[name]++;
+
+            return this.counts[name];
+        }
+
+        static deleteCount(name) {
+            name = this._formatCountName(name);
+
+            if (name in this.counts) {
+                this.counts[name] = 0;
+                return true;
+            }
+
+            return false;
+        }
+
+        static clearCounts() {
+            for (const name of Object.keys(this.counts)) {
+                this.counts[name] = 0;
+            }
+        }
+
+        static wrapFunction(name, func) {
+            this._defineCount(name);
+
+            const _this = this;
+            return function (...args) {
+                _this.incrementCount(name);
+                _this.startTiming(_this.getCount(name));
+
+                const ret = func.apply(this, args);
+
+                _this.stopTiming(_this.getCount(name));
+                return ret;
+            };
+        }
+
         static _formatTime(key, time) {
             return `${key}: ${time.toLocaleString()}ms`;
         }
 
-        static _formatKey(key) {
+        static _formatTimeKey(key) {
             switch (typeof key) {
                 case "number":
                     return key.toString();
@@ -772,13 +833,31 @@ try {
                     throw new UtilError("Time keys must be strings");
             }
         }
+
+        static _formatCount(name, count) {
+            name = name.toLowerCase();
+            name = name.replace("_count", "");
+
+            return `${name}_${count}`;
+        }
+
+        static _formatCountName(name) {
+            if (typeof name !== "string") {
+                throw new UtilError("Count names must be strings");
+            }
+
+            name = name.replaceAll(" ", "_");
+            name += "_count";
+            return name.toUpperCase();
+        }
+
+        static _defineCount(name) {
+            name = this._formatCountName(name);
+            this.counts[name] ??= 0;
+        }
     }
 
     // module loader
-    let MODULE_LOAD_COUNT = 0,
-        URL_FETCH_COUNT = 0,
-        TAG_FETCH_COUNT = 0;
-
     const cleanGlobal = LoaderUtils.shallowClone(globalThis, "nonenum"),
         globalKeys = ["global", "globalThis"];
 
@@ -804,12 +883,13 @@ try {
             }
 
             const encoded = options.encoded ?? false,
-                owner = options.owner ?? this.tagOwner;
+                owner = options.owner ?? this.tagOwner,
+                buf_size = options.buf_size ?? 50 * 1024;
 
             let moduleCode = this._fetchTagBody(tagName, owner);
 
             if (encoded) {
-                moduleCode = this._decodeModuleCode(moduleCode);
+                moduleCode = this._decodeModuleCode(moduleCode, buf_size);
             }
 
             return this._parseModuleCode(moduleCode, returnType);
@@ -841,10 +921,7 @@ try {
 
             const isolateGlobals = options.isolateGlobals ?? this.isolateGlobals;
 
-            MODULE_LOAD_COUNT++;
-            Benchmark.startTiming("load_module_" + MODULE_LOAD_COUNT);
-
-            moduleCode = ModuleLoader._addDebuggerStmt(moduleCode, breakpoint);
+            moduleCode = this._addDebuggerStmt(moduleCode, breakpoint);
 
             let module = { exports: {} },
                 exports = {};
@@ -875,45 +952,34 @@ try {
                 ...Object.values(filteredScope)
             ];
 
-            let originalGlobal, originalKeys;
+            let originalGlobal;
 
             if (isolateGlobals) {
                 originalGlobal = LoaderUtils.shallowClone(globalThis, "enum");
-                originalKeys = Object.keys(globalThis);
 
-                for (const key of Object.keys(globalThis)) {
-                    try {
-                        if (key !== "global") delete globalThis[key];
-                    } catch (err) {
-                        if (err instanceof TypeError) {
-                            throw new LoaderError(
-                                "You're not allowed to have functions defined via the function keyword or vars in the same scope as the load call. Use an object or an IIFE to isolate them."
-                            );
-                        } else {
-                            throw err;
-                        }
+                try {
+                    Patches.removeFromGlobalContext(Object.keys(globalThis));
+                } catch (err) {
+                    if (err instanceof TypeError) {
+                        throw new LoaderError(
+                            "You're not allowed to have functions defined via the function keyword or vars in the same scope as the load call. Use an object or an IIFE to isolate them."
+                        );
+                    } else {
+                        throw err;
                     }
                 }
 
-                for (const key of filteredKeys) {
-                    globalThis[key] = patchedGlobal[key];
-                }
+                Patches.patchGlobalContext(patchedGlobal);
             }
 
             const loaderFn = new Function(loaderParams, moduleCode);
             loaderFn(...loaderArgs);
 
             if (isolateGlobals) {
-                for (const key of Object.keys(globalThis)) {
-                    if (key !== "global") delete globalThis[key];
-                }
-
-                for (const key of originalKeys) {
-                    if (key !== "global") globalThis[key] = originalGlobal[key];
-                }
+                Patches.removeFromGlobalContext(Object.keys(globalThis));
+                Patches.patchGlobalContext(originalGlobal);
             }
 
-            Benchmark.stopTiming("load_module_" + MODULE_LOAD_COUNT);
             return module.exports;
         }
 
@@ -949,9 +1015,6 @@ try {
         }
 
         static _fetchFromUrl(url, returnType, options = {}) {
-            URL_FETCH_COUNT++;
-            Benchmark.startTiming("url_fetch_" + URL_FETCH_COUNT);
-
             let responseType;
 
             switch (returnType) {
@@ -992,7 +1055,6 @@ try {
                 }
             }
 
-            Benchmark.stopTiming("url_fetch_" + URL_FETCH_COUNT);
             return returnRes ? res : res.data;
         }
 
@@ -1002,9 +1064,6 @@ try {
                 usePattern = tagName instanceof RegExp;
 
             let body;
-
-            TAG_FETCH_COUNT++;
-            Benchmark.startTiming("tag_fetch_" + TAG_FETCH_COUNT);
 
             if (useName) {
                 if (tagName.length < 1) {
@@ -1051,18 +1110,29 @@ try {
                 body = tags.map(tag => LoaderUtils.getTagBody(tag)).join("");
             }
 
-            Benchmark.stopTiming("tag_fetch_" + TAG_FETCH_COUNT);
             return body;
         }
 
-        static _decodeModuleCode(moduleCode) {
-            if (typeof decodeBase2n === "undefined" || typeof table === "undefined") {
-                throw new LoaderError("Base2n decoder not initialized");
-            }
+        static _decodeModuleCode(moduleCode, buf_size) {
+            if (wasmDecoderLoaded) {
+                if (typeof fastDecodeBase2n === "undefined") {
+                    throw new LoaderError("WASM Base2n decoder not initialized");
+                }
 
-            return decodeBase2n(moduleCode, table, {
-                predictSize: true
-            });
+                return fastDecodeBase2n(moduleCode, buf_size);
+            } else {
+                if (typeof decodeBase2n === "undefined") {
+                    throw new LoaderError("Base2n decoder not initialized");
+                }
+
+                if (typeof table === "undefined") {
+                    throw new LoaderError("Base2n table not initialized");
+                }
+
+                return decodeBase2n(moduleCode, table, {
+                    predictSize: true
+                });
+            }
         }
 
         static _parseModuleCode(moduleCode, returnType) {
@@ -1089,9 +1159,11 @@ try {
         }
     }
 
-    // patches
-    let WASM_LOAD_COUNT = 0;
+    ModuleLoader._fetchFromUrl = Benchmark.wrapFunction("url_fetch", ModuleLoader._fetchFromUrl);
+    ModuleLoader._fetchTagBody = Benchmark.wrapFunction("tag_fetch", ModuleLoader._fetchTagBody);
+    ModuleLoader.loadModuleFromSource = Benchmark.wrapFunction("module_load", ModuleLoader.loadModuleFromSource);
 
+    // patches
     const Patches = {
         polyfillConsole: _ => {
             globals.console ??= new Logger(true, consoleOpts);
@@ -1208,11 +1280,8 @@ try {
 
             const original = WebAssembly.instantiate;
 
-            WebAssembly.instantiate = (bufferSource, importObject) => {
+            WebAssembly.instantiate = Benchmark.wrapFunction("wasm_load", (bufferSource, importObject) => {
                 try {
-                    WASM_LOAD_COUNT++;
-                    Benchmark.startTiming("wasm_load_" + WASM_LOAD_COUNT);
-
                     let wasmModule;
 
                     if (bufferSource instanceof WebAssembly.Module) {
@@ -1223,7 +1292,6 @@ try {
 
                     const instance = new WebAssembly.Instance(wasmModule, importObject);
 
-                    Benchmark.stopTiming("wasm_load_" + WASM_LOAD_COUNT);
                     return Promise.resolve({
                         module: wasmModule,
                         instance
@@ -1231,7 +1299,7 @@ try {
                 } catch (err) {
                     console.error(err);
                 }
-            };
+            });
 
             WebAssembly.patched = true;
 
@@ -1240,6 +1308,12 @@ try {
 
         patchGlobalContext: objs => {
             Object.assign(globalThis, objs);
+        },
+
+        removeFromGlobalContext: keys => {
+            for (const key of keys) {
+                if (key !== "global") delete globalThis[key];
+            }
         },
 
         addContextGlobals: _ => {
@@ -1336,43 +1410,93 @@ try {
     };
 
     // misc loader
-    let DECODE_COUNT = 0,
-        XZ_DECOMPRESS_COUNT = 0;
+    let wasmDecoderLoaded = false;
 
-    function loadBase2nDecoder() {
+    function loadBase2nDecoder(charset = "normal") {
         const { base2n } = ModuleLoader.loadModule(null, tags.Base2nTagName);
 
         if (typeof base2n === "undefined") {
             return;
         }
 
-        const charset = /*"𐀀􏿿"*/ String.fromCodePoint(
-                0x0021,
-                0xd7ff,
-                0xe000,
-                0xe000 - (0xd7ff - 0x0021 + 1) + 2 ** 20 - 1
-            ),
-            table = base2n.Base2nTable.generate(charset, {
-                tableType: base2n.Base2nTableTypes.typedarray,
-                generateTables: [base2n.Base2nTableNames.decode]
-            });
+        let charsetRanges,
+            sortRanges = true;
+
+        switch (charset) {
+            case "normal":
+                charsetRanges = String.fromCodePoint(
+                    0x0021,
+                    0xd7ff,
+                    0xe000,
+                    0xe000 - (0xd7ff - 0x0021 + 1) + 2 ** 20 - 1
+                );
+                break;
+            case "linear":
+                charsetRanges = charset = String.fromCodePoint(0x10000, 0x10000 + 2 ** 20 - 1);
+                break;
+            case "base64":
+                charsetRanges = "AZaz09++//";
+                sortRanges = false;
+                break;
+            default:
+                throw new LoaderError("Unknown charset: " + charset);
+        }
+
+        const table = base2n.Base2nTable.generate(charsetRanges, {
+            tableType: base2n.Base2nTableTypes.typedarray,
+            generateTables: [base2n.Base2nTableNames.decode],
+            sortRanges
+        });
 
         const originalDecode = base2n.decodeBase2n,
-            patchedDecode = function (...args) {
-                DECODE_COUNT++;
-
-                Benchmark.startTiming("decode_" + DECODE_COUNT);
-                const decoded = originalDecode.apply(this, args);
-                Benchmark.stopTiming("decode_" + DECODE_COUNT);
-
-                return decoded;
-            };
+            patchedDecode = Benchmark.wrapFunction("decode", originalDecode);
 
         Patches.patchGlobalContext({
             ...base2n,
             decodeBase2n: patchedDecode,
             table
         });
+    }
+
+    function unloadBase2nDecoder() {
+        const keys = Object.keys(globalThis).filter(key => key.toLowerCase().includes("base2n"));
+        keys.push("table");
+
+        Patches.removeFromGlobalContext(keys);
+    }
+
+    function loadWasmBase2nDecoder() {
+        const Base2nWasmDec = ModuleLoader.loadModule(
+            null,
+            tags.Base2nWasmWrapperTagName,
+            [],
+            [
+                {
+                    CustomError
+                }
+            ]
+        );
+
+        if (typeof Base2nWasmDec === "undefined") {
+            return;
+        }
+
+        const DecoderInit = ModuleLoader.loadModule(null, tags.Base2nWasmInitTagName),
+            decoderWasm = ModuleLoader.getModuleCode(null, tags.Base2nWasmWasmTagName, FileDataTypes.binary, {
+                encoded: true
+            });
+
+        Base2nWasmDec.init(DecoderInit, decoderWasm);
+
+        const originalDecode = Base2nWasmDec.decodeBase2n.bind(Base2nWasmDec),
+            patchedDecode = Benchmark.wrapFunction("decode", originalDecode);
+
+        unloadBase2nDecoder();
+        Patches.patchGlobalContext({
+            fastDecodeBase2n: patchedDecode
+        });
+
+        wasmDecoderLoaded = true;
     }
 
     function loadXzDecompressor() {
@@ -1383,21 +1507,15 @@ try {
         }
 
         const xzWasm = ModuleLoader.getModuleCode(null, tags.XzWasmTagName, FileDataTypes.binary, {
-            encoded: true
+            encoded: true,
+            buf_size: 13 * 1024
         });
 
         XzDecompressor.loadWasm(xzWasm);
 
-        const originalDecompress = XzDecompressor.decompress;
-        XzDecompressor.decompress = function (...args) {
-            XZ_DECOMPRESS_COUNT++;
-
-            Benchmark.startTiming("xz_decompress_" + XZ_DECOMPRESS_COUNT);
-            const decompressed = originalDecompress.apply(this, args);
-            Benchmark.stopTiming("xz_decompress_" + XZ_DECOMPRESS_COUNT);
-
-            return decompressed;
-        };
+        const originalDecompress = XzDecompressor.decompress,
+            patchedDecompress = Benchmark.wrapFunction("xz_decompress", originalDecompress);
+        XzDecompressor.decompress = patchedDecompress;
 
         Patches.patchGlobalContext({ XzDecompressor });
     }
@@ -1412,7 +1530,8 @@ try {
         console.replyWithLogs();
 
         let wasm = ModuleLoader.getModuleCode(urls.CanvasKitWasmUrl, tags.CanvasKitWasmTagName, FileDataTypes.binary, {
-            encoded: true
+            encoded: true,
+            buf_size: 2100 * 1024
         });
 
         if (loadSource === "tag") {
@@ -1442,7 +1561,8 @@ try {
         console.replyWithLogs();
 
         let wasm = ModuleLoader.getModuleCode(urls.ResvgWasmUrl, tags.ResvgWasmTagName, FileDataTypes.binary, {
-            encoded: true
+            encoded: true,
+            buf_size: 700 * 1024
         });
 
         if (loadSource === "tag") {
@@ -1531,9 +1651,15 @@ try {
 
     function mainLoadMisc() {
         if (loadSource === "tag") {
-            Benchmark.startTiming("load_encoder");
-            loadBase2nDecoder();
-            Benchmark.stopTiming("load_encoder");
+            Benchmark.startTiming("load_decoder");
+            loadBase2nDecoder(useWasmBase2nDecoder ? "base64" : "normal");
+            Benchmark.stopTiming("load_decoder");
+
+            if (useWasmBase2nDecoder) {
+                Benchmark.startTiming("load_wasm_decoder");
+                loadWasmBase2nDecoder();
+                Benchmark.stopTiming("load_wasm_decoder");
+            }
 
             Benchmark.startTiming("load_decompressor");
             loadXzDecompressor();

@@ -14,13 +14,13 @@ const urls = {
 };
 
 const tags = {
-        fonts: {
-            futura: "ck_font_futura",
-            emojis: /^ck_font_emoji\d+$/,
-            customEmoji: "ck_font_customemoji"
-        }
+    fonts: {
+        futura: "ck_font_futura",
+        emojis: /^ck_font_emoji\d+$/,
+        customEmoji: "ck_font_customemoji"
     },
-    tagOwner = "883072834790916137";
+    DiscordHttpClient: "discordhttpclient"
+};
 
 // help
 const helpOption = ["help", "-help", "--help", "-h", "usage", "-usage", "-u"],
@@ -199,7 +199,7 @@ try {
 
                 loadedFonts[name] ??= ModuleLoader.getModuleCode(url, tagName, FileDataTypes.binary, {
                     encoded: true,
-                    owner: tagOwner
+                    buf_size: 10700 * 1024
                 });
 
                 fontData.push(loadedFonts[name]);
@@ -295,59 +295,56 @@ try {
         })();
 
         const customEmojis = (() => {
-                const customEmojis = [];
+            const customEmojis = [];
 
-                {
-                    let match;
-                    while ((match = customEmojiRegex.exec(text)) !== null) {
-                        const [name, id] = match.slice(1),
-                            ind = match.index;
+            {
+                let match;
+                while ((match = customEmojiRegex.exec(text)) !== null) {
+                    const [name, id] = match.slice(1),
+                        ind = match.index;
 
-                        customEmojis.push({ name, id, ind });
+                    customEmojis.push({ name, id, ind });
 
-                        text = LoaderUtils.replaceRangeStr(text, customEmojiReplacement, ind, match[0].length);
-                        customEmojiRegex.lastIndex = ind + 1;
-                    }
-
-                    customEmojiRegex.lastIndex = 0;
+                    text = LoaderUtils.replaceRangeStr(text, customEmojiReplacement, ind, match[0].length);
+                    customEmojiRegex.lastIndex = ind + 1;
                 }
 
-                if (customEmojis.length === 0) {
-                    return customEmojis;
-                }
+                customEmojiRegex.lastIndex = 0;
+            }
 
-                const DiscordHttpClient = ModuleLoader.loadModuleFromTag("discordhttpclient"),
-                    DiscordConstants = DiscordHttpClient.DiscordConstants;
-
-                const client = new DiscordHttpClient({ token: "" });
-
-                Benchmark.startTiming("fetch_custom_emojis");
-
-                const emojiImgs = {};
-
-                for (const emoji of customEmojis) {
-                    if (!(emoji.id in emojiImgs)) {
-                        const imgData = client.getAsset(Endpoints.customEmoji(emoji.id), {
-                                size: DiscordConstants.allowedSizes[3]
-                            }),
-                            image = CanvasKitUtil.makeImageFromEncoded(imgData);
-
-                        emojiImgs[emoji.id] = image;
-                    }
-
-                    emoji.image = emojiImgs[emoji.id];
-                    emoji.srcRect = [0, 0, emoji.image.width(), emoji.image.height()];
-                }
-
-                Benchmark.stopTiming("fetch_custom_emojis");
-                Benchmark.stopTiming("fetch_custom_emojis");
-                text = text.replace(customEmojiRegex, customEmojiReplacement);
-                Benchmark.stopTiming("fetch_custom_emojis");
-                text = text.replace(customEmojiRegex, customEmojiReplacement);
-
+            if (customEmojis.length === 0) {
                 return customEmojis;
-            })(),
-            hasCustomEmojis = customEmojis.length > 0;
+            }
+
+            const DiscordHttpClient = ModuleLoader.loadModuleFromTag(tags.DiscordHttpClient),
+                DiscordConstants = DiscordHttpClient.DiscordConstants;
+
+            const client = new DiscordHttpClient({ token: "" });
+
+            Benchmark.startTiming("fetch_custom_emojis");
+
+            const emojiImgs = {};
+
+            for (const emoji of customEmojis) {
+                if (!(emoji.id in emojiImgs)) {
+                    const imgData = client.getAsset(Endpoints.customEmoji(emoji.id), {
+                            size: DiscordConstants.allowedSizes[3]
+                        }),
+                        image = CanvasKitUtil.makeImageFromEncoded(imgData);
+
+                    emojiImgs[emoji.id] = image;
+                }
+
+                emoji.image = emojiImgs[emoji.id];
+                emoji.srcRect = [0, 0, emoji.image.width(), emoji.image.height()];
+            }
+
+            Benchmark.stopTiming("fetch_custom_emojis");
+
+            text = text.replace(customEmojiRegex, customEmojiReplacement);
+            return customEmojis;
+        })();
+        const hasCustomEmojis = customEmojis.length > 0;
 
         function getCustomEmojiRects(paragraph, textX, textY) {
             for (const emoji of customEmojis) {
