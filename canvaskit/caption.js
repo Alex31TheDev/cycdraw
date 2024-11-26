@@ -424,6 +424,8 @@ try {
                 whitePaint = new CanvasKit.Paint();
             whitePaint.setColor(CanvasKit.WHITE);
 
+            const drawImageOpts = [CanvasKit.FilterMode.Linear, CanvasKit.MipmapMode.None];
+
             getCustomEmojiRects(paragraph, textX, textY);
             for (const emoji of customEmojis) {
                 canvas.drawRect(
@@ -431,13 +433,13 @@ try {
                     whitePaint
                 );
 
-                canvas.drawImageRect(emoji.image, emoji.srcRect, emoji.destRect, blankPaint);
+                canvas.drawImageRectOptions(emoji.image, emoji.srcRect, emoji.destRect, ...drawImageOpts, blankPaint);
             }
 
             const imgSrcRect = [0, 0, image.width(), image.height()],
                 imgDestRect = [0, headerHeight, width, surface.height()];
 
-            canvas.drawImageRect(image, imgSrcRect, imgDestRect, blankPaint);
+            canvas.drawImageRectOptions(image, imgSrcRect, imgDestRect, ...drawImageOpts, blankPaint);
 
             Benchmark.stopTiming("draw_image");
 
