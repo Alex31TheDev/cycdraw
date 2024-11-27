@@ -6,7 +6,11 @@ const loadLibrary = util.loadLibrary ?? "canvaskit",
     enableDebugger = util.inspectorEnabled ?? false;
 
 const isolateGlobals = util._isolateGlobals ?? true,
-    useWasmBase2nDecoder = util._useWasmBase2nDecoder ?? true;
+    useWasmBase2nDecoder = util._useWasmBase2nDecoder ?? true,
+    forceXzDecompressor = util._forceXzDecompressor ?? false;
+
+let useXzDecompressor = true,
+    useZstdDecompressor = false;
 
 const consoleOpts = {};
 
@@ -41,13 +45,17 @@ const tags = {
         XzDecompressorTagName: "ck_xz_decomp",
         XzWasmTagName: "ck_xz_wasm",
 
+        ZstdDecompressorTagName: "ck_zstd_decomp",
+        ZstdWasmTagName: "ck_zstd_wasm",
+
         PromisePolyfillTagName: "ck_promise_polyfill",
         BufferPolyfillTagName: "ck_buffer_polyfill",
         TextEncoderDecoderPolyfillTagName: "ck_textdecenc_polyfill",
         WebWorkerPolyfillTagName: "",
 
         CanvasKitLoaderTagName: /^ck_loader_init\d+$/,
-        CanvasKitWasmTagName: /^ck_wasm\d+$/,
+        CanvasKitWasm1TagName: /^ck_wasm\d+$/,
+        CanvasKitWasm2TagName: /^ck_wasm_new\d+$/,
 
         ResvgLoaderTagName: "ck_resvg_init",
         ResvgWasmTagName: /^ck_resvg_wasm\d+$/,
@@ -1560,6 +1568,27 @@ try {
         Patches.patchGlobalContext({ XzDecompressor });
     }
 
+    function loadZstdDecompressor() {
+        const ZstdDecompressor = ModuleLoader.loadModule(null, tags.ZstdDecompressorTagName);
+
+        if (typeof ZstdDecompressor === "undefined") {
+            return;
+        }
+
+        const zstdWasm = ModuleLoader.getModuleCode(null, tags.ZstdWasmTagName, FileDataTypes.binary, {
+            encoded: true,
+            buf_size: 50 * 1024
+        });
+
+        ZstdDecompressor.loadWasm(zstdWasm);
+
+        const originalDecompress = ZstdDecompressor.decompress,
+            patchedDecompress = Benchmark.wrapFunction("zstd_decompress", originalDecompress);
+        ZstdDecompressor.decompress = patchedDecompress;
+
+        Patches.patchGlobalContext({ ZstdDecompressor: ZstdDecompressor });
+    }
+
     // canvaskit loader
     function loadCanvasKit() {
         const CanvasKitInit = ModuleLoader.loadModule(urls.CanvasKitLoaderUrl, tags.CanvasKitLoaderTagName, undefined, [
@@ -1569,13 +1598,27 @@ try {
 
         console.replyWithLogs();
 
-        let wasm = ModuleLoader.getModuleCode(urls.CanvasKitWasmUrl, tags.CanvasKitWasmTagName, FileDataTypes.binary, {
+        let wasmTagName, buf_size;
+
+        if (useXzDecompressor) {
+            wasmTagName = tags.CanvasKitWasm1TagName;
+            buf_size = 2100 * 1024;
+        } else if (useZstdDecompressor) {
+            wasmTagName = tags.CanvasKitWasm2TagName;
+            buf_size = 2300 * 1024;
+        }
+
+        let wasm = ModuleLoader.getModuleCode(urls.CanvasKitWasmUrl, wasmTagName, FileDataTypes.binary, {
             encoded: true,
-            buf_size: 2100 * 1024
+            buf_size
         });
 
         if (loadSource === "tag") {
-            wasm = XzDecompressor.decompress(wasm);
+            if (useXzDecompressor) {
+                wasm = XzDecompressor.decompress(wasm);
+            } else if (useZstdDecompressor) {
+                wasm = ZstdDecompressor.decompress(wasm);
+            }
         }
 
         Benchmark.startTiming("canvaskit_init");
@@ -1690,9 +1733,35 @@ try {
     }
 
     function mainLoadMisc() {
+        function decideMiscConfig(library = loadLibrary) {
+            switch (library) {
+                case "canvaskit":
+                    if (!forceXzDecompressor) {
+                        useXzDecompressor = false;
+                        useZstdDecompressor = true;
+                    }
+
+                    break;
+                case "resvg":
+                    break;
+                case "libvips":
+                    break;
+                default:
+                    throw new LoaderError("Unknown library: " + library);
+            }
+        }
+
+        if (Array.isArray(loadLibrary)) {
+            loadLibrary.forEach(decideMiscConfig);
+        } else {
+            decideMiscConfig();
+        }
+
         if (loadSource === "tag") {
+            const base2nCharset = useWasmBase2nDecoder ? "base64" : "normal";
+
             Benchmark.startTiming("load_decoder");
-            loadBase2nDecoder(useWasmBase2nDecoder ? "base64" : "normal");
+            loadBase2nDecoder(base2nCharset);
             Benchmark.stopTiming("load_decoder");
 
             if (useWasmBase2nDecoder) {
@@ -1701,9 +1770,17 @@ try {
                 Benchmark.stopTiming("load_wasm_decoder");
             }
 
-            Benchmark.startTiming("load_decompressor");
-            loadXzDecompressor();
-            Benchmark.stopTiming("load_decompressor");
+            if (useXzDecompressor) {
+                Benchmark.startTiming("load_xz_decompressor");
+                loadXzDecompressor();
+                Benchmark.stopTiming("load_xz_decompressor");
+            }
+
+            if (useZstdDecompressor) {
+                Benchmark.startTiming("load_xz_decompressor");
+                loadZstdDecompressor();
+                Benchmark.stopTiming("load_xz_decompressor");
+            }
         }
     }
 
