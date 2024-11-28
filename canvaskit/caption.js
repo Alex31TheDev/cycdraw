@@ -17,13 +17,14 @@ const urls = {
 };
 
 const tags = {
-    fonts: {
-        futura: "ck_font_futura",
-        emojis: /^ck_font_emoji\d+$/,
-        customEmoji: "ck_font_customemoji"
+        fonts: {
+            futura: "ck_font_futura",
+            emojis: /^ck_font_emoji\d+$/,
+            customEmoji: "ck_font_customemoji"
+        },
+        DiscordHttpClient: "discordhttpclient"
     },
-    DiscordHttpClient: "discordhttpclient"
-};
+    tagOwner = "883072834790916137";
 
 // help
 const helpOption = ["help", "-help", "--help", "-h", "usage", "-usage", "-u"],
@@ -145,9 +146,10 @@ try {
         util.executeTag("canvaskitloader");
     }
 
-    (() => {
-        const CanvasKitUtil = ModuleLoader.loadModuleFromTag("canvaskitutil");
+    ModuleLoader.tagOwner = tagOwner;
+    const CanvasKitUtil = ModuleLoader.loadModuleFromTag("canvaskitutil");
 
+    (() => {
         // load ranges
         Benchmark.startTiming("load_ranges");
 
