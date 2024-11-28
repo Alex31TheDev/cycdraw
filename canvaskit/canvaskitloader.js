@@ -1016,6 +1016,23 @@ try {
             return false;
         }
 
+        static deleteLastCountTime(name) {
+            name = this._formatCountName(name);
+
+            const count = this.counts[name],
+                origName = this._origCountNames.get(name);
+
+            if (typeof count === "undefined" || typeof origName === "undefined" || count < 1) {
+                return false;
+            }
+
+            const timeKey = this._formatCount(origName, count);
+            this.deleteTime(timeKey);
+
+            this.counts[name]--;
+            return true;
+        }
+
         static clearCounts() {
             for (const name of Object.keys(this.counts)) {
                 this.counts[name] = 0;

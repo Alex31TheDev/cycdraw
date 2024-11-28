@@ -22,7 +22,8 @@ const tags = {
             emojis: /^ck_font_emoji\d+$/,
             customEmoji: "ck_font_customemoji"
         },
-        DiscordHttpClient: "discordhttpclient"
+        DiscordHttpClient: "discordhttpclient",
+        Table: "ck_table"
     },
     tagOwner = "883072834790916137";
 
@@ -462,9 +463,15 @@ try {
 
             if (enableDebugger) debugger;
 
-            const out = showTimes
-                ? Benchmark.getAll("load_total", "load_ranges", "caption_total", "encode_png")
-                : undefined;
+            let out;
+            if (showTimes) {
+                ModuleLoader.loadModuleFromTag(tags.Table);
+
+                Benchmark.deleteLastCountTime("tag_fetch");
+                Benchmark.deleteLastCountTime("module_load");
+
+                out = Benchmark.getTable("heavy", 1, "load_total", "load_ranges", "caption_total", "encode_png");
+            }
 
             msg.reply(out, {
                 file: {
