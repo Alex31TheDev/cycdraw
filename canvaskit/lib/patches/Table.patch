@@ -1,14 +1,16 @@
 --- "a/.\\pngjs\\util\\Table.js"
 +++ "b/.\\canvaskit\\lib\\js\\new\\Table.js"
-@@ -315,3 +315,21 @@ const Table = {
+@@ -315,3 +315,23 @@ const Table = {
  };
  
  module.exports = Table;
 +
 +if (typeof Benchmark !== "undefined") {
-+    Benchmark.getTable = (style = "doubleVertical", extraSpaces = 1) => {
-+        const keys = Object.keys(Benchmark.data),
-+            times = Object.values(Benchmark.data);
++    Benchmark.getTable = (style = "doubleVertical", extraSpaces = 1, ...includeSum) => {
++        const data = Benchmark.getAll(...includeSum, false);
++
++        const keys = Object.keys(data),
++            times = Object.values(data);
 +
 +        const columns = {
 +                name: "Name:",
