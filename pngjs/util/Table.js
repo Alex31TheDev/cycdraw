@@ -193,7 +193,7 @@ const Table = {
         }
     },
 
-    columnWidths: (columns, rows) => {
+    columnWidths: (columns, rows, extraSpaces = 0) => {
         const colIds = Object.keys(columns);
 
         if (colIds.length === 0) {
@@ -207,6 +207,7 @@ const Table = {
             return Table.Util.columnWidth(colName, colRows);
         });
 
+        if (extraSpaces > 0) return maxWidths.map(width => width + 2 * extraSpaces);
         return maxWidths;
     },
 
@@ -225,12 +226,14 @@ const Table = {
         return Math.max(...rowHeights);
     },
 
-    padLine: (line, padding) => {
+    padLine: (line, padding, extraSpaces = 0) => {
         const padded = line.map((x, i) => {
-            const pad = padding[i] ?? 0,
-                str = x?.toString() ?? "";
+            const str = x?.toString() ?? "";
 
-            return str.padEnd(pad);
+            const endPad = padding[i] ?? 0,
+                startPad = str.length + extraSpaces;
+
+            return str.padStart(startPad).padEnd(endPad);
         });
 
         return padded;
@@ -266,7 +269,7 @@ const Table = {
         return lines;
     },
 
-    drawTable: (columns, rows, style = "light", extraSpacing = 0) => {
+    drawTable: (columns, rows, style = "light", extraSpaces = 0) => {
         columns = columns ?? {};
         rows = rows ?? {};
 
@@ -284,13 +287,7 @@ const Table = {
             }
         }
 
-        const widths = Table.columnWidths(columns, rows);
-
-        if (extraSpacing > 0) {
-            for (let i = 0; i < widths.length; i++) {
-                widths[i] += extraSpacing;
-            }
-        }
+        const widths = Table.columnWidths(columns, rows, extraSpaces);
 
         const separate = Table.Lines.insertSeparator(charSet),
             topSeparatorLine = Table.Lines.topSeparatorLine(charSet),
@@ -298,7 +295,7 @@ const Table = {
             middleSeparatorLine = Table.Lines.middleSeparatorLine(charSet);
 
         const lines = Table.getLines(columns, rows),
-            paddedLines = lines.map(line => Table.padLine(line, widths)),
+            paddedLines = lines.map(line => Table.padLine(line, widths, extraSpaces)),
             separatedLines = paddedLines.map(separate);
 
         const headingLine = separatedLines[0],

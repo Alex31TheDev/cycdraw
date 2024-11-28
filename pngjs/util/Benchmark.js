@@ -116,7 +116,7 @@ const Benchmark = {
         return times.join(",\n");
     },
 
-    getTable: (style, extraSpacing) => {
+    getTable: (style = "doubleVertical", extraSpaces = 1) => {
         const keys = Object.keys(Benchmark.data),
             times = Object.values(Benchmark.data);
 
@@ -129,7 +129,7 @@ const Benchmark = {
                 time: times
             };
 
-        return Table.drawTable(columns, rows, style, extraSpacing);
+        return Table.drawTable(columns, rows, style, extraSpaces);
     },
 
     _formatTime: (key, time) => {

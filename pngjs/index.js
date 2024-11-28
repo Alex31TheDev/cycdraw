@@ -55,7 +55,7 @@ function getImageFile(img) {
 }
 
 function getBenchmarkEmbed() {
-    const table = Benchmark.getTable("doubleVertical", 1),
+    const table = Benchmark.getTable(),
         format = `\`\`\`js\n${table}\n\`\`\``;
 
     const embed = {
