@@ -1,0 +1,24 @@
+--- "a/.\\pngjs\\util\\Table.js"
++++ "b/.\\canvaskit\\lib\\js\\new\\Table.js"
+@@ -315,3 +315,21 @@ const Table = {
+ };
+ 
+ module.exports = Table;
++
++if (typeof Benchmark !== "undefined") {
++    Benchmark.getTable = (style = "doubleVertical", extraSpaces = 1) => {
++        const keys = Object.keys(Benchmark.data),
++            times = Object.values(Benchmark.data);
++
++        const columns = {
++                name: "Name:",
++                time: "Time (ms):"
++            },
++            rows = {
++                name: keys,
++                time: times
++            };
++
++        return Table.drawTable(columns, rows, style, extraSpaces);
++    };
++}
