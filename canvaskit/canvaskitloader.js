@@ -951,16 +951,34 @@ try {
         }
 
         static getAll(...includeSum) {
-            const times = Object.keys(this.data).map(key => this.getTime(key));
+            let format = true;
 
-            if (includeSum[0]) {
-                const keys = includeSum[0] === true ? [] : includeSum,
-                    sum = this.getSum(...keys);
-
-                times.push(this._formatTime("sum", sum));
+            if (typeof LoaderUtils.lastElement(includeSum) === "boolean") {
+                format = LoaderUtils.lastElement(includeSum);
+                if (!format) includeSum.pop();
             }
 
-            return times.join(",\n");
+            let useSum = includeSum.length > 0,
+                sum;
+
+            if (useSum) {
+                const allKeys = includeSum[0] === true,
+                    keys = allKeys ? [] : includeSum;
+
+                sum = this.getSum(...keys);
+            }
+
+            if (format) {
+                const times = Object.keys(this.data).map(key => this.getTime(key));
+                if (useSum) times.push(this._formatTime("sum", sum));
+
+                return times.join(",\n");
+            } else {
+                const times = Object.assign({}, this.data);
+                if (useSum) times["sum"] = sum;
+
+                return times;
+            }
         }
 
         static getCount(name) {
