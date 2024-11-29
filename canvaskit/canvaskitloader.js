@@ -1,8 +1,9 @@
 "use strict";
 
 // config
-const loadLibrary = util.loadLibrary ?? "canvaskit",
-    loadSource = util.loadSource ?? (0 ? "url" : "tag"),
+let loadLibrary = util.loadLibrary ?? "canvaskit";
+
+const loadSource = util.loadSource ?? (0 ? "url" : "tag"),
     enableDebugger = util.inspectorEnabled ?? false;
 
 const isolateGlobals = util._isolateGlobals ?? true,
@@ -864,6 +865,24 @@ try {
 
             const t1 = this.getCurrentTime();
             this.timepoints.set(key, t1);
+        }
+
+        static restartTiming(key) {
+            key = this._formatTimeKey(key);
+            let time = this.data[key];
+
+            if (typeof time === "undefined") {
+                return this.startTiming(key);
+            }
+
+            delete this.data[key];
+
+            if (this.useVmTime) {
+                time = BigInt(time) * this.ns_per_ms;
+            }
+
+            const t1 = this.getCurrentTime();
+            this.timepoints.set(key, t1 - time);
         }
 
         static stopTiming(key) {
@@ -1845,6 +1864,8 @@ try {
             };
 
             switch (library) {
+                case "none":
+                    break;
                 case "canvaskit":
                     break;
                 case "resvg":
@@ -1886,16 +1907,19 @@ try {
             Patches.polyfillConsole();
             Patches.polyfillTimers();
 
-            Patches.polyfillPromise();
-
             switch (library) {
+                case "none":
+                    break;
                 case "canvaskit":
+                    Patches.polyfillPromise();
                     break;
                 case "resvg":
+                    Patches.polyfillPromise();
                     Patches.polyfillBuffer();
                     Patches.polyfillTextEncoderDecoder();
                     break;
                 case "libvips":
+                    Patches.polyfillPromise();
                     Patches.polyfillBuffer();
                     Patches.polyfillTextEncoderDecoder();
                     Patches.polyfillBlob();
@@ -1945,100 +1969,127 @@ try {
     // misc loader
     let wasmDecoderLoaded = false;
 
-    function loadBase2nDecoder(charset = "normal") {
-        const { base2n } = ModuleLoader.loadModule(null, tags.Base2nTagName);
-
-        if (typeof base2n === "undefined") {
-            return;
-        }
-
-        let charsetRanges,
-            sortRanges = true;
-
-        switch (charset) {
-            case "normal":
-                charsetRanges = String.fromCodePoint(
-                    0x0021,
-                    0xd7ff,
-                    0xe000,
-                    0xe000 - (0xd7ff - 0x0021 + 1) + 2 ** 20 - 1
-                );
-                break;
-            case "linear":
-                charsetRanges = charset = String.fromCodePoint(0x10000, 0x10000 + 2 ** 20 - 1);
-                break;
-            case "base64":
-                charsetRanges = "AZaz09++//";
-                sortRanges = false;
-                break;
-            default:
-                throw new LoaderError("Unknown charset: " + charset);
-        }
-
-        const table = base2n.Base2nTable.generate(charsetRanges, {
-            tableType: base2n.Base2nTableTypes.typedarray,
-            generateTables: [base2n.Base2nTableNames.decode],
-            sortRanges
-        });
-
-        const originalDecode = base2n.decodeBase2n,
-            patchedDecode = Benchmark.wrapFunction("decode", originalDecode);
-
-        Patches.patchGlobalContext({
-            ...base2n,
-            decodeBase2n: patchedDecode,
-            table
-        });
-    }
-
-    function unloadBase2nDecoder() {
-        const keys = Object.keys(globalThis).filter(key => key.toLowerCase().includes("base2n"));
-        keys.push("table");
-
-        Patches.removeFromGlobalContext(keys);
-    }
-
-    function loadWasmBase2nDecoder() {
-        const Base2nWasmDec = ModuleLoader.loadModule(
-            null,
-            tags.Base2nWasmWrapperTagName,
-            undefined,
-            [
-                {
-                    CustomError
-                }
-            ],
-            {
-                cache: false
+    function loadBase2nDecoder() {
+        function loadJsBase2nDecoder(charset = "normal") {
+            if (typeof globalThis.decodeBase2n !== "undefined") {
+                return;
             }
-        );
 
-        if (typeof Base2nWasmDec === "undefined") {
-            return;
-        }
+            const { base2n } = ModuleLoader.loadModule(null, tags.Base2nTagName);
 
-        const DecoderInit = ModuleLoader.loadModule(null, tags.Base2nWasmInitTagName, undefined, undefined, {
-                cache: false
-            }),
-            decoderWasm = ModuleLoader.getModuleCode(null, tags.Base2nWasmWasmTagName, FileDataTypes.binary, {
-                encoded: true,
-                cache: false
+            if (typeof base2n === "undefined") {
+                return;
+            }
+
+            let charsetRanges,
+                sortRanges = true;
+
+            switch (charset) {
+                case "normal":
+                    charsetRanges = String.fromCodePoint(
+                        0x0021,
+                        0xd7ff,
+                        0xe000,
+                        0xe000 - (0xd7ff - 0x0021 + 1) + 2 ** 20 - 1
+                    );
+                    break;
+                case "linear":
+                    charsetRanges = charset = String.fromCodePoint(0x10000, 0x10000 + 2 ** 20 - 1);
+                    break;
+                case "base64":
+                    charsetRanges = "AZaz09++//";
+                    sortRanges = false;
+                    break;
+                default:
+                    throw new LoaderError("Unknown charset: " + charset);
+            }
+
+            const table = base2n.Base2nTable.generate(charsetRanges, {
+                tableType: base2n.Base2nTableTypes.typedarray,
+                generateTables: [base2n.Base2nTableNames.decode],
+                sortRanges
             });
 
-        Base2nWasmDec.init(DecoderInit, decoderWasm);
+            const originalDecode = base2n.decodeBase2n,
+                patchedDecode = Benchmark.wrapFunction("decode", originalDecode);
 
-        const originalDecode = Base2nWasmDec.decodeBase2n.bind(Base2nWasmDec),
-            patchedDecode = Benchmark.wrapFunction("decode", originalDecode);
+            Patches.patchGlobalContext({
+                ...base2n,
+                decodeBase2n: patchedDecode,
+                table
+            });
+        }
 
-        unloadBase2nDecoder();
-        Patches.patchGlobalContext({
-            fastDecodeBase2n: patchedDecode
-        });
+        function unloadJsBase2nDecoder() {
+            const keys = Object.keys(globalThis).filter(key => key.toLowerCase().includes("base2n"));
+            keys.push("table");
 
-        wasmDecoderLoaded = true;
+            Patches.removeFromGlobalContext(keys);
+        }
+
+        function loadWasmBase2nDecoder() {
+            if (typeof globalThis.fastDecodeBase2n !== "undefined") {
+                return;
+            }
+
+            const Base2nWasmDec = ModuleLoader.loadModule(
+                null,
+                tags.Base2nWasmWrapperTagName,
+                undefined,
+                [
+                    {
+                        CustomError
+                    }
+                ],
+                {
+                    cache: false
+                }
+            );
+
+            if (typeof Base2nWasmDec === "undefined") {
+                return;
+            }
+
+            const DecoderInit = ModuleLoader.loadModule(null, tags.Base2nWasmInitTagName, undefined, undefined, {
+                    cache: false
+                }),
+                decoderWasm = ModuleLoader.getModuleCode(null, tags.Base2nWasmWasmTagName, FileDataTypes.binary, {
+                    encoded: true,
+                    cache: false
+                });
+
+            Base2nWasmDec.init(DecoderInit, decoderWasm);
+
+            const originalDecode = Base2nWasmDec.decodeBase2n.bind(Base2nWasmDec),
+                patchedDecode = Benchmark.wrapFunction("decode", originalDecode);
+
+            unloadJsBase2nDecoder();
+            Patches.patchGlobalContext({
+                fastDecodeBase2n: patchedDecode
+            });
+
+            wasmDecoderLoaded = true;
+        }
+
+        const base2nCharset = useWasmBase2nDecoder ? "base64" : "normal";
+
+        Benchmark.startTiming("load_decoder");
+        loadJsBase2nDecoder(base2nCharset);
+        Benchmark.stopTiming("load_decoder");
+
+        if (useWasmBase2nDecoder) {
+            Benchmark.startTiming("load_wasm_decoder");
+            loadWasmBase2nDecoder();
+            Benchmark.stopTiming("load_wasm_decoder");
+        }
     }
 
     function loadXzDecompressor() {
+        if (typeof globalThis.XzDecompressor !== "undefined") {
+            return;
+        }
+
+        Benchmark.startTiming("load_xz_decompressor");
         const XzDecompressor = ModuleLoader.loadModule(null, tags.XzDecompressorTagName, undefined, undefined, {
             cache: false
         });
@@ -2054,6 +2105,7 @@ try {
         });
 
         XzDecompressor.loadWasm(xzWasm);
+        Benchmark.stopTiming("load_xz_decompressor");
 
         const originalDecompress = XzDecompressor.decompress,
             patchedDecompress = Benchmark.wrapFunction("xz_decompress", originalDecompress);
@@ -2063,6 +2115,11 @@ try {
     }
 
     function loadZstdDecompressor() {
+        if (typeof globalThis.ZstdDecompressor !== "undefined") {
+            return;
+        }
+
+        Benchmark.startTiming("load_zstd_decompressor");
         const ZstdDecompressor = ModuleLoader.loadModule(null, tags.ZstdDecompressorTagName, undefined, undefined, {
             cache: false
         });
@@ -2078,12 +2135,13 @@ try {
         });
 
         ZstdDecompressor.loadWasm(zstdWasm);
+        Benchmark.stopTiming("load_zstd_decompressor");
 
         const originalDecompress = ZstdDecompressor.decompress,
             patchedDecompress = Benchmark.wrapFunction("zstd_decompress", originalDecompress);
         ZstdDecompressor.decompress = patchedDecompress;
 
-        Patches.patchGlobalContext({ ZstdDecompressor: ZstdDecompressor });
+        Patches.patchGlobalContext({ ZstdDecompressor });
     }
 
     // canvaskit loader
@@ -2229,7 +2287,7 @@ try {
                 timeKey += `_${library.toLowerCase()}`;
             }
 
-            Benchmark.startTiming(timeKey);
+            Benchmark.restartTiming(timeKey);
             Patches.applyAll(library);
             Benchmark.stopTiming(timeKey);
         }
@@ -2243,10 +2301,18 @@ try {
         Patches.clearLoadedPatches();
     }
 
+    let addLoadFuncs = false;
+
     function mainLoadMisc() {
+        let useBase2nDecoder = false;
+
         function decideMiscConfig(library = loadLibrary) {
             switch (library) {
+                case "none":
+                    break;
                 case "canvaskit":
+                    useBase2nDecoder = true;
+
                     if (forceXzDecompressor) {
                         useXzDecompressor = true;
                     } else {
@@ -2255,9 +2321,11 @@ try {
 
                     break;
                 case "resvg":
+                    useBase2nDecoder = true;
                     useXzDecompressor = true;
                     break;
                 case "libvips":
+                    useBase2nDecoder = true;
                     useXzDecompressor = true;
                     break;
                 default:
@@ -2266,34 +2334,30 @@ try {
         }
 
         if (Array.isArray(loadLibrary)) {
+            if (loadLibrary.length === 1 && loadLibrary[0] === "none") {
+                addLoadFuncs = true;
+            }
+
             loadLibrary.forEach(decideMiscConfig);
         } else {
+            if (loadLibrary === "none") {
+                addLoadFuncs = true;
+            }
+
             decideMiscConfig();
         }
 
         if (loadSource === "tag") {
-            const base2nCharset = useWasmBase2nDecoder ? "base64" : "normal";
-
-            Benchmark.startTiming("load_decoder");
-            loadBase2nDecoder(base2nCharset);
-            Benchmark.stopTiming("load_decoder");
-
-            if (useWasmBase2nDecoder) {
-                Benchmark.startTiming("load_wasm_decoder");
-                loadWasmBase2nDecoder();
-                Benchmark.stopTiming("load_wasm_decoder");
+            if (useBase2nDecoder) {
+                loadBase2nDecoder();
             }
 
             if (useXzDecompressor) {
-                Benchmark.startTiming("load_xz_decompressor");
                 loadXzDecompressor();
-                Benchmark.stopTiming("load_xz_decompressor");
             }
 
             if (useZstdDecompressor) {
-                Benchmark.startTiming("load_xz_decompressor");
                 loadZstdDecompressor();
-                Benchmark.stopTiming("load_xz_decompressor");
             }
         }
     }
@@ -2301,6 +2365,8 @@ try {
     function mainLoadLibrary() {
         function subLoadLibrary(library = loadLibrary) {
             switch (library) {
+                case "none":
+                    break;
                 case "canvaskit":
                     Benchmark.startTiming("load_canvaskit");
                     loadCanvasKit();
@@ -2329,16 +2395,51 @@ try {
     }
 
     function main() {
-        Benchmark.startTiming("load_total");
+        function subMainLoad() {
+            Benchmark.restartTiming("load_total");
+
+            mainPatch();
+            mainLoadMisc();
+            mainLoadLibrary();
+
+            Benchmark.stopTiming("load_total");
+        }
+
         ModuleLoader.tagOwner = tagOwner;
 
-        mainPatch();
-        mainLoadMisc();
-        mainLoadLibrary();
+        subMainLoad();
 
         ModuleLoader.tagOwner = undefined;
         ModuleLoader.isolateGlobals = false;
-        Benchmark.stopTiming("load_total");
+
+        if (addLoadFuncs) {
+            const wrapLoadFunc = func => {
+                return function (library) {
+                    const prevLibrary = loadLibrary,
+                        prevOwner = ModuleLoader.tagOwner,
+                        prevIsolateGlobals = ModuleLoader.isolateGlobals;
+
+                    loadLibrary = library;
+                    ModuleLoader.tagOwner = tagOwner;
+                    ModuleLoader.isolateGlobals = true;
+
+                    func();
+
+                    loadLibrary = prevLibrary;
+                    ModuleLoader.tagOwner = prevOwner;
+                    ModuleLoader.isolateGlobals = prevIsolateGlobals;
+                };
+            };
+
+            const loadFuncs = {
+                loadBase2nDecoder: wrapLoadFunc(loadBase2nDecoder),
+                loadXzDecompressor: wrapLoadFunc(loadXzDecompressor),
+                loadZstdDecompressor: wrapLoadFunc(loadZstdDecompressor),
+                loadLibrary: wrapLoadFunc(subMainLoad)
+            };
+
+            Patches.patchGlobalContext(loadFuncs);
+        }
     }
 
     main();
