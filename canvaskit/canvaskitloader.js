@@ -141,39 +141,6 @@ try {
         throw new ExitError();
     }
 
-    // globals
-    const globalsProxyHandler = {
-        set(target, key, value) {
-            target[key] = value;
-            Patches._loadedPatch(key);
-
-            return true;
-        }
-    };
-
-    const globals = new Proxy(
-        {
-            setTimeout: undefined,
-            setImmediate: undefined,
-            clearTimeout: undefined,
-            clearImmediate: undefined,
-
-            console: undefined,
-
-            Promise: undefined,
-            Buffer: undefined,
-            TextEncoder: undefined,
-            TextDecoder: undefined,
-            Blob: undefined,
-            XMLHttpRequest: undefined,
-            Event: undefined,
-            Worker: undefined
-        },
-        globalsProxyHandler
-    );
-
-    const globalObjs = new Proxy({}, globalsProxyHandler);
-
     // classes
     class Logger {
         static levels = {
@@ -285,11 +252,6 @@ try {
     }
 
     // util
-    const FileDataTypes = {
-        text: "text",
-        binary: "binary"
-    };
-
     const HttpUtil = {
         protocolRegex: /^[^/:]+:\/*$/,
         leadingSlashRegex: /^[\/]+/,
@@ -366,6 +328,23 @@ try {
 
             const queryString = query.join("&");
             return "?" + queryString;
+        },
+
+        statusRegex: /Request failed with status code (\d+)/,
+        getReqErrStatus: err => {
+            if (!err.message) {
+                return;
+            }
+
+            const statusStr = err.message,
+                statusMatch = statusStr.match(LoaderUtils.statusRegex);
+
+            if (!statusMatch) {
+                return;
+            }
+
+            const status = parseInt(statusMatch[1], 10);
+            return status;
         }
     };
 
@@ -554,6 +533,11 @@ try {
             return hex(md5_raw(str));
         };
     })();
+
+    const FileDataTypes = {
+        text: "text",
+        binary: "binary"
+    };
 
     const LoaderUtils = {
         HttpUtil,
@@ -803,21 +787,41 @@ try {
             return Object.fromEntries(Object.entries(obj).filter(([_, value]) => typeof value !== "undefined"));
         },
 
-        statusRegex: /Request failed with status code (\d+)/,
-        getReqErrStatus: err => {
-            if (!err.message) {
-                return;
-            }
+        makeNonConfigurableObject: (obj = {}) => {
+            const newObj = {};
 
-            const statusStr = err.message,
-                statusMatch = statusStr.match(LoaderUtils.statusRegex);
+            Object.keys(obj).forEach(key =>
+                Object.defineProperty(newObj, key, {
+                    value: newObj[key],
+                    writable: true,
+                    enumerable: true,
+                    configurable: false
+                })
+            );
 
-            if (!statusMatch) {
-                return;
-            }
+            return new Proxy(newObj, {
+                defineProperty(target, prop, descriptor) {
+                    return Reflect.defineProperty(target, prop, {
+                        ...descriptor,
+                        configurable: false
+                    });
+                },
 
-            const status = parseInt(statusMatch[1], 10);
-            return status;
+                set(target, prop, value) {
+                    if (!Object.prototype.hasOwnProperty.call(target, prop)) {
+                        Reflect.defineProperty(target, prop, {
+                            value,
+                            writable: true,
+                            enumerable: true,
+                            configurable: false
+                        });
+                    } else {
+                        target[prop] = value;
+                    }
+
+                    return true;
+                }
+            });
         }
     };
 
@@ -1128,6 +1132,41 @@ try {
         }
     }
 
+    // globals
+    let globals = {
+        setTimeout: undefined,
+        setImmediate: undefined,
+        clearTimeout: undefined,
+        clearImmediate: undefined,
+
+        console: undefined,
+
+        Promise: undefined,
+        Buffer: undefined,
+        TextEncoder: undefined,
+        TextDecoder: undefined,
+        Blob: undefined,
+        XMLHttpRequest: undefined,
+        Event: undefined,
+        Worker: undefined
+    };
+
+    const globalsProxyHandler = {
+        set(target, prop, value) {
+            if (typeof value === "undefined") {
+                return false;
+            }
+
+            target[prop] = value;
+            Patches._loadedPatch(prop);
+
+            return true;
+        }
+    };
+
+    globals = new Proxy(LoaderUtils.makeNonConfigurableObject(globals), globalsProxyHandler);
+    const globalObjs = new Proxy(LoaderUtils.makeNonConfigurableObject(), globalsProxyHandler);
+
     // module loader
     const cleanGlobal = LoaderUtils.shallowClone(globalThis, "nonenum"),
         globalKeys = ["global", "globalThis"];
@@ -1407,7 +1446,7 @@ try {
                     throw err;
                 }
 
-                const status = LoaderUtils.getReqErrStatus(err);
+                const status = HttpUtil.getReqErrStatus(err);
 
                 if (status) {
                     throw new LoaderError("Could not fetch file. Code: " + status, status);
@@ -1615,11 +1654,11 @@ try {
 
     // patches
     const Patches = {
-        polyfillConsole: _ => {
+        polyfillConsole: () => {
             globals.console ??= new Logger(true, consoleOpts);
         },
 
-        polyfillTimers: _ => {
+        polyfillTimers: () => {
             globals.setTimeout ??= f => {
                 f();
                 return 0;
@@ -1634,7 +1673,7 @@ try {
             globals.clearImmediate ??= _ => {};
         },
 
-        polyfillPromise: _ => {
+        polyfillPromise: () => {
             globals.Promise ??= ModuleLoader.loadModule(
                 urls.PromisePolyfillUrl,
                 tags.PromisePolyfillTagName
@@ -1643,7 +1682,7 @@ try {
             );
         },
 
-        polyfillBuffer: _ => {
+        polyfillBuffer: () => {
             if (typeof globals.Buffer !== "undefined") return;
 
             const { Buffer } = ModuleLoader.loadModule(
@@ -1656,7 +1695,7 @@ try {
             globals.Buffer = Buffer;
         },
 
-        polyfillTextEncoderDecoder: _ => {
+        polyfillTextEncoderDecoder: () => {
             if (typeof globals.TextDecoder !== "undefined") return;
 
             const { TextEncoder, TextDecoder } = ModuleLoader.loadModule(
@@ -1670,7 +1709,7 @@ try {
             globals.TextDecoder = TextDecoder;
         },
 
-        polyfillBlob: _ => {
+        polyfillBlob: () => {
             globals.Blob ??= class Blob {
                 constructor(data) {
                     this.data = data;
@@ -1691,11 +1730,11 @@ try {
             };
         },
 
-        polyfillXHR: _ => {
+        polyfillXHR: () => {
             globals.XMLHttpRequest ??= class XMLHttpRequest {};
         },
 
-        polyfillEvent: _ => {
+        polyfillEvent: () => {
             globals.Event ??= class Event {
                 constructor(type) {
                     this.type = type;
@@ -1703,7 +1742,7 @@ try {
             };
         },
 
-        polyfillWebWorker: _ => {
+        polyfillWebWorker: () => {
             if (typeof globals.Worker !== "undefined") return;
 
             const { default: Worker } = ModuleLoader.loadModule(
@@ -1725,7 +1764,7 @@ try {
             globals.Worker = Worker;
         },
 
-        patchWasmModule: _ => {
+        patchWasmModule: () => {
             if (WebAssembly.patchedModule === true) return;
 
             const original = WebAssembly.Module;
@@ -1737,7 +1776,7 @@ try {
             WebAssembly.patchedModule = true;
         },
 
-        patchWasmInstantiate: _ => {
+        patchWasmInstantiate: () => {
             if (WebAssembly.patchedInstantiate === true) return;
 
             const original = WebAssembly.instantiate,
@@ -1778,7 +1817,11 @@ try {
             }
         },
 
-        addContextGlobals: _ => {
+        addContextGlobals: objs => {
+            if (typeof objs === "object") {
+                Object.assign(global, objs);
+            }
+
             Patches._safePatchGlobals(globals);
         },
 
@@ -1794,7 +1837,11 @@ try {
             globalObjs.ModuleLoader ??= ModuleLoader;
 
             globalObjs.Patches ??= {
-                patchGlobalContext: Patches.patchGlobalContext
+                globals,
+                clearLoadedPatches: Patches.clearLoadedPatches,
+                apply: Patches.apply,
+                patchGlobalContext: Patches.patchGlobalContext,
+                addContextGlobals: Patches.addContextGlobals
             };
 
             switch (library) {
@@ -1811,8 +1858,30 @@ try {
             Patches._safePatchGlobals(globalObjs);
         },
 
+        apply: (...patches) => {
+            const patchFuncs = patches.map(patch => {
+                const err = new LoaderError("Unknown patch: " + patch);
+
+                if (!Patches._patchPrefixes.some(prefix => patch.startsWith(prefix))) {
+                    throw err;
+                }
+
+                const func = Patches[patch];
+
+                if (typeof func !== "function" || func.length > 0) {
+                    throw err;
+                }
+
+                return func;
+            });
+
+            Patches.clearLoadedPatches();
+            patchFuncs.forEach(func => func());
+            Patches.addContextGlobals();
+        },
+
         applyAll: (library = loadLibrary) => {
-            Patches._clearPatches();
+            Patches.clearLoadedPatches();
 
             Patches.polyfillConsole();
             Patches.polyfillTimers();
@@ -1846,6 +1915,7 @@ try {
         },
 
         _loadedPatches: [],
+        _patchPrefixes: ["patch", "polyfill"],
 
         _loadedPatch: (...names) => {
             for (const name of names) {
@@ -1855,7 +1925,7 @@ try {
             }
         },
 
-        _clearPatches: _ => {
+        clearLoadedPatches: _ => {
             Patches._loadedPatches.length = 0;
         },
 
@@ -2169,6 +2239,8 @@ try {
         } else {
             subPatch();
         }
+
+        Patches.clearLoadedPatches();
     }
 
     function mainLoadMisc() {
