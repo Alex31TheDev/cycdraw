@@ -64,7 +64,7 @@ const main = (() => {
     function parseArgs() {
         [rmsg, content] = (() => {
             let rmsg;
-            msg.content = `%t ${tag.name}${tag.args ? " " + tag.args : ""}`;
+            msg.content = `%t ${tag.name} ${tag.args ? " " + tag.args : ""}`;
 
             if (msg.reference) {
                 const msgs = util.fetchMessages();

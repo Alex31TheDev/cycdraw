@@ -1602,6 +1602,13 @@ class ModuleLoader {
     }
 
     static _getLoadArgs(name, codeArgs, loadArgs, options) {
+        if (!Array.isArray(codeArgs)) {
+            throw new LoaderError("Code args must be an array");
+        }
+        if (!Array.isArray(loadArgs)) {
+            throw new LoaderError("Load args must be an array");
+        }
+
         const codeArgCount = 3,
             loadArgCount = 4;
 
