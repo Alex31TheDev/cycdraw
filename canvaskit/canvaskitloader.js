@@ -1,23 +1,21 @@
 "use strict";
 
 // config
-let loadLibrary = util.loadLibrary ?? "canvaskit";
-
-const loadSource = util.loadSource ?? (0 ? "url" : "tag"),
+const loadLibrary = util.loadLibrary ?? "canvaskit",
+    loadSource = util.loadSource ?? (0 ? "url" : "tag"),
     enableDebugger = util.inspectorEnabled ?? false;
 
 const isolateGlobals = util._isolateGlobals ?? true,
     useWasmBase2nDecoder = util._useWasmBase2nDecoder ?? true,
     forceXzDecompressor = util._forceXzDecompressor ?? false;
 
-let useXzDecompressor = false,
+let useBase2nDecoder = false,
+    useXzDecompressor = false,
     useZstdDecompressor = false;
 
-const consoleOpts = {};
+let useLoadFuncs = false;
 
-delete util.loadLibrary;
-delete util.loadSource;
-delete util._isolateGlobals;
+const consoleOpts = {};
 
 // sources
 const urls = {
@@ -141,6 +139,34 @@ try {
 
         throw new ExitError();
     }
+
+    // fix util
+    const defaultUtilProps = [
+        "version",
+        "env",
+        "timeLimit",
+        "inspectorEnabled",
+        "outCharLimit",
+        "outNewlineLimit",
+        "findUsers",
+        "fetchTag",
+        "findTags",
+        "dumpTags",
+        "fetchMessage",
+        "fetchMessages",
+        "findTags",
+        "executeTag"
+    ];
+
+    function deleteExtraUtilProps() {
+        for (const key of Object.keys(util)) {
+            if (!defaultUtilProps.includes(key)) {
+                delete util[key];
+            }
+        }
+    }
+
+    deleteExtraUtilProps();
 
     // classes
     class Logger {
@@ -2279,7 +2305,7 @@ try {
     }
 
     // main
-    function mainPatch() {
+    function mainPatch(loadLibrary) {
         function subPatch(library) {
             let timeKey = "apply_patches";
 
@@ -2295,18 +2321,16 @@ try {
         if (Array.isArray(loadLibrary)) {
             loadLibrary.forEach(subPatch);
         } else {
-            subPatch();
+            subPatch(loadLibrary);
         }
 
         Patches.clearLoadedPatches();
     }
 
-    let addLoadFuncs = false;
+    const loadFuncLibs = ["none"];
 
-    function mainLoadMisc() {
-        let useBase2nDecoder = false;
-
-        function decideMiscConfig(library = loadLibrary) {
+    function mainLoadMisc(loadLibrary) {
+        function decideMiscConfig(library) {
             switch (library) {
                 case "none":
                     break;
@@ -2334,17 +2358,17 @@ try {
         }
 
         if (Array.isArray(loadLibrary)) {
-            if (loadLibrary.length === 1 && loadLibrary[0] === "none") {
-                addLoadFuncs = true;
+            if (loadLibrary.every(library => loadFuncLibs.includes(library))) {
+                useLoadFuncs = true;
             }
 
             loadLibrary.forEach(decideMiscConfig);
         } else {
-            if (loadLibrary === "none") {
-                addLoadFuncs = true;
+            if (loadFuncLibs.includes(loadLibrary)) {
+                useLoadFuncs = true;
             }
 
-            decideMiscConfig();
+            decideMiscConfig(loadLibrary);
         }
 
         if (loadSource === "tag") {
@@ -2362,8 +2386,8 @@ try {
         }
     }
 
-    function mainLoadLibrary() {
-        function subLoadLibrary(library = loadLibrary) {
+    function mainLoadLibrary(loadLibrary) {
+        function subLoadLibrary(library) {
             switch (library) {
                 case "none":
                     break;
@@ -2390,55 +2414,56 @@ try {
         if (Array.isArray(loadLibrary)) {
             loadLibrary.forEach(subLoadLibrary);
         } else {
-            subLoadLibrary();
+            subLoadLibrary(loadLibrary);
         }
     }
 
+    function addLoadFuncs() {
+        const wrapLoadFunc = func => {
+            return function (library) {
+                const prevOwner = ModuleLoader.tagOwner,
+                    prevIsolateGlobals = ModuleLoader.isolateGlobals;
+
+                ModuleLoader.tagOwner = tagOwner;
+                ModuleLoader.isolateGlobals = true;
+
+                func(library);
+
+                ModuleLoader.tagOwner = prevOwner;
+                ModuleLoader.isolateGlobals = prevIsolateGlobals;
+            };
+        };
+
+        const loadFuncs = {
+            loadBase2nDecoder: wrapLoadFunc(loadBase2nDecoder),
+            loadXzDecompressor: wrapLoadFunc(loadXzDecompressor),
+            loadZstdDecompressor: wrapLoadFunc(loadZstdDecompressor),
+            loadLibrary: wrapLoadFunc(mainLoad)
+        };
+
+        Patches.patchGlobalContext(loadFuncs);
+    }
+
+    function mainLoad(loadLibrary) {
+        Benchmark.restartTiming("load_total");
+
+        mainPatch(loadLibrary);
+        mainLoadMisc(loadLibrary);
+        mainLoadLibrary(loadLibrary);
+
+        Benchmark.stopTiming("load_total");
+    }
+
     function main() {
-        function subMainLoad() {
-            Benchmark.restartTiming("load_total");
-
-            mainPatch();
-            mainLoadMisc();
-            mainLoadLibrary();
-
-            Benchmark.stopTiming("load_total");
-        }
-
         ModuleLoader.tagOwner = tagOwner;
 
-        subMainLoad();
+        mainLoad(loadLibrary);
 
         ModuleLoader.tagOwner = undefined;
         ModuleLoader.isolateGlobals = false;
 
-        if (addLoadFuncs) {
-            const wrapLoadFunc = func => {
-                return function (library) {
-                    const prevLibrary = loadLibrary,
-                        prevOwner = ModuleLoader.tagOwner,
-                        prevIsolateGlobals = ModuleLoader.isolateGlobals;
-
-                    loadLibrary = library;
-                    ModuleLoader.tagOwner = tagOwner;
-                    ModuleLoader.isolateGlobals = true;
-
-                    func();
-
-                    loadLibrary = prevLibrary;
-                    ModuleLoader.tagOwner = prevOwner;
-                    ModuleLoader.isolateGlobals = prevIsolateGlobals;
-                };
-            };
-
-            const loadFuncs = {
-                loadBase2nDecoder: wrapLoadFunc(loadBase2nDecoder),
-                loadXzDecompressor: wrapLoadFunc(loadXzDecompressor),
-                loadZstdDecompressor: wrapLoadFunc(loadZstdDecompressor),
-                loadLibrary: wrapLoadFunc(subMainLoad)
-            };
-
-            Patches.patchGlobalContext(loadFuncs);
+        if (useLoadFuncs) {
+            addLoadFuncs();
         }
     }
 
