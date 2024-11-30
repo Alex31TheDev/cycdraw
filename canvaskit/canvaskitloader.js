@@ -76,6 +76,10 @@ CanvasKit API docs: https://github.com/google/skia/blob/a004a27085d7dcc4efc3766c
 
 Tag repo: https://github.com/Alex31TheDev/cycdraw/tree/main/canvaskit`;
 
+// misc
+const outCharLimit = util.outCharLimit ?? 1000,
+    outLineLimit = util.outLineLimit ?? 6;
+
 // errors
 class CustomError extends Error {
     constructor(message = "", ...args) {
@@ -99,14 +103,14 @@ class LoggerError extends CustomError {}
 class LoaderError extends RefError {}
 class UtilError extends RefError {}
 
-// fix util
+// delete config props
 const defaultUtilProps = [
     "version",
     "env",
     "timeLimit",
     "inspectorEnabled",
     "outCharLimit",
-    "outNewlineLimit",
+    "outLineLimit",
     "findUsers",
     "fetchTag",
     "findTags",
@@ -117,7 +121,7 @@ const defaultUtilProps = [
     "executeTag"
 ];
 
-function deleteExtraUtilProps() {
+function deleteConfigProps() {
     for (const key of Object.keys(util)) {
         if (!defaultUtilProps.includes(key)) {
             delete util[key];
@@ -125,7 +129,7 @@ function deleteExtraUtilProps() {
     }
 }
 
-deleteExtraUtilProps();
+deleteConfigProps();
 
 // classes
 class Logger {
@@ -587,6 +591,20 @@ const LoaderUtils = {
         }
 
         return [first, second];
+    },
+
+    exceedsLimits: str => {
+        return str.length > outCharLimit || str.split("\n").length > outLineLimit;
+    },
+
+    codeBlock: str => {
+        const formatted = `\`\`\`\n${str}\`\`\``;
+
+        if (!LoaderUtils.exceedsLimits(formatted)) {
+            return formatted;
+        }
+
+        return str;
     },
 
     shallowClone: (obj, options) => {

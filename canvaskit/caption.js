@@ -499,7 +499,8 @@ const main = (() => {
             Benchmark.deleteLastCountTime("tag_fetch");
             Benchmark.deleteLastCountTime("module_load");
 
-            out = Benchmark.getTable("heavy", 1, "load_total", "load_ranges", "caption_total", "encode_png");
+            const table = Benchmark.getTable("heavy", 1, "load_total", "load_ranges", "caption_total", "encode_png");
+            out = LoaderUtils.codeBlock(table);
         }
 
         msg.reply(out, {
