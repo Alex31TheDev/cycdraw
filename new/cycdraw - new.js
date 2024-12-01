@@ -2478,6 +2478,7 @@ function handleMsg() {
 }
 
 // node
+
 function writeImg() {
     const fs = require("fs");
 
@@ -2489,22 +2490,22 @@ function writeImg() {
 
     let img = new Image(w, h);
 
-    Benchmark.stopTiming("create_img" + i);
-    Benchmark.startTiming("draw_img" + i);
+    Benchmark.stopTiming("create_img");
+    Benchmark.startTiming("draw_img");
 
     img = drawImg(img);
 
-    Benchmark.stopTiming("draw_img" + i);
-    Benchmark.startTiming("encode_img" + i);
+    Benchmark.stopTiming("draw_img");
+    Benchmark.startTiming("encode_img");
 
     let buf = img.encode();
 
-    Benchmark.stopTiming("encode_img" + i);
-    Benchmark.startTiming("write_file" + i);
+    Benchmark.stopTiming("encode_img");
+    Benchmark.startTiming("write_file");
 
-    fs.writeFileSync(`./amongus${i + 1}.png`, Buffer.from(buf));
+    fs.writeFileSync(`./amongus.png`, Buffer.from(buf));
 
-    Benchmark.stopTiming("write_file" + i);
+    Benchmark.stopTiming("write_file");
 
     Benchmark.stopTiming("total");
 
