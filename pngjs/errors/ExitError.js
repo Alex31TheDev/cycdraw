@@ -1,10 +1,5 @@
-class ExitError extends Error {
-    constructor(message = "", ...args) {
-        super(message, ...args);
+const CustomError = require("./CustomError.js");
 
-        this.name = "ExitError";
-        this.message = message;
-    }
-}
+class ExitError extends CustomError {}
 
 module.exports = ExitError;
