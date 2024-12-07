@@ -93,15 +93,33 @@ class CustomError extends Error {
 class RefError extends CustomError {
     constructor(message = "", ref, ...args) {
         super(message, ...args);
+
         this.ref = ref;
     }
 }
 
 class ExitError extends CustomError {}
-
 class LoggerError extends CustomError {}
-class LoaderError extends RefError {}
+
 class UtilError extends RefError {}
+
+class LoaderError extends RefError {
+    constructor(message = "", ref, ...args) {
+        if (ref instanceof Error) {
+            super(message, ref, ...args);
+
+            const descriptors = Object.getOwnPropertyDescriptors(ref);
+            ["message", "name", "stack"].forEach(key => delete descriptors[key]);
+            Object.defineProperties(this, descriptors);
+
+            this.stack = `${this.stack}\nCaused by: ${ref.stack}`;
+
+            return this;
+        }
+
+        super(message, ref, ...args);
+    }
+}
 
 // delete config props
 const defaultUtilProps = [
@@ -563,7 +581,7 @@ const LoaderUtils = {
         return arr[arr.length + start - 1];
     },
 
-    randomElement: (arr, a = 0, b = arr.length - 1) => {
+    randomElement: (arr, a = 0, b = arr.length) => {
         return arr[a + ~~(Math.random() * (b - a))];
     },
 
@@ -591,6 +609,17 @@ const LoaderUtils = {
         }
 
         return [first, second];
+    },
+
+    randomString: n => {
+        const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+        let result = "";
+        while (result.length < n) {
+            result += alphabet[~~(Math.random() * alphabet.length)];
+        }
+
+        return result;
     },
 
     exceedsLimits: str => {
@@ -824,6 +853,13 @@ const LoaderUtils = {
                 return true;
             }
         });
+    },
+
+    templateReplace: (template, data) => {
+        return template.replace(/(?<!\\){{(.*?)}}(?!\\)/g, (match, key) => {
+            key = key.trim();
+            return data[key] ?? match;
+        });
     }
 };
 
@@ -1009,13 +1045,13 @@ class Benchmark {
         name = this._formatCountName(name);
 
         const count = this.counts[name],
-            origName = this._origCountNames.get(name);
+            originalName = this._origCountNames.get(name);
 
-        if (typeof count === "undefined" || typeof origName === "undefined") {
+        if (typeof count === "undefined" || typeof originalName === "undefined") {
             return "Count not found";
         }
 
-        return this._formatCount(origName, count);
+        return this._formatCount(originalName, count);
     }
 
     static incrementCount(name) {
@@ -1044,13 +1080,13 @@ class Benchmark {
         name = this._formatCountName(name);
 
         const count = this.counts[name],
-            origName = this._origCountNames.get(name);
+            originalName = this._origCountNames.get(name);
 
-        if (typeof count === "undefined" || typeof origName === "undefined" || count < 1) {
+        if (typeof count === "undefined" || typeof originalName === "undefined" || count < 1) {
             return false;
         }
 
-        const timeKey = this._formatCount(origName, count);
+        const timeKey = this._formatCount(originalName, count);
         this.deleteTime(timeKey);
 
         this.counts[name]--;
@@ -1088,10 +1124,10 @@ class Benchmark {
             return "Wrapper not found";
         }
 
-        const origFunc = this._origCountFuncs.get(formattedName);
+        const originalFunc = this._origCountFuncs.get(formattedName);
         this._deleteCount(name);
 
-        return origFunc;
+        return originalFunc;
     }
 
     static _origCountNames = new Map();
@@ -1136,11 +1172,11 @@ class Benchmark {
     }
 
     static _defineCount(name) {
-        const origName = this._formatCountOrigName(name);
+        const originalName = this._formatCountOrigName(name);
         name = this._formatCountName(name);
 
         this.counts[name] ??= 0;
-        this._origCountNames.set(name, origName);
+        this._origCountNames.set(name, originalName);
     }
 
     static _deleteCount(name) {
@@ -1194,10 +1230,10 @@ const cleanGlobal = LoaderUtils.shallowClone(globalThis, "nonenum"),
 class Module {
     constructor(name, id) {
         if (name instanceof Module) {
-            const module = name;
-            name = id ? id.toString() : module.name;
+            const module = name,
+                newName = id;
 
-            this.name = name;
+            this.name = newName?.toString() ?? module.name;
             this.id = module.id;
             this.exports = module.exports;
             this.loaded = module.loaded;
@@ -1205,10 +1241,170 @@ class Module {
             return this;
         }
 
-        this.name = (name ?? "").toString();
-        this.id = id ?? "";
+        if (typeof name === "undefined") {
+            this.name = `module_${ModuleLoader._Cache.seqModuleId}`;
+            ModuleLoader._Cache.incModuleId();
+        } else {
+            this.name = name.toString() ?? "";
+        }
+
+        this.id = id ?? "none";
         this.exports = {};
         this.loaded = false;
+    }
+}
+
+class ModuleCacheManager {
+    constructor() {
+        this.cache = new Map();
+        this.code = new Map();
+
+        this.seqModuleId = 0;
+    }
+
+    getCodeByName(name) {
+        name = name.toString();
+        return this.code.get(name);
+    }
+
+    addCode(name, code) {
+        name = name.toString();
+        this.code.set(name, code);
+    }
+
+    deleteCode(name) {
+        name = name.toString();
+        this.code.delete(name);
+    }
+
+    incModuleId() {
+        this.seqModuleId++;
+    }
+
+    getModuleByName(name) {
+        name = name.toString();
+        return this.cache.get(name);
+    }
+
+    getModuleById(id) {
+        for (const module of this.cache.values()) {
+            if (module.id === id) {
+                return module;
+            }
+        }
+    }
+
+    addModule(module, newName) {
+        this.cache.set(module.name, module);
+
+        if (typeof newName !== "undefined") {
+            const newModule = new Module(module, newName);
+            this.cache.set(newName, newModule);
+        }
+    }
+
+    deleteModule(id) {
+        if (id instanceof Module) {
+            id = id.id;
+        }
+
+        for (const [key, module] of this.cache.entries()) {
+            if (module.id === id) {
+                this.cache.delete(key);
+            }
+        }
+    }
+
+    clearCache() {
+        this.cache.clear();
+        this.code.clear();
+    }
+}
+
+class ModuleTemplateUtil {
+    static moduleCodeStartLine = 4;
+    static moduleCodeTemplate = `
+let {{innerFnName}} = (() => {
+{{moduleCode}}
+});
+
+try {
+{{innerFnName}}();
+return [true, null];
+} catch({{errName}}) {
+return [false, {{errName}}];
+}
+
+return [false, null];
+`.trim();
+
+    static addDebuggerStmt(moduleCode) {
+        return `debugger;\n\n${moduleCode}`;
+    }
+
+    static wrapErrorHandling(moduleCode, names) {
+        const randomNames = {
+            innerFnName: "_" + LoaderUtils.randomString(32),
+            errName: "_" + LoaderUtils.randomString(32)
+        };
+
+        if (typeof names === "object") {
+            Object.assign(names, randomNames);
+        }
+
+        return LoaderUtils.templateReplace(this.moduleCodeTemplate, {
+            moduleCode,
+            ...randomNames
+        });
+    }
+}
+
+class ModuleStackTraceUtil {
+    static indent = " ".repeat(4);
+
+    static errLocationExp = /<anonymous>:(\d+):(\d+)\)$/;
+
+    static getLocation(stackFrame) {
+        const match = stackFrame.match(this.errLocationExp),
+            lineNum = match[1] ? match[1] - ModuleTemplateUtil.moduleCodeStartLine : 0,
+            columnNum = match[2] ?? 0;
+
+        return [lineNum, columnNum];
+    }
+
+    static getNewStackFrame(stackFrame, moduleName) {
+        const [lineNum, columnNum] = this.getLocation(stackFrame);
+
+        let newStackFrame = `at (<module`;
+
+        if (typeof moduleName === "string") {
+            newStackFrame += ` ${moduleName}>)`;
+        } else {
+            newStackFrame += ">)";
+        }
+
+        newStackFrame += `:${lineNum}:${columnNum}`;
+        return newStackFrame;
+    }
+
+    static rewriteStackTrace(err, randomNames, moduleName) {
+        if (typeof err.stack !== "string") {
+            return err.stack;
+        }
+
+        const stackFrames = err.stack.split("\n").map(frame => frame.trim()),
+            innerFnLine = stackFrames.findIndex(frame => frame.startsWith(`at ${randomNames.innerFnName}`));
+
+        if (innerFnLine === -1) {
+            return err.stack;
+        }
+
+        for (let i = 0; i < innerFnLine; i++) {}
+
+        stackFrames[innerFnLine] = this.getNewStackFrame(stackFrames[innerFnLine], moduleName);
+        stackFrames.splice(innerFnLine + 1);
+
+        return stackFrames.map(frame => this.indent + frame).join("\n");
     }
 }
 
@@ -1229,14 +1425,14 @@ class ModuleLoader {
             name = options.name ?? url;
 
         if (cache) {
-            const foundCode = this._getCodeByName(name);
+            const foundCode = this._Cache.getCodeByName(name);
             if (typeof foundCode !== "undefined") return foundCode;
         }
 
         let moduleCode = this._fetchFromUrl(url, returnType, options);
         moduleCode = this._parseModuleCode(moduleCode, returnType);
 
-        if (cache) this._addCode(name, moduleCode);
+        if (cache) this._Cache.addCode(name, moduleCode);
         return moduleCode;
     }
 
@@ -1249,7 +1445,7 @@ class ModuleLoader {
             name = options.name ?? tagName;
 
         if (cache) {
-            const foundCode = this._getCodeByName(name);
+            const foundCode = this._Cache.getCodeByName(name);
             if (typeof foundCode !== "undefined") return foundCode;
         }
 
@@ -1265,7 +1461,7 @@ class ModuleLoader {
 
         moduleCode = this._parseModuleCode(moduleCode, returnType);
 
-        if (cache) this._addCode(name, moduleCode);
+        if (cache) this._Cache.addCode(name, moduleCode);
         return moduleCode;
     }
 
@@ -1288,13 +1484,15 @@ class ModuleLoader {
         }
     }
 
-    static loadModuleFromSource(moduleCode, loaderScope = {}, breakpoint = this.breakpoint, options = {}) {
-        let moduleName = options.name,
+    static loadModuleFromSource(moduleCode, loadScope = {}, breakpoint = this.breakpoint, options = {}) {
+        const moduleName = options.name,
             cache = this.enableCache && (options.cache ?? true),
             isolateGlobals = options.isolateGlobals ?? this.isolateGlobals;
 
+        const wrapError = true;
+
         if (cache && typeof moduleName !== "undefined") {
-            const foundModule = this._getModuleByName(moduleName);
+            const foundModule = this._Cache.getModuleByName(moduleName);
             if (typeof foundModule !== "undefined") return foundModule.exports;
         }
 
@@ -1308,19 +1506,18 @@ class ModuleLoader {
 
         if (cache) {
             moduleId = md5(moduleCode);
-            const foundModule = this._getModuleById(moduleId);
+            const foundModule = this._Cache.getModuleById(moduleId);
 
             if (typeof foundModule !== "undefined") {
-                if (foundModule.name !== moduleName) this._addModule(foundModule, moduleName);
+                if (foundModule.name !== moduleName) this._Cache.addModule(foundModule, moduleName);
                 return foundModule.exports;
             }
         }
 
-        const module = new Module(moduleName ?? this._seqModuleId, moduleId),
+        const module = new Module(moduleName, moduleId),
             exports = module.exports;
 
-        if (cache) this._addModule(module);
-        this._incModuleId();
+        if (cache) this._Cache.addModule(module);
 
         const moduleObjs = {
             module,
@@ -1328,25 +1525,29 @@ class ModuleLoader {
         };
 
         const filteredGlobals = LoaderUtils.removeUndefinedValues(globals),
-            filteredScope = LoaderUtils.removeUndefinedValues(loaderScope);
+            filteredScope = LoaderUtils.removeUndefinedValues(loadScope);
 
-        const filteredKeys = Object.keys(filteredGlobals),
-            patchedGlobal = LoaderUtils.shallowClone(isolateGlobals ? cleanGlobal : globalThis);
+        let patchedGlobal = LoaderUtils.shallowClone(isolateGlobals ? cleanGlobal : globalThis);
         Object.assign(patchedGlobal, filteredGlobals);
+        patchedGlobal = Object.fromEntries(globalKeys.map(key => [key, patchedGlobal]));
 
-        const loaderParams = [
-            ...Object.keys(moduleObjs),
-            ...globalKeys,
-            ...filteredKeys,
-            ...Object.keys(filteredScope)
-        ];
+        const scopeObj = {
+            ...moduleObjs,
+            ...patchedGlobal,
+            ...filteredGlobals,
+            ...filteredScope
+        };
 
-        const loaderArgs = [
-            ...Object.values(moduleObjs),
-            ...Array(globalKeys.length).fill(patchedGlobal),
-            ...Object.values(filteredGlobals),
-            ...Object.values(filteredScope)
-        ];
+        const loadParams = Object.keys(scopeObj),
+            loadArgs = Object.values(scopeObj);
+
+        let randomNames;
+
+        if (breakpoint) moduleCode = this._Template.addDebuggerStmt(moduleCode);
+        if (wrapError) {
+            randomNames = {};
+            moduleCode = this._Template.wrapErrorHandling(moduleCode, randomNames);
+        }
 
         let originalGlobal;
 
@@ -1368,20 +1569,36 @@ class ModuleLoader {
             Patches.patchGlobalContext(patchedGlobal);
         }
 
-        moduleCode = this._addDebuggerStmt(moduleCode, breakpoint);
+        const cleanup = _ => {
+            if (isolateGlobals) {
+                Patches.removeFromGlobalContext(Object.keys(globalThis));
+                Patches.patchGlobalContext(originalGlobal);
+            }
 
-        try {
-            const loaderFn = new Function(loaderParams, moduleCode);
-            loaderFn(...loaderArgs);
+            if (cache && !module.loaded) this._Cache.deleteModule(module);
+        };
 
-            module.loaded = true;
-        } finally {
-            if (cache && !module.loaded) this._deleteModule(module);
-        }
+        if (wrapError) {
+            const loaderFn = new Function(loadParams, moduleCode);
 
-        if (isolateGlobals) {
-            Patches.removeFromGlobalContext(Object.keys(globalThis));
-            Patches.patchGlobalContext(originalGlobal);
+            const [loaded, err] = loaderFn(...loadArgs);
+            module.loaded = loaded;
+
+            cleanup();
+
+            if (err !== null) {
+                err.stack = this._StackTrace.rewriteStackTrace(err, randomNames, module.name);
+                throw new LoaderError(`Error occured while loading module ${module.name}.`, err);
+            }
+        } else {
+            try {
+                const loaderFn = new Function(loadParams, moduleCode);
+                loaderFn(...loadArgs);
+
+                module.loaded = true;
+            } finally {
+                cleanup();
+            }
         }
 
         return module.exports;
@@ -1392,7 +1609,7 @@ class ModuleLoader {
             cache = this.enableCache && (options.cache ?? true);
 
         if (cache) {
-            const foundModule = this._getModuleByName(url);
+            const foundModule = this._Cache.getModuleByName(url);
             if (typeof foundModule !== "undefined") return foundModule.exports;
         }
 
@@ -1405,7 +1622,7 @@ class ModuleLoader {
             cache = this.enableCache && (options.cache ?? true);
 
         if (cache) {
-            const foundModule = this._getModuleByName(tagName);
+            const foundModule = this._Cache.getModuleByName(tagName);
             if (typeof foundModule !== "undefined") return foundModule.exports;
         }
 
@@ -1574,33 +1791,6 @@ class ModuleLoader {
         }
     }
 
-    static _addDebuggerStmt(moduleCode, breakpoint) {
-        return breakpoint ? `debugger;\n\n${moduleCode}` : moduleCode;
-    }
-
-    static _cache = new Map();
-    static _code = new Map();
-    static _seqModuleId = 0;
-
-    static _getCodeByName(name) {
-        name = name.toString();
-        return this._code.get(name);
-    }
-
-    static _addCode(name, code) {
-        name = name.toString();
-        this._code.set(name, code);
-    }
-
-    static _deleteCode(name) {
-        name = name.toString();
-        this._code.delete(name);
-    }
-
-    static _incModuleId() {
-        this._seqModuleId++;
-    }
-
     static _getLoadArgs(name, codeArgs, loadArgs, options) {
         if (!Array.isArray(codeArgs)) {
             throw new LoaderError("Code args must be an array");
@@ -1635,44 +1825,9 @@ class ModuleLoader {
         return [paddedCodeArgs, paddedLoadArgs];
     }
 
-    static _getModuleByName(name) {
-        name = name.toString();
-        return this._cache.get(name);
-    }
-
-    static _getModuleById(id) {
-        for (const module of this._cache.values()) {
-            if (module.id === id) {
-                return module;
-            }
-        }
-    }
-
-    static _addModule(module, newName) {
-        this._cache.set(module.name, module);
-
-        if (typeof newName !== "undefined") {
-            const newModule = new Module(module, newName);
-            this._cache.set(newName, newModule);
-        }
-    }
-
-    static _deleteModule(id) {
-        if (id instanceof Module) {
-            id = id.id;
-        }
-
-        for (const [key, module] of this._cache.entries()) {
-            if (module.id === id) {
-                this._cache.delete(key);
-            }
-        }
-    }
-
-    static clearCache() {
-        this._cache.clear();
-        this._code.clear();
-    }
+    static _Cache = new ModuleCacheManager();
+    static _Template = ModuleTemplateUtil;
+    static _StackTrace = ModuleStackTraceUtil;
 }
 
 ModuleLoader._fetchFromUrl = Benchmark.wrapFunction("url_fetch", ModuleLoader._fetchFromUrl);
@@ -2241,7 +2396,7 @@ function loadResvg() {
 
 // libvips loader
 function loadLibVips() {
-    const initCode = ModuleLoader._addDebuggerStmt(
+    const initCode = ModuleLoader._Template.addDebuggerStmt(
             ModuleLoader.getModuleCode(urls.LibVipsLoaderUrl, tags.LibVipsLoaderTagName),
             enableDebugger
         ),
