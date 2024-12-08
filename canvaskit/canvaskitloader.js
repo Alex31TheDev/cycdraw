@@ -1242,8 +1242,7 @@ class Module {
         }
 
         if (typeof name === "undefined") {
-            this.name = `module_${ModuleLoader._Cache.seqModuleId}`;
-            ModuleLoader._Cache.incModuleId();
+            this.name = ModuleLoader._Cache.getSeqModuleName();
         } else {
             this.name = name.toString() ?? "";
         }
@@ -1256,38 +1255,26 @@ class Module {
 
 class ModuleCacheManager {
     constructor() {
-        this.cache = new Map();
-        this.code = new Map();
+        this._cache = new Map();
+        this._code = new Map();
 
-        this.seqModuleId = 0;
+        this._seqModuleId = 0;
     }
 
-    getCodeByName(name) {
-        name = name.toString();
-        return this.code.get(name);
-    }
+    getSeqModuleName() {
+        const name = `module_${this._seqModuleId}`;
+        this._incModuleId();
 
-    addCode(name, code) {
-        name = name.toString();
-        this.code.set(name, code);
-    }
-
-    deleteCode(name) {
-        name = name.toString();
-        this.code.delete(name);
-    }
-
-    incModuleId() {
-        this.seqModuleId++;
+        return name;
     }
 
     getModuleByName(name) {
         name = name.toString();
-        return this.cache.get(name);
+        return this._cache.get(name);
     }
 
     getModuleById(id) {
-        for (const module of this.cache.values()) {
+        for (const module of this._cache.values()) {
             if (module.id === id) {
                 return module;
             }
@@ -1295,11 +1282,15 @@ class ModuleCacheManager {
     }
 
     addModule(module, newName) {
-        this.cache.set(module.name, module);
+        if (typeof this.getModuleById(module.name) !== "undefined") {
+            throw new LoaderError(`Module ${module.name} already exists`);
+        }
+
+        this._cache.set(module.name, module);
 
         if (typeof newName !== "undefined") {
             const newModule = new Module(module, newName);
-            this.cache.set(newName, newModule);
+            this._cache.set(newName, newModule);
         }
     }
 
@@ -1308,21 +1299,44 @@ class ModuleCacheManager {
             id = id.id;
         }
 
-        for (const [key, module] of this.cache.entries()) {
+        for (const [key, module] of this._cache.entries()) {
             if (module.id === id) {
-                this.cache.delete(key);
+                this._cache.delete(key);
             }
         }
     }
 
-    clearCache() {
-        this.cache.clear();
-        this.code.clear();
+    getCodeByName(name) {
+        name = name.toString();
+        return this._code.get(name);
+    }
+
+    addCode(name, code) {
+        if (typeof this.getCodeByName(module.name) !== "undefined") {
+            throw new LoaderError(`Module ${module.name} already exists`);
+        }
+
+        name = name.toString();
+        this._code.set(name, code);
+    }
+
+    deleteCode(name) {
+        name = name.toString();
+        this._code.delete(name);
+    }
+
+    clearAll() {
+        this._cache.clear();
+        this._code.clear();
+    }
+
+    _incModuleId() {
+        this._seqModuleId++;
     }
 }
 
 class ModuleTemplateUtil {
-    static moduleCodeStartLine = 4;
+    static moduleCodeStartLine = 3;
     static moduleCodeTemplate = `
 let {{innerFnName}} = (() => {
 {{moduleCode}}
@@ -1392,8 +1406,12 @@ class ModuleStackTraceUtil {
             return err.stack;
         }
 
-        const stackFrames = err.stack.split("\n").map(frame => frame.trim()),
-            innerFnLine = stackFrames.findIndex(frame => frame.startsWith(`at ${randomNames.innerFnName}`));
+        let stackFrames = err.stack.split("\n"),
+            msgLine;
+        [msgLine, ...stackFrames] = stackFrames;
+        stackFrames = stackFrames.map(frame => frame.trim());
+
+        innerFnLine = stackFrames.findIndex(frame => frame.startsWith(`at ${randomNames.innerFnName}`));
 
         if (innerFnLine === -1) {
             return err.stack;
@@ -1404,7 +1422,8 @@ class ModuleStackTraceUtil {
         stackFrames[innerFnLine] = this.getNewStackFrame(stackFrames[innerFnLine], moduleName);
         stackFrames.splice(innerFnLine + 1);
 
-        return stackFrames.map(frame => this.indent + frame).join("\n");
+        stackFrames = stackFrames.map(frame => this.indent + frame);
+        return msgLine + "\n" + stackFrames.join("\n");
     }
 }
 
@@ -1828,6 +1847,10 @@ class ModuleLoader {
     static _Cache = new ModuleCacheManager();
     static _Template = ModuleTemplateUtil;
     static _StackTrace = ModuleStackTraceUtil;
+
+    static clearCache() {
+        return this._Cache.clearAll();
+    }
 }
 
 ModuleLoader._fetchFromUrl = Benchmark.wrapFunction("url_fetch", ModuleLoader._fetchFromUrl);
