@@ -1188,41 +1188,6 @@ class Benchmark {
     }
 }
 
-// globals
-let globals = {
-    setTimeout: undefined,
-    setImmediate: undefined,
-    clearTimeout: undefined,
-    clearImmediate: undefined,
-
-    console: undefined,
-
-    Promise: undefined,
-    Buffer: undefined,
-    TextEncoder: undefined,
-    TextDecoder: undefined,
-    Blob: undefined,
-    XMLHttpRequest: undefined,
-    Event: undefined,
-    Worker: undefined
-};
-
-const globalsProxyHandler = {
-    set(target, prop, value) {
-        if (typeof value === "undefined") {
-            return false;
-        }
-
-        target[prop] = value;
-        Patches._loadedPatch(prop);
-
-        return true;
-    }
-};
-
-globals = new Proxy(LoaderUtils.makeNonConfigurableObject(globals), globalsProxyHandler);
-const globalObjs = new Proxy(LoaderUtils.makeNonConfigurableObject(), globalsProxyHandler);
-
 // module loader
 const cleanGlobal = LoaderUtils.shallowClone(globalThis, "nonenum"),
     globalKeys = ["global", "globalThis"];
@@ -1242,8 +1207,7 @@ class Module {
         }
 
         if (typeof name === "undefined") {
-            this.name = `module_${ModuleLoader._Cache.seqModuleId}`;
-            ModuleLoader._Cache.incModuleId();
+            this.name = ModuleLoader._Cache.getSeqModuleName();
         } else {
             this.name = name.toString() ?? "";
         }
@@ -1256,38 +1220,26 @@ class Module {
 
 class ModuleCacheManager {
     constructor() {
-        this.cache = new Map();
-        this.code = new Map();
+        this._cache = new Map();
+        this._code = new Map();
 
-        this.seqModuleId = 0;
+        this._seqModuleId = 0;
     }
 
-    getCodeByName(name) {
-        name = name.toString();
-        return this.code.get(name);
-    }
+    getSeqModuleName() {
+        const name = `module_${this._seqModuleId}`;
+        this._incModuleId();
 
-    addCode(name, code) {
-        name = name.toString();
-        this.code.set(name, code);
-    }
-
-    deleteCode(name) {
-        name = name.toString();
-        this.code.delete(name);
-    }
-
-    incModuleId() {
-        this.seqModuleId++;
+        return name;
     }
 
     getModuleByName(name) {
         name = name.toString();
-        return this.cache.get(name);
+        return this._cache.get(name);
     }
 
     getModuleById(id) {
-        for (const module of this.cache.values()) {
+        for (const module of this._cache.values()) {
             if (module.id === id) {
                 return module;
             }
@@ -1295,11 +1247,15 @@ class ModuleCacheManager {
     }
 
     addModule(module, newName) {
-        this.cache.set(module.name, module);
+        if (typeof this.getModuleById(module.name) !== "undefined") {
+            throw new LoaderError(`Module ${module.name} already exists`);
+        }
+
+        this._cache.set(module.name, module);
 
         if (typeof newName !== "undefined") {
             const newModule = new Module(module, newName);
-            this.cache.set(newName, newModule);
+            this._cache.set(newName, newModule);
         }
     }
 
@@ -1308,21 +1264,103 @@ class ModuleCacheManager {
             id = id.id;
         }
 
-        for (const [key, module] of this.cache.entries()) {
+        for (const [key, module] of this._cache.entries()) {
             if (module.id === id) {
-                this.cache.delete(key);
+                this._cache.delete(key);
             }
         }
     }
 
-    clearCache() {
-        this.cache.clear();
-        this.code.clear();
+    getCodeByName(name) {
+        name = name.toString();
+        return this._code.get(name);
+    }
+
+    addCode(name, code) {
+        if (typeof this.getCodeByName(name) !== "undefined") {
+            throw new LoaderError(`Module ${name} already exists`);
+        }
+
+        name = name.toString();
+        this._code.set(name, code);
+    }
+
+    deleteCode(name) {
+        name = name.toString();
+        this._code.delete(name);
+    }
+
+    clearAll() {
+        this._cache.clear();
+        this._code.clear();
+    }
+
+    _incModuleId() {
+        this._seqModuleId++;
+    }
+}
+
+class ModuleGlobalsUtil {
+    static createGlobalsObject(obj) {
+        obj = LoaderUtils.makeNonConfigurableObject(obj);
+        return new Proxy(obj, this._globalsProxyHandler);
+    }
+
+    static _globalsProxyHandler = {
+        set(target, prop, value) {
+            if (typeof value === "undefined") {
+                return false;
+            }
+
+            target[prop] = value;
+            Patches._loadedPatch(prop);
+
+            return true;
+        }
+    };
+}
+
+class ModuleRequireUtil {
+    static fakeRequire = function (id) {
+        return this._createInfiniteObject();
+    };
+
+    static createFakeRequire(obj = {}) {
+        return function (id) {
+            if (typeof id !== "string") {
+                return this._createInfiniteObject();
+            }
+
+            const ret = obj[id];
+
+            switch (typeof ret) {
+                case "object":
+                    return ret;
+                case "function":
+                    return ret(id);
+                default:
+                    return this._createInfiniteObject();
+            }
+        }.bind(this);
+    }
+
+    static _infiniteObjProxyHandler = {
+        get(target, prop) {
+            if (!(prop in target)) {
+                target[prop] = new Proxy({}, this);
+            }
+
+            return target[prop];
+        }
+    };
+
+    static _createInfiniteObject() {
+        return new Proxy({}, this._infiniteObjProxyHandler);
     }
 }
 
 class ModuleTemplateUtil {
-    static moduleCodeStartLine = 4;
+    static moduleCodeStartLine = 3;
     static moduleCodeTemplate = `
 let {{innerFnName}} = (() => {
 {{moduleCode}}
@@ -1392,8 +1430,12 @@ class ModuleStackTraceUtil {
             return err.stack;
         }
 
-        const stackFrames = err.stack.split("\n").map(frame => frame.trim()),
-            innerFnLine = stackFrames.findIndex(frame => frame.startsWith(`at ${randomNames.innerFnName}`));
+        let stackFrames = err.stack.split("\n"),
+            msgLine;
+        [msgLine, ...stackFrames] = stackFrames;
+        stackFrames = stackFrames.map(frame => frame.trim());
+
+        innerFnLine = stackFrames.findIndex(frame => frame.startsWith(`at ${randomNames.innerFnName}`));
 
         if (innerFnLine === -1) {
             return err.stack;
@@ -1404,7 +1446,8 @@ class ModuleStackTraceUtil {
         stackFrames[innerFnLine] = this.getNewStackFrame(stackFrames[innerFnLine], moduleName);
         stackFrames.splice(innerFnLine + 1);
 
-        return stackFrames.map(frame => this.indent + frame).join("\n");
+        stackFrames = stackFrames.map(frame => this.indent + frame);
+        return msgLine + "\n" + stackFrames.join("\n");
     }
 }
 
@@ -1415,6 +1458,8 @@ class ModuleLoader {
     static tagOwner;
     static breakpoint = false;
     static enableCache = true;
+
+    static Require = ModuleRequireUtil;
 
     static getModuleCodeFromUrl(url, returnType = FileDataTypes.text, options = {}) {
         if (url === null || typeof url === "undefined" || url.length < 1) {
@@ -1527,13 +1572,14 @@ class ModuleLoader {
         const filteredGlobals = LoaderUtils.removeUndefinedValues(globals),
             filteredScope = LoaderUtils.removeUndefinedValues(loadScope);
 
-        let patchedGlobal = LoaderUtils.shallowClone(isolateGlobals ? cleanGlobal : globalThis);
+        const patchedGlobal = LoaderUtils.shallowClone(isolateGlobals ? cleanGlobal : globalThis);
         Object.assign(patchedGlobal, filteredGlobals);
-        patchedGlobal = Object.fromEntries(globalKeys.map(key => [key, patchedGlobal]));
+
+        const patchedGlobalParams = Object.fromEntries(globalKeys.map(key => [key, patchedGlobal]));
 
         const scopeObj = {
             ...moduleObjs,
-            ...patchedGlobal,
+            ...patchedGlobalParams,
             ...filteredGlobals,
             ...filteredScope
         };
@@ -1650,6 +1696,14 @@ class ModuleLoader {
 
         throw new LoaderError("No URL or tag name provided");
     }
+
+    static clearCache() {
+        return this._Cache.clearAll();
+    }
+
+    static _Cache = new ModuleCacheManager();
+    static _Template = ModuleTemplateUtil;
+    static _StackTrace = ModuleStackTraceUtil;
 
     static _fetchFromUrl(url, returnType, options = {}) {
         let responseType;
@@ -1824,15 +1878,32 @@ class ModuleLoader {
 
         return [paddedCodeArgs, paddedLoadArgs];
     }
-
-    static _Cache = new ModuleCacheManager();
-    static _Template = ModuleTemplateUtil;
-    static _StackTrace = ModuleStackTraceUtil;
 }
 
 ModuleLoader._fetchFromUrl = Benchmark.wrapFunction("url_fetch", ModuleLoader._fetchFromUrl);
 ModuleLoader._fetchTagBody = Benchmark.wrapFunction("tag_fetch", ModuleLoader._fetchTagBody);
 ModuleLoader.loadModuleFromSource = Benchmark.wrapFunction("module_load", ModuleLoader.loadModuleFromSource);
+
+// globals
+const globals = ModuleGlobalsUtil.createGlobalsObject({
+    setTimeout: undefined,
+    setImmediate: undefined,
+    clearTimeout: undefined,
+    clearImmediate: undefined,
+
+    console: undefined,
+
+    Promise: undefined,
+    Buffer: undefined,
+    TextEncoder: undefined,
+    TextDecoder: undefined,
+    Blob: undefined,
+    XMLHttpRequest: undefined,
+    Event: undefined,
+    Worker: undefined
+});
+
+const globalObjs = ModuleGlobalsUtil.createGlobalsObject();
 
 // patches
 const Patches = {
