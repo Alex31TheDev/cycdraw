@@ -32,7 +32,10 @@ const urls = {
     ResvgWasmUrl: "https://cdn.jsdelivr.net/npm/@resvg/resvg-wasm@2.6.2/index_bg.wasm",
 
     LibVipsLoaderUrl: "https://files.catbox.moe/j1uor5.js",
-    LibVipsWasmUrl: "https://cdn.jsdelivr.net/npm/wasm-vips@0.0.11/lib/vips.wasm"
+    LibVipsWasmUrl: "https://cdn.jsdelivr.net/npm/wasm-vips@0.0.11/lib/vips.wasm",
+
+    LodepngInitUrl: "https://cdn.jsdelivr.net/npm/@cwasm/lodepng@0.1.7/index.js",
+    LodepngWasmUrl: "https://cdn.jsdelivr.net/npm/@cwasm/lodepng@0.1.7/lodepng.wasm"
 };
 
 const tags = {
@@ -60,7 +63,10 @@ const tags = {
         ResvgWasmTagName: /^ck_resvg_wasm\d+$/,
 
         LibVipsLoaderTagName: "",
-        LibVipsWasmTagName: ""
+        LibVipsWasmTagName: "",
+
+        LodepngInitTagName: "ck_lodepng_init",
+        LodepngWasmTagName: "ck_lodepng_wasm"
     },
     tagOwner = "883072834790916137";
 
@@ -890,11 +896,29 @@ class Benchmark {
     static counts = Object.create(null);
     static timepoints = new Map();
 
-    static useVmTime = typeof vm !== "undefined";
+    static timeToUse = (_ => {
+        if (typeof this._performance !== "undefined") {
+            return "performanceNow";
+        }
+
+        if (typeof this._vm !== "undefined") {
+            return "vmTime";
+        }
+
+        return "dateNow";
+    })();
+
     static ns_per_ms = 10n ** 6n;
 
     static getCurrentTime() {
-        return this.useVmTime ? vm.getWallTime() : Date.now();
+        switch (this.timeToUse) {
+            case "performanceNow":
+                return this._performance.now();
+            case "vmTime":
+                return this._vm.getWallTime();
+            case "dateNow":
+                return Date.now();
+        }
     }
 
     static startTiming(key) {
@@ -935,10 +959,15 @@ class Benchmark {
         let t2 = this.getCurrentTime(),
             dt = t2 - t1;
 
-        if (this.useVmTime) {
-            dt = Number((t2 - t1) / this.ns_per_ms);
-        } else {
-            dt = t2 - t1;
+        switch (this.timeToUse) {
+            case "performanceNow":
+                dt = Math.floor(dt);
+                break;
+            case "vmTime":
+                dt = Number(dt / this.ns_per_ms);
+                break;
+            case "dateNow":
+                break;
         }
 
         this.data[key] = dt;
@@ -1129,6 +1158,9 @@ class Benchmark {
 
         return originalFunc;
     }
+
+    static _performance = globalThis.performance;
+    static _vm = globalThis.vm;
 
     static _origCountNames = new Map();
     static _origCountFuncs = new Map();
@@ -1435,13 +1467,13 @@ class ModuleStackTraceUtil {
         [msgLine, ...stackFrames] = stackFrames;
         stackFrames = stackFrames.map(frame => frame.trim());
 
-        innerFnLine = stackFrames.findIndex(frame => frame.startsWith(`at ${randomNames.innerFnName}`));
+        const innerFnLine = stackFrames.findIndex(frame => frame.startsWith(`at ${randomNames.innerFnName}`));
 
         if (innerFnLine === -1) {
             return err.stack;
         }
 
-        for (let i = 0; i < innerFnLine; i++) {}
+        //for (let i = 0; i < innerFnLine; i++) {}
 
         stackFrames[innerFnLine] = this.getNewStackFrame(stackFrames[innerFnLine], moduleName);
         stackFrames.splice(innerFnLine + 1);
@@ -1534,7 +1566,7 @@ class ModuleLoader {
             cache = this.enableCache && (options.cache ?? true),
             isolateGlobals = options.isolateGlobals ?? this.isolateGlobals;
 
-        const wrapError = true;
+        const wrapErrors = true;
 
         if (cache && typeof moduleName !== "undefined") {
             const foundModule = this._Cache.getModuleByName(moduleName);
@@ -1569,37 +1601,39 @@ class ModuleLoader {
             exports
         };
 
-        const filteredGlobals = LoaderUtils.removeUndefinedValues(globals),
-            filteredScope = LoaderUtils.removeUndefinedValues(loadScope);
-
-        const patchedGlobal = LoaderUtils.shallowClone(isolateGlobals ? cleanGlobal : globalThis);
-        Object.assign(patchedGlobal, filteredGlobals);
-
-        const patchedGlobalParams = Object.fromEntries(globalKeys.map(key => [key, patchedGlobal]));
-
-        const scopeObj = {
-            ...moduleObjs,
-            ...patchedGlobalParams,
-            ...filteredGlobals,
-            ...filteredScope
-        };
-
-        const loadParams = Object.keys(scopeObj),
-            loadArgs = Object.values(scopeObj);
-
         let randomNames;
 
         if (breakpoint) moduleCode = this._Template.addDebuggerStmt(moduleCode);
-        if (wrapError) {
+        if (wrapErrors) {
             randomNames = {};
             moduleCode = this._Template.wrapErrorHandling(moduleCode, randomNames);
         }
 
-        let originalGlobal;
+        const filteredGlobals = LoaderUtils.removeUndefinedValues(globals),
+            filteredScope = LoaderUtils.removeUndefinedValues(loadScope);
+
+        const scopeObj = {
+            ...moduleObjs,
+            ...filteredGlobals,
+            ...filteredScope
+        };
+
+        let originalGlobal, patchedGlobal;
 
         if (isolateGlobals) {
             originalGlobal = LoaderUtils.shallowClone(globalThis, "enum");
 
+            patchedGlobal = LoaderUtils.shallowClone(isolateGlobals ? cleanGlobal : globalThis);
+            Object.assign(patchedGlobal, filteredGlobals);
+
+            const patchedGlobalParams = Object.fromEntries(globalKeys.map(key => [key, patchedGlobal]));
+            Object.assign(scopeObj, patchedGlobalParams);
+        }
+
+        const loadParams = Object.keys(scopeObj),
+            loadArgs = Object.values(scopeObj);
+
+        if (isolateGlobals) {
             try {
                 Patches.removeFromGlobalContext(Object.keys(globalThis));
             } catch (err) {
@@ -1624,7 +1658,7 @@ class ModuleLoader {
             if (cache && !module.loaded) this._Cache.deleteModule(module);
         };
 
-        if (wrapError) {
+        if (wrapErrors) {
             const loaderFn = new Function(loadParams, moduleCode);
 
             const [loaded, err] = loaderFn(...loadArgs);
@@ -2106,6 +2140,8 @@ const Patches = {
                 break;
             case "libvips":
                 break;
+            case "lodepng":
+                break;
             default:
                 throw new LoaderError("Unknown library: " + library);
         }
@@ -2160,6 +2196,8 @@ const Patches = {
                 Patches.polyfillXHR();
                 Patches.polyfillEvent();
                 Patches.polyfillWebWorker();
+                break;
+            case "lodepng":
                 break;
             default:
                 throw new LoaderError("Unknown library: " + library);
@@ -2255,7 +2293,10 @@ function loadBase2nDecoder() {
     }
 
     function unloadJsBase2nDecoder() {
-        const keys = Object.keys(globalThis).filter(key => key.toLowerCase().includes("base2n"));
+        const keys = Object.keys(globalThis).filter(key => {
+            key = key.toLowerCase();
+            return key.includes("base2n") && !key.includes("fast");
+        });
         keys.push("table");
 
         Patches.removeFromGlobalContext(keys);
@@ -2297,7 +2338,6 @@ function loadBase2nDecoder() {
         const originalDecode = Base2nWasmDec.decodeBase2n.bind(Base2nWasmDec),
             patchedDecode = Benchmark.wrapFunction("decode", originalDecode);
 
-        unloadJsBase2nDecoder();
         Patches.patchGlobalContext({
             fastDecodeBase2n: patchedDecode
         });
@@ -2315,6 +2355,8 @@ function loadBase2nDecoder() {
         Benchmark.startTiming("load_wasm_decoder");
         loadWasmBase2nDecoder();
         Benchmark.stopTiming("load_wasm_decoder");
+
+        unloadJsBase2nDecoder();
     }
 }
 
@@ -2485,6 +2527,11 @@ function loadLibVips() {
                     }
                 },
                 clearInterval: _ => 1
+            },
+
+            enableDebugger,
+            {
+                cache: false
             }
         );
 
@@ -2512,12 +2559,43 @@ function loadLibVips() {
     Patches.patchGlobalContext({ vips });
 }
 
+// lodepng loader
+function loadLodepng() {
+    const wasm = ModuleLoader.getModuleCode(urls.LodepngWasmUrl, tags.LodepngWasmTagName, FileDataTypes.binary, {
+        encoded: true
+    });
+
+    const fakeRequire = ModuleRequireUtil.createFakeRequire({
+        path: {
+            join: (...args) => {}
+        },
+
+        fs: {
+            readFileSync: (path, options) => wasm
+        }
+    });
+
+    const lodepng = ModuleLoader.loadModule(urls.LodepngInitUrl, tags.LodepngInitTagName, undefined, [
+        {
+            require: fakeRequire,
+            __dirname: ""
+        },
+
+        enableDebugger,
+        {
+            cache: false
+        }
+    ]);
+
+    Patches.patchGlobalContext({ lodepng });
+}
+
 // main
 function mainPatch(loadLibrary) {
     function subPatch(library) {
         let timeKey = "apply_patches";
 
-        if (typeof library !== "undefined") {
+        if (library !== loadLibrary) {
             timeKey += `_${library.toLowerCase()}`;
         }
 
@@ -2559,6 +2637,9 @@ function mainLoadMisc(loadLibrary) {
             case "libvips":
                 useBase2nDecoder = true;
                 useXzDecompressor = true;
+                break;
+            case "lodepng":
+                useBase2nDecoder = true;
                 break;
             default:
                 throw new LoaderError("Unknown library: " + library);
@@ -2603,16 +2684,25 @@ function mainLoadLibrary(loadLibrary) {
                 Benchmark.startTiming("load_canvaskit");
                 loadCanvasKit();
                 Benchmark.stopTiming("load_canvaskit");
+
                 break;
             case "resvg":
                 Benchmark.startTiming("load_resvg");
                 loadResvg();
                 Benchmark.stopTiming("load_resvg");
+
                 break;
             case "libvips":
                 Benchmark.startTiming("load_libvips");
                 loadLibVips();
                 Benchmark.stopTiming("load_libvips");
+
+                break;
+            case "lodepng":
+                Benchmark.startTiming("load_lodepng");
+                loadLodepng();
+                Benchmark.stopTiming("load_lodepng");
+
                 break;
             default:
                 throw new LoaderError("Unknown library: " + library);
@@ -2629,16 +2719,16 @@ function mainLoadLibrary(loadLibrary) {
 function addLoadFuncs() {
     const wrapLoadFunc = func => {
         return function (library) {
-            const prevOwner = ModuleLoader.tagOwner,
-                prevIsolateGlobals = ModuleLoader.isolateGlobals;
+            const oldOwner = ModuleLoader.tagOwner,
+                oldIsolateGlobals = ModuleLoader.isolateGlobals;
 
             ModuleLoader.tagOwner = tagOwner;
-            ModuleLoader.isolateGlobals = true;
+            ModuleLoader.isolateGlobals = isolateGlobals;
 
             func(library);
 
-            ModuleLoader.tagOwner = prevOwner;
-            ModuleLoader.isolateGlobals = prevIsolateGlobals;
+            ModuleLoader.tagOwner = oldOwner;
+            ModuleLoader.isolateGlobals = oldIsolateGlobals;
         };
     };
 
