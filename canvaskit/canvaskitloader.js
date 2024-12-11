@@ -145,15 +145,13 @@ const defaultUtilProps = [
     "executeTag"
 ];
 
-function deleteConfigProps() {
+(function deleteConfigProps() {
     for (const key of Object.keys(util)) {
         if (!defaultUtilProps.includes(key)) {
             delete util[key];
         }
     }
-}
-
-deleteConfigProps();
+})();
 
 // classes
 class Logger {
@@ -163,36 +161,20 @@ class Logger {
         error: 2
     };
 
-    static _getLevelInd(level) {
-        const levels = Object.entries(Logger.levels);
-
-        let find = levels.find(([key]) => key === level);
-
-        if (typeof find === "undefined") {
-            throw new LoggerError("Unknown logger level: " + level);
-        }
-
-        return find[1];
-    }
-
-    static _getIndLevel(ind) {
-        const levels = Object.entries(Logger.levels);
-
-        let find = levels.find(([_, value]) => value === ind);
-
-        if (typeof find === "undefined") {
-            throw new LoggerError("Unknown level index: " + ind);
-        }
-
-        return find[0];
-    }
-
     constructor(enabled = true, options = {}) {
         this.enabled = enabled;
         this.options = options;
 
         this.level = options.level ?? "info";
-        this.objIndentation = options.objIndentation ?? 4;
+
+        this._objIndentation = options.objIndentation ?? 4;
+
+        if (typeof options.formatLog !== "undefined") {
+            this._formatLog = options.formatLog.bind(this);
+        }
+
+        this.logs = [];
+        this._seqLogId = 0;
 
         this.clearLogs();
         this._defineLogFuncs();
@@ -200,6 +182,7 @@ class Logger {
 
     clearLogs() {
         this.log_str = "";
+        this.logs.length = 0;
     }
 
     get level() {
@@ -210,58 +193,140 @@ class Logger {
         this._level = Logger._getLevelInd(level);
     }
 
-    createEntry(level, msg, ...objs) {
+    log(level, ...args) {
+        if (!this.enabled) return;
+
+        if (Object.keys(Logger.levels).includes(level)) {
+            this._createEntry(level, ...args);
+        } else {
+            const msg = level,
+                objs = args;
+
+            this._createEntry("info", msg, ...objs);
+        }
+    }
+
+    getLogs(level, last) {
+        if (this.logs.length < 1) {
+            return "";
+        }
+
+        if (typeof level === "undefined" && typeof last === "undefined") {
+            return this.log_str.slice(0, -1);
+        }
+
+        let logs = this.logs;
+
+        if (typeof level === "string") {
+            const levelInd = Logger._getLevelInd(level);
+            logs = logs.filter(log => Logger._getLevelInd(log.level) >= levelInd);
+        }
+
+        if (typeof last === "number") {
+            logs = logs.slice(-last);
+        }
+
+        if (logs.length < 1) {
+            return "";
+        }
+
+        const format = logs.map(this._formatLog).join("\n");
+        return format;
+    }
+
+    replyWithLogs(level, last) {
+        const log_str = this.getLogs(level, last);
+
+        if (log_str.length < 1) {
+            return;
+        }
+
+        const codeBlock = LoaderUtils.codeBlock(log_str);
+
+        msg.reply(codeBlock);
+        throw new ExitError();
+    }
+
+    static _getLevelInd(level) {
+        const levels = Object.entries(Logger.levels),
+            find = levels.find(([key]) => key === level);
+
+        if (typeof find === "undefined") {
+            throw new LoggerError("Unknown logger level: " + level);
+        }
+
+        return find[1];
+    }
+
+    static _getIndLevel(ind) {
+        const levels = Object.entries(Logger.levels),
+            find = levels.find(([_, value]) => value === ind);
+
+        if (typeof find === "undefined") {
+            throw new LoggerError("Unknown level index: " + ind);
+        }
+
+        return find[0];
+    }
+
+    _createEntry(level, msg, ...objs) {
         if (!this.enabled) {
             return;
         }
 
-        if (Logger._getLevelInd(level) < this._level) {
+        const levelInd = Logger._getLevelInd(level);
+
+        if (levelInd < this._level) {
             return;
         }
 
-        let info = `${level}: ${msg}`;
+        const info = {
+            id: this._getSeqLogId(),
+            level,
+            timestamp: Date.now(),
+            msg,
+            objs
+        };
 
-        if (objs.length > 0) {
-            const objStrs = objs.map(obj => {
-                if (Array.isArray(obj)) {
-                    return `[${obj.join(", ")}]`;
-                }
+        this.logs.push(info);
 
-                if (obj instanceof Error) {
-                    return `\n${obj.message}\n${obj.stack}`;
-                }
+        const format = this._formatLog(info);
+        this.log_str += format + "\n";
+    }
 
-                return JSON.stringify(obj, Object.getOwnPropertyNames(obj), this.objIndentation);
-            });
+    _formatLog(info) {
+        let format = `${info.level}: ${info.msg}`;
 
-            info += " " + objStrs.join(" ");
+        if (info.objs.length > 0) {
+            const objStrs = info.objs.map(this._formatObject);
+            format += " " + objStrs.join(" ");
         }
 
-        this.log_str += info + "\n";
+        return format;
+    }
+
+    _formatObject(obj) {
+        if (Array.isArray(obj)) {
+            return `[${obj.join(", ")}]`;
+        }
+
+        if (obj instanceof Error) {
+            return `${obj.message}\n${obj.stack}`;
+        }
+
+        const properties = Object.getOwnPropertyNames(obj);
+        return JSON.stringify(obj, properties, this._objIndentation);
     }
 
     _defineLogFuncs() {
         for (const level of Object.keys(Logger.levels)) {
-            const logFunc = this.createEntry.bind(this, level);
+            const logFunc = this._createEntry.bind(this, level);
             this[level] = logFunc;
         }
-
-        this.log = this.createEntry.bind(this, "info");
     }
 
-    replyWithLogs() {
-        if (this.log_str.length < 1) {
-            return;
-        }
-
-        let log_str = this.log_str;
-
-        if (this.log_str.length <= 1000) {
-            log_str = "```\n" + log_str + "```";
-        }
-
-        msg.reply(log_str);
-        throw new ExitError();
+    _getSeqLogId() {
+        return this._seqLogId++;
     }
 }
 
@@ -556,6 +621,9 @@ const FileDataTypes = {
 const LoaderUtils = {
     HttpUtil,
     md5,
+
+    outCharLimit,
+    outLineLimit,
 
     capitalize: str => {
         str = String(str).toLowerCase();
@@ -1258,13 +1326,6 @@ class ModuleCacheManager {
         this._seqModuleId = 0;
     }
 
-    getSeqModuleName() {
-        const name = `module_${this._seqModuleId}`;
-        this._incModuleId();
-
-        return name;
-    }
-
     getModuleByName(name) {
         name = name.toString();
         return this._cache.get(name);
@@ -1327,8 +1388,8 @@ class ModuleCacheManager {
         this._code.clear();
     }
 
-    _incModuleId() {
-        this._seqModuleId++;
+    getSeqModuleName() {
+        return `module_${this._seqModuleId++}`;
     }
 }
 
@@ -2070,24 +2131,20 @@ const Patches = {
             originalModule = Patches._origWasmModule;
 
         WebAssembly.instantiate = Benchmark.wrapFunction("wasm_instantiate", (bufferSource, importObject) => {
-            try {
-                let wasmModule;
+            let wasmModule;
 
-                if (bufferSource instanceof WebAssembly.Module) {
-                    wasmModule = bufferSource;
-                } else {
-                    wasmModule = new originalModule(bufferSource);
-                }
-
-                const instance = new WebAssembly.Instance(wasmModule, importObject);
-
-                return Promise.resolve({
-                    module: wasmModule,
-                    instance
-                });
-            } catch (err) {
-                console.error(err);
+            if (bufferSource instanceof WebAssembly.Module) {
+                wasmModule = bufferSource;
+            } else {
+                wasmModule = new originalModule(bufferSource);
             }
+
+            const instance = new WebAssembly.Instance(wasmModule, importObject);
+
+            return Promise.resolve({
+                module: wasmModule,
+                instance
+            });
         });
 
         Patches._origWasmInstantiate = original;
@@ -2198,6 +2255,10 @@ const Patches = {
                 Patches.polyfillWebWorker();
                 break;
             case "lodepng":
+                if (useWasmBase2nDecoder) {
+                    Patches.polyfillPromise();
+                }
+
                 break;
             default:
                 throw new LoaderError("Unknown library: " + library);
@@ -2208,6 +2269,13 @@ const Patches = {
 
         Patches.patchWasmModule();
         Patches.patchWasmInstantiate();
+    },
+
+    checkGlobalPolyfill(name, msg) {
+        if (typeof globals[name] === "undefined") {
+            const customMsg = msg ? msg + " " : "";
+            throw new LoaderError(`${customMsg}${name} polyfill not loaded`);
+        }
     },
 
     _loadedPatches: [],
@@ -2307,6 +2375,8 @@ function loadBase2nDecoder() {
             return;
         }
 
+        Patches.checkGlobalPolyfill("Promise", "Can't load WASM Base2n decoder.");
+
         const Base2nWasmDec = ModuleLoader.loadModule(
             null,
             tags.Base2nWasmWrapperTagName,
@@ -2337,6 +2407,8 @@ function loadBase2nDecoder() {
 
         const originalDecode = Base2nWasmDec.decodeBase2n.bind(Base2nWasmDec),
             patchedDecode = Benchmark.wrapFunction("decode", originalDecode);
+
+        console.replyWithLogs("warn");
 
         Patches.patchGlobalContext({
             fastDecodeBase2n: patchedDecode
@@ -2432,7 +2504,7 @@ function loadCanvasKit() {
         }
     );
 
-    console.replyWithLogs();
+    console.replyWithLogs("warn");
 
     let wasmTagName, buf_size;
 
@@ -2467,7 +2539,8 @@ function loadCanvasKit() {
         .catch(err => console.error("Error occured while loading CanvasKit:", err));
     Benchmark.stopTiming("canvaskit_init");
 
-    console.replyWithLogs();
+    console.replyWithLogs("warn");
+
     Patches.patchGlobalContext({ CanvasKit });
 }
 
@@ -2483,7 +2556,7 @@ function loadResvg() {
         }
     );
 
-    console.replyWithLogs();
+    console.replyWithLogs("warn");
 
     let wasm = ModuleLoader.getModuleCode(urls.ResvgWasmUrl, tags.ResvgWasmTagName, FileDataTypes.binary, {
         encoded: true,
@@ -2503,7 +2576,8 @@ function loadResvg() {
     }
     Benchmark.stopTiming("resvg_init");
 
-    console.replyWithLogs();
+    console.replyWithLogs("warn");
+
     Patches.patchGlobalContext({ Resvg: ResvgInit.Resvg });
 }
 
@@ -2535,7 +2609,7 @@ function loadLibVips() {
             }
         );
 
-    console.replyWithLogs();
+    console.replyWithLogs("warn");
 
     let wasm = ModuleLoader.getModuleCode(urls.LibVipsWasmUrl, tags.LibVipsWasmTagName, FileDataTypes.binary, {
         encoded: true
@@ -2555,7 +2629,8 @@ function loadLibVips() {
         .catch(err => console.error("Error occured while loading LibVips:", err));
     Benchmark.stopTiming("libvips_init");
 
-    console.replyWithLogs();
+    console.replyWithLogs("warn");
+
     Patches.patchGlobalContext({ vips });
 }
 
