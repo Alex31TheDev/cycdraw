@@ -334,25 +334,22 @@ const main = (() => {
         customEmojis = (() => {
             const customEmojis = [];
 
-            {
-                let match;
-                while ((match = customEmojiRegex.exec(text)) !== null) {
-                    const [name, id] = match.slice(1),
-                        ind = match.index;
+            let match;
+            while ((match = customEmojiRegex.exec(text)) !== null) {
+                const [name, id] = match.slice(1),
+                    ind = match.index;
 
-                    customEmojis.push({ name, id, ind });
+                customEmojis.push({ name, id, ind });
 
-                    text = LoaderUtils.replaceRangeStr(text, customEmojiReplacement, ind, match[0].length);
-                    customEmojiRegex.lastIndex = ind + 1;
-                }
-
-                customEmojiRegex.lastIndex = 0;
-                text = text.trim();
+                text = LoaderUtils.replaceRangeStr(text, customEmojiReplacement, ind, match[0].length);
+                customEmojiRegex.lastIndex = ind + 1;
             }
 
-            if (customEmojis.length === 0) {
-                return customEmojis;
-            }
+            customEmojiRegex.lastIndex = 0;
+            text = text.trim();
+
+            hasCustomEmojis = customEmojis.length > 0;
+            if (!hasCustomEmojis) return customEmojis;
 
             loadDiscordHttpClient();
             const client = new DiscordHttpClient({ token: "" });
@@ -368,11 +365,17 @@ const main = (() => {
                         }),
                         image = CanvasKitUtil.makeImageFromEncoded(imgData);
 
-                    emojiImgs[emoji.id] = image;
+                    emojiImgs[emoji.id] = {
+                        image,
+                        img_w: image.width(),
+                        img_h: image.height()
+                    };
                 }
 
-                emoji.image = emojiImgs[emoji.id];
-                emoji.srcRect = [0, 0, emoji.image.width(), emoji.image.height()];
+                Object.assign(emoji, emojiImgs[emoji.id]);
+
+                emoji.srcRect = [0, 0, emoji.img_w, emoji.img_h];
+                emoji.square = Math.abs(emoji.img_w - emoji.img_h) <= 2;
             }
 
             Benchmark.stopTiming("fetch_custom_emojis");
@@ -380,21 +383,41 @@ const main = (() => {
             text = text.replace(customEmojiRegex, customEmojiReplacement);
             return customEmojis;
         })();
-
-        hasCustomEmojis = customEmojis.length > 0;
     }
 
     function getCustomEmojiRects(paragraph, textX, textY) {
         for (const emoji of customEmojis) {
-            const ind = emoji.ind,
-                rect = paragraph.getRectsForRange(
-                    ind,
-                    ind + 1,
-                    CanvasKit.RectHeightStyle.Tight,
-                    CanvasKit.RectWidthStyle.Tight
-                )[0].rect;
+            const ind = emoji.ind;
 
-            emoji.destRect = rect.map((x, i) => (i % 2 === 0 ? textX + x : textY + x));
+            let rect = paragraph.getRectsForRange(
+                ind,
+                ind + 1,
+                CanvasKit.RectHeightStyle.Tight,
+                CanvasKit.RectWidthStyle.Tight
+            )[0].rect;
+
+            rect = rect.map((x, i) => (i % 2 === 0 ? textX + x : textY + x));
+            emoji.fullRect = rect.map((x, i) => (i < 2 ? x - 1 : x + 1));
+
+            const rect_w = rect[2] - rect[0];
+            rect[1] = rect[3] - rect_w;
+
+            rect[1] -= rect_w / 8;
+            rect[3] -= rect_w / 8;
+
+            emoji.destRect = new Float32Array(rect);
+            emoji.rectWidth = rect_w;
+
+            if (!emoji.square) {
+                const ratio = emoji.img_h / emoji.img_w,
+                    newHeight = ratio * rect_w;
+
+                const mid_y = (rect[1] + rect[3]) / 2;
+                rect[1] = mid_y - newHeight / 2;
+                rect[3] = mid_y + newHeight / 2;
+
+                emoji.centerRect = new Float32Array(rect);
+            }
         }
     }
 
@@ -476,12 +499,16 @@ const main = (() => {
 
             getCustomEmojiRects(paragraph, textX, textY);
             for (const emoji of customEmojis) {
-                canvas.drawRect(
-                    emoji.destRect.map((x, i) => (i < 2 ? x - 1 : x + 1)),
-                    whitePaint
-                );
+                canvas.drawRect(emoji.fullRect, whitePaint);
+                canvas.drawImageRectOptions(
+                    emoji.image,
 
-                canvas.drawImageRectOptions(emoji.image, emoji.srcRect, emoji.destRect, ...drawImageOpts, blankPaint);
+                    emoji.srcRect,
+                    emoji.square ? emoji.destRect : emoji.centerRect,
+
+                    ...drawImageOpts,
+                    blankPaint
+                );
             }
 
             const imgSrcRect = [0, 0, image.width(), image.height()],
@@ -491,9 +518,11 @@ const main = (() => {
 
             Benchmark.stopTiming("draw_image");
 
+            fontMgr.delete();
+            fontMgr = undefined;
+
             image.delete();
             image = undefined;
-            fontMgr.delete();
 
             return surface;
         })();
