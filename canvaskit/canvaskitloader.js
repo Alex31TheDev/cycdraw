@@ -1,19 +1,23 @@
 "use strict";
 
 // config
-const loadLibrary = util.loadLibrary ?? "canvaskit",
-    loadSource = util.loadSource ?? (0 ? "url" : "tag"),
-    enableDebugger = util.inspectorEnabled ?? false;
+const config = {
+    loadLibrary: util.loadLibrary ?? "canvaskit",
+    loadSource: util.loadSource ?? (0 ? "url" : "tag"),
+    enableDebugger: util.inspectorEnabled ?? false,
 
-const isolateGlobals = util._isolateGlobals ?? true,
-    useWasmBase2nDecoder = util._useWasmBase2nDecoder ?? true,
-    forceXzDecompressor = util._forceXzDecompressor ?? false;
+    isolateGlobals: util._isolateGlobals ?? true,
+    useWasmBase2nDecoder: util._useWasmBase2nDecoder ?? true,
+    forceXzDecompressor: util._forceXzDecompressor ?? false
+};
 
-let useBase2nDecoder = false,
-    useXzDecompressor = false,
-    useZstdDecompressor = false;
+const features = {
+    useBase2nDecoder: false,
+    useXzDecompressor: false,
+    useZstdDecompressor: false,
 
-let useLoadFuncs = false;
+    useLoadFuncs: false
+};
 
 const consoleOpts = {};
 
@@ -754,24 +758,32 @@ const LoaderUtils = {
 
     fetchAttachment: (msg, returnType = FileDataTypes.text, allowedContentType) => {
         let attach, url;
+        let contentType;
 
-        if (msg.attachments.length > 0) {
-            attach = msg.attachments[0];
-        } else if (typeof msg.file !== "undefined") {
+        if (typeof msg.file !== "undefined") {
             attach = msg.file;
+        } else if (msg.attachments.length > 0) {
+            attach = msg.attachments[0];
         } else if (typeof msg.fileUrl !== "undefined") {
             url = msg.fileUrl;
-        } else {
+        }
+
+        if (typeof attach !== "undefined") {
+            url = attach.url;
+            contentType = attach.contentType;
+        }
+
+        if (typeof url === "undefined") {
             throw new UtilError("Message doesn't have any attachments");
         }
 
-        if (attach) {
-            url = attach.url;
+        if (typeof allowedContentType === "string") {
+            if (typeof contentType === "undefined") {
+                throw new UtilError("Attachment doesn't have a content type");
+            }
 
-            if (allowedContentType !== null && typeof allowedContentType !== "undefined") {
-                if (!attach.contentType.includes(allowedContentType)) {
-                    throw new UtilError("Invalid content type: " + attach.contentType, attach.contentType);
-                }
+            if (!contentType.includes(allowedContentType)) {
+                throw new UtilError("Invalid content type: " + contentType, contentType);
             }
         }
 
@@ -836,13 +848,11 @@ const LoaderUtils = {
             throw new UtilError("Unknown tag: " + name, name);
         }
 
-        if (owner !== null && typeof owner !== "undefined") {
-            if (tag.owner !== owner) {
-                throw new UtilError(`Incorrect tag owner (${tag.owner} =/= ${owner}) for tag: ${name}`, {
-                    original: tag.owner,
-                    needed: owner
-                });
-            }
+        if (typeof owner === "string" && tag.owner !== owner) {
+            throw new UtilError(`Incorrect tag owner (${tag.owner} =/= ${owner}) for tag: ${name}`, {
+                original: tag.owner,
+                needed: owner
+            });
         }
 
         return tag;
@@ -976,16 +986,25 @@ class Benchmark {
         return "dateNow";
     })();
 
-    static ns_per_ms = 10n ** 6n;
+    static getCurrentTime(ms = false) {
+        let time;
 
-    static getCurrentTime() {
         switch (this.timeToUse) {
-            case "performanceNow":
-                return this._performance.now();
-            case "vmTime":
-                return this._vm.getWallTime();
             case "dateNow":
-                return Date.now();
+                time = this._Date.now();
+                break;
+            case "performanceNow":
+                time = this._performance.now();
+                break;
+            case "vmTime":
+                time = this._vm.getWallTime();
+                break;
+        }
+
+        if (ms) {
+            return this._timeToMs(time);
+        } else {
+            return time;
         }
     }
 
@@ -998,20 +1017,17 @@ class Benchmark {
 
     static restartTiming(key) {
         key = this._formatTimeKey(key);
-        let time = this.data[key];
+        let t0 = this.data[key];
 
-        if (typeof time === "undefined") {
+        if (typeof t0 === "undefined") {
             return this.startTiming(key);
         }
 
         delete this.data[key];
-
-        if (this.useVmTime) {
-            time = BigInt(time) * this.ns_per_ms;
-        }
+        t0 = this._msToTime(t0);
 
         const t1 = this.getCurrentTime();
-        this.timepoints.set(key, t1 - time);
+        this.timepoints.set(key, t1 - t0);
     }
 
     static stopTiming(key) {
@@ -1024,21 +1040,10 @@ class Benchmark {
 
         this.timepoints.delete(key);
 
-        let t2 = this.getCurrentTime(),
+        const t2 = this.getCurrentTime(),
             dt = t2 - t1;
 
-        switch (this.timeToUse) {
-            case "performanceNow":
-                dt = Math.floor(dt);
-                break;
-            case "vmTime":
-                dt = Number(dt / this.ns_per_ms);
-                break;
-            case "dateNow":
-                break;
-        }
-
-        this.data[key] = dt;
+        this.data[key] = this._timeToMs(dt);
     }
 
     static getTime(key) {
@@ -1227,11 +1232,35 @@ class Benchmark {
         return originalFunc;
     }
 
+    static _ns_per_ms = 10n ** 6n;
+
+    static _Date = Date;
     static _performance = globalThis.performance;
     static _vm = globalThis.vm;
 
     static _origCountNames = new Map();
     static _origCountFuncs = new Map();
+
+    static _timeToMs(time) {
+        switch (this.timeToUse) {
+            case "dateNow":
+                return time;
+            case "performanceNow":
+                return Math.floor(time);
+            case "vmTime":
+                return Number(time / this._ns_per_ms);
+        }
+    }
+
+    static _msToTime(time) {
+        switch (this.timeToUse) {
+            case "dateNow":
+            case "performanceNow":
+                return time;
+            case "vmTime":
+                return BigInt(time) * this._ns_per_ms;
+        }
+    }
 
     static _formatTime(key, time) {
         return `${key}: ${time.toLocaleString()}ms`;
@@ -1341,7 +1370,7 @@ class ModuleCacheManager {
 
     addModule(module, newName) {
         if (typeof this.getModuleById(module.name) !== "undefined") {
-            throw new LoaderError(`Module ${module.name} already exists`);
+            throw new LoaderError(`Module ${module.name} already exists`, module.name);
         }
 
         this._cache.set(module.name, module);
@@ -1371,7 +1400,7 @@ class ModuleCacheManager {
 
     addCode(name, code) {
         if (typeof this.getCodeByName(name) !== "undefined") {
-            throw new LoaderError(`Module ${name} already exists`);
+            throw new LoaderError(`Module ${name} already exists`, name);
         }
 
         name = name.toString();
@@ -1545,8 +1574,8 @@ class ModuleStackTraceUtil {
 }
 
 class ModuleLoader {
-    static loadSource = loadSource;
-    static isolateGlobals = isolateGlobals;
+    static loadSource = config.loadSource;
+    static isolateGlobals = config.isolateGlobals;
 
     static tagOwner;
     static breakpoint = false;
@@ -1587,9 +1616,9 @@ class ModuleLoader {
             if (typeof foundCode !== "undefined") return foundCode;
         }
 
-        const encoded = options.encoded ?? false,
-            owner = options.owner ?? this.tagOwner,
-            buf_size = options.buf_size ?? 50 * 1024;
+        const owner = options.owner ?? this.tagOwner,
+            encoded = options.encoded ?? false,
+            buf_size = options.buf_size;
 
         let moduleCode = this._fetchTagBody(tagName, owner);
 
@@ -1604,7 +1633,7 @@ class ModuleLoader {
     }
 
     static getModuleCode(url, tagName, ...args) {
-        switch (loadSource) {
+        switch (config.loadSource) {
             case "url":
                 if (url === null) {
                     return;
@@ -1618,7 +1647,7 @@ class ModuleLoader {
 
                 return this.getModuleCodeFromTag(tagName, ...args);
             default:
-                throw new LoaderError("Invalid load source: " + loadSource, loadSource);
+                throw new LoaderError("Invalid load source: " + config.loadSource, config.loadSource);
         }
     }
 
@@ -1745,8 +1774,8 @@ class ModuleLoader {
         return module.exports;
     }
 
-    static loadModuleFromUrl(url, codeArgs = [], loadArgs = [], options = {}) {
-        const [newCodeArgs, newLoadArgs] = this._getLoadArgs(url, codeArgs, loadArgs, options),
+    static loadModuleFromUrl(url, options = {}) {
+        const [codeArgs, loadArgs] = this._getLoadArgs(url, options),
             cache = this.enableCache && (options.cache ?? true);
 
         if (cache) {
@@ -1754,12 +1783,12 @@ class ModuleLoader {
             if (typeof foundModule !== "undefined") return foundModule.exports;
         }
 
-        const moduleCode = this.getModuleCodeFromUrl(url, ...newCodeArgs);
-        return this.loadModuleFromSource(moduleCode, ...newLoadArgs);
+        const moduleCode = this.getModuleCodeFromUrl(url, ...codeArgs);
+        return this.loadModuleFromSource(moduleCode, ...loadArgs);
     }
 
-    static loadModuleFromTag(tagName, codeArgs = [], loadArgs = [], options = {}) {
-        const [newCodeArgs, newLoadArgs] = this._getLoadArgs(tagName, codeArgs, loadArgs, options),
+    static loadModuleFromTag(tagName, options = {}) {
+        const [codeArgs, loadArgs] = this._getLoadArgs(tagName, options),
             cache = this.enableCache && (options.cache ?? true);
 
         if (cache) {
@@ -1767,26 +1796,26 @@ class ModuleLoader {
             if (typeof foundModule !== "undefined") return foundModule.exports;
         }
 
-        const moduleCode = this.getModuleCodeFromTag(tagName, ...newCodeArgs);
-        return this.loadModuleFromSource(moduleCode, ...newLoadArgs);
+        const moduleCode = this.getModuleCodeFromTag(tagName, ...codeArgs);
+        return this.loadModuleFromSource(moduleCode, ...loadArgs);
     }
 
-    static loadModule(url, tagName, ...args) {
+    static loadModule(url, tagName, options) {
         switch (this.loadSource) {
             case "url":
                 if (url === null || typeof url === "undefined") {
-                    break;
+                    throw new LoaderError("No URL provided");
                 }
 
-                return this.loadModuleFromUrl(url, ...args);
+                return this.loadModuleFromUrl(url, options);
             case "tag":
                 if (tagName === null || typeof tagName === "undefined") {
-                    break;
+                    throw new LoaderError("No tag name provided");
                 }
 
-                return this.loadModuleFromTag(tagName, ...args);
+                return this.loadModuleFromTag(tagName, options);
             default:
-                throw new LoaderError("Invalid load source: " + this.loadSource, loadSource);
+                throw new LoaderError("Invalid load source: " + this.loadSource, this.loadSource);
         }
 
         throw new LoaderError("No URL or tag name provided");
@@ -1887,10 +1916,10 @@ class ModuleLoader {
                         throw err;
                     }
                 })
-                .filter(tag => tag !== null);
+                .filter(tag => tag !== null && typeof tag !== "undefined");
 
             if (tags.length < 1) {
-                throw new LoaderError("No matching tag(s) found");
+                throw new LoaderError("No matching tag(s) found", tagName);
             }
 
             body = tags.map(tag => LoaderUtils.getTagBody(tag)).join("");
@@ -1905,6 +1934,7 @@ class ModuleLoader {
                 throw new LoaderError("WASM Base2n decoder not initialized");
             }
 
+            buf_size ??= Math.ceil(moduleCode.length * 1.66);
             return fastDecodeBase2n(moduleCode, buf_size);
         } else {
             if (typeof decodeBase2n === "undefined") {
@@ -1940,38 +1970,34 @@ class ModuleLoader {
         }
     }
 
-    static _getLoadArgs(name, codeArgs, loadArgs, options) {
-        if (!Array.isArray(codeArgs)) {
-            throw new LoaderError("Code args must be an array");
-        }
-        if (!Array.isArray(loadArgs)) {
-            throw new LoaderError("Load args must be an array");
+    static _getLoadArgs(name, options) {
+        if (typeof options !== "object") {
+            throw new LoaderError("Options must be an object");
         }
 
-        const codeArgCount = 3,
-            loadArgCount = 4;
+        const commonOpts = {
+            name: options.name ?? name,
+            cache: options.cache
+        };
 
-        const codeOptions = codeArgs[codeArgCount - 2],
-            newCodeOptions =
-                typeof codeOptions === "object" ? { name, ...codeOptions, ...options } : { name, ...options };
+        const codeOpts = {
+            ...commonOpts,
 
-        const loadOptions = loadArgs[loadArgCount - 2],
-            newLoadOptions =
-                typeof loadOptions === "object" ? { name, ...loadOptions, ...options } : { name, ...options };
+            owner: options.owner,
+            encoded: options.encoded,
+            buf_size: options.buf_size
+        };
 
-        const paddedCodeArgs = [
-            codeArgs.slice(0, codeArgCount - 2),
-            Array(Math.max(0, codeArgCount - 2 - codeArgs.length)).fill(undefined),
-            newCodeOptions
-        ].flat();
+        const loadOpts = {
+            ...commonOpts,
 
-        const paddedLoadArgs = [
-            loadArgs.slice(0, loadArgCount - 2),
-            Array(Math.max(0, loadArgCount - 2 - loadArgs.length)).fill(undefined),
-            newLoadOptions
-        ].flat();
+            isolateGlobals: options.isolateGlobals
+        };
 
-        return [paddedCodeArgs, paddedLoadArgs];
+        const codeArgs = [undefined, codeOpts],
+            loadArgs = [options.scope, options.breakpoint, loadOpts];
+
+        return [codeArgs, loadArgs];
     }
 }
 
@@ -2024,9 +2050,12 @@ const Patches = {
     polyfillPromise: () => {
         globals.Promise ??= ModuleLoader.loadModule(
             urls.PromisePolyfillUrl,
-            tags.PromisePolyfillTagName
+            tags.PromisePolyfillTagName,
 
-            /*, [undefined, enableDebugger] */
+            {
+                cache: false /*,
+                breakpoint: config.enableDebugger */
+            }
         );
     },
 
@@ -2035,9 +2064,12 @@ const Patches = {
 
         const { Buffer } = ModuleLoader.loadModule(
             urls.BufferPolyfillUrl,
-            tags.BufferPolyfillTagName
+            tags.BufferPolyfillTagName,
 
-            /*, [undefined, enableDebugger] */
+            {
+                cache: false /*,
+                breakpoint: config.enableDebugger */
+            }
         );
 
         globals.Buffer = Buffer;
@@ -2048,9 +2080,12 @@ const Patches = {
 
         const { TextEncoder, TextDecoder } = ModuleLoader.loadModule(
             urls.TextEncoderDecoderPolyfillUrl,
-            tags.TextEncoderDecoderPolyfillTagName
+            tags.TextEncoderDecoderPolyfillTagName,
 
-            /*, [undefined, enableDebugger] */
+            {
+                cache: false /*,
+                breakpoint: config.enableDebugger */
+            }
         );
 
         globals.TextEncoder = TextEncoder;
@@ -2097,16 +2132,18 @@ const Patches = {
             urls.WebWorkerPolyfillUrl,
             tags.WebWorkerPolyfillTagName,
 
-            undefined,
-            [
-                {
+            {
+                scope: {
                     document: {},
                     window: { navigator: {} },
                     self: {
                         requestAnimationFrame: _ => false
                     }
-                } /*, enableDebugger*/
-            ]
+                },
+
+                cache: false /*,
+                breakpoint: config.enableDebugger */
+            }
         );
 
         globals.Worker = Worker;
@@ -2169,7 +2206,7 @@ const Patches = {
         Patches._safePatchGlobals(globals);
     },
 
-    addGlobalObjects: (library = loadLibrary) => {
+    addGlobalObjects: (library = config.loadLibrary) => {
         globalObjs.CustomError ??= CustomError;
         globalObjs.RefError ??= RefError;
 
@@ -2177,7 +2214,7 @@ const Patches = {
         globalObjs.LoaderUtils ??= LoaderUtils;
         globalObjs.Benchmark ??= Benchmark;
 
-        globalObjs.loadSource ??= loadSource;
+        globalObjs.loadSource ??= config.loadSource;
         globalObjs.ModuleLoader ??= ModuleLoader;
 
         globalObjs.Patches ??= {
@@ -2200,7 +2237,7 @@ const Patches = {
             case "lodepng":
                 break;
             default:
-                throw new LoaderError("Unknown library: " + library);
+                throw new LoaderError("Unknown library: " + library, library);
         }
 
         Patches._safePatchGlobals(globalObjs);
@@ -2228,7 +2265,7 @@ const Patches = {
         Patches.addContextGlobals();
     },
 
-    applyAll: (library = loadLibrary) => {
+    applyAll: (library = config.loadLibrary) => {
         Patches.clearLoadedPatches();
 
         Patches.polyfillConsole();
@@ -2255,13 +2292,13 @@ const Patches = {
                 Patches.polyfillWebWorker();
                 break;
             case "lodepng":
-                if (useWasmBase2nDecoder) {
+                if (config.useWasmBase2nDecoder) {
                     Patches.polyfillPromise();
                 }
 
                 break;
             default:
-                throw new LoaderError("Unknown library: " + library);
+                throw new LoaderError("Unknown library: " + library, library);
         }
 
         Patches.addContextGlobals();
@@ -2274,7 +2311,7 @@ const Patches = {
     checkGlobalPolyfill(name, msg) {
         if (typeof globals[name] === "undefined") {
             const customMsg = msg ? msg + " " : "";
-            throw new LoaderError(`${customMsg}${name} polyfill not loaded`);
+            throw new LoaderError(`${customMsg}${name} polyfill not loaded`, name);
         }
     },
 
@@ -2315,7 +2352,14 @@ function loadBase2nDecoder() {
             return;
         }
 
-        const { base2n } = ModuleLoader.loadModule(null, tags.Base2nTagName);
+        const { base2n } = ModuleLoader.loadModule(
+            null,
+            tags.Base2nTagName,
+
+            {
+                /* breakpoint: config.enableDebugger */
+            }
+        );
 
         if (typeof base2n === "undefined") {
             return;
@@ -2341,7 +2385,7 @@ function loadBase2nDecoder() {
                 sortRanges = false;
                 break;
             default:
-                throw new LoaderError("Unknown charset: " + charset);
+                throw new LoaderError("Unknown charset: " + charset, charset);
         }
 
         const table = base2n.Base2nTable.generate(charsetRanges, {
@@ -2380,14 +2424,14 @@ function loadBase2nDecoder() {
         const Base2nWasmDec = ModuleLoader.loadModule(
             null,
             tags.Base2nWasmWrapperTagName,
-            undefined,
-            [
-                {
-                    CustomError
-                }
-            ],
+
             {
-                cache: false
+                scope: {
+                    CustomError
+                },
+
+                cache: false /*,
+                breakpoint: config.enableDebugger */
             }
         );
 
@@ -2395,13 +2439,20 @@ function loadBase2nDecoder() {
             return;
         }
 
-        const DecoderInit = ModuleLoader.loadModule(null, tags.Base2nWasmInitTagName, undefined, undefined, {
-                cache: false
-            }),
-            decoderWasm = ModuleLoader.getModuleCode(null, tags.Base2nWasmWasmTagName, FileDataTypes.binary, {
-                encoded: true,
-                cache: false
-            });
+        const DecoderInit = ModuleLoader.loadModule(
+            null,
+            tags.Base2nWasmInitTagName,
+
+            {
+                cache: false /*,
+                breakpoint: config.enableDebugger */
+            }
+        );
+
+        const decoderWasm = ModuleLoader.getModuleCode(null, tags.Base2nWasmWasmTagName, FileDataTypes.binary, {
+            encoded: true,
+            cache: false
+        });
 
         Base2nWasmDec.init(DecoderInit, decoderWasm);
 
@@ -2417,13 +2468,13 @@ function loadBase2nDecoder() {
         wasmDecoderLoaded = true;
     }
 
-    const base2nCharset = useWasmBase2nDecoder ? "base64" : "normal";
+    const base2nCharset = config.useWasmBase2nDecoder ? "base64" : "normal";
 
     Benchmark.startTiming("load_decoder");
     loadJsBase2nDecoder(base2nCharset);
     Benchmark.stopTiming("load_decoder");
 
-    if (useWasmBase2nDecoder) {
+    if (config.useWasmBase2nDecoder) {
         Benchmark.startTiming("load_wasm_decoder");
         loadWasmBase2nDecoder();
         Benchmark.stopTiming("load_wasm_decoder");
@@ -2438,9 +2489,15 @@ function loadXzDecompressor() {
     }
 
     Benchmark.startTiming("load_xz_decompressor");
-    const XzDecompressor = ModuleLoader.loadModule(null, tags.XzDecompressorTagName, undefined, undefined, {
-        cache: false
-    });
+    const XzDecompressor = ModuleLoader.loadModule(
+        null,
+        tags.XzDecompressorTagName,
+
+        {
+            cache: false /*,
+            breakpoint: config.enableDebugger */
+        }
+    );
 
     if (typeof XzDecompressor === "undefined") {
         return;
@@ -2468,9 +2525,15 @@ function loadZstdDecompressor() {
     }
 
     Benchmark.startTiming("load_zstd_decompressor");
-    const ZstdDecompressor = ModuleLoader.loadModule(null, tags.ZstdDecompressorTagName, undefined, undefined, {
-        cache: false
-    });
+    const ZstdDecompressor = ModuleLoader.loadModule(
+        null,
+        tags.ZstdDecompressorTagName,
+
+        {
+            cache: false /*,
+            breakpoint: config.enableDebugger */
+        }
+    );
 
     if (typeof ZstdDecompressor === "undefined") {
         return;
@@ -2497,10 +2560,10 @@ function loadCanvasKit() {
     const CanvasKitInit = ModuleLoader.loadModule(
         urls.CanvasKitLoaderUrl,
         tags.CanvasKitLoaderTagName,
-        undefined,
-        [undefined, enableDebugger],
+
         {
-            cache: false
+            cache: false,
+            breakpoint: config.enableDebugger
         }
     );
 
@@ -2508,10 +2571,10 @@ function loadCanvasKit() {
 
     let wasmTagName, buf_size;
 
-    if (useXzDecompressor) {
+    if (features.useXzDecompressor) {
         wasmTagName = tags.CanvasKitWasm1TagName;
         buf_size = 2100 * 1024;
-    } else if (useZstdDecompressor) {
+    } else if (features.useZstdDecompressor) {
         wasmTagName = tags.CanvasKitWasm2TagName;
         buf_size = 2300 * 1024;
     }
@@ -2522,10 +2585,10 @@ function loadCanvasKit() {
         cache: false
     });
 
-    if (loadSource === "tag") {
-        if (useXzDecompressor) {
+    if (config.loadSource === "tag") {
+        if (features.useXzDecompressor) {
             wasm = XzDecompressor.decompress(wasm);
-        } else if (useZstdDecompressor) {
+        } else if (features.useZstdDecompressor) {
             wasm = ZstdDecompressor.decompress(wasm);
         }
     }
@@ -2549,10 +2612,10 @@ function loadResvg() {
     const ResvgInit = ModuleLoader.loadModule(
         urls.ResvgLoaderUrl,
         tags.ResvgLoaderTagName,
-        undefined,
-        [undefined, enableDebugger],
+
         {
-            cache: false
+            cache: false,
+            breakpoint: config.enableDebugger
         }
     );
 
@@ -2564,7 +2627,7 @@ function loadResvg() {
         cache: false
     });
 
-    if (loadSource === "tag") {
+    if (config.loadSource === "tag") {
         wasm = XzDecompressor.decompress(wasm);
     }
 
@@ -2583,31 +2646,23 @@ function loadResvg() {
 
 // libvips loader
 function loadLibVips() {
-    const initCode = ModuleLoader._Template.addDebuggerStmt(
-            ModuleLoader.getModuleCode(urls.LibVipsLoaderUrl, tags.LibVipsLoaderTagName),
-            enableDebugger
-        ),
-        LibVipsInit = ModuleLoader.loadModuleFromSource(
-            initCode,
-
-            {
-                navigator: {
-                    hardwareConcurrency: 1
-                },
-                document: {},
-                self: {
-                    location: {
-                        href: new Blob(initCode)
-                    }
-                },
-                clearInterval: _ => 1
+    const LibVipsInit = ModuleLoader.loadModule(urls.LibVipsLoaderUrl, tags.LibVipsLoaderTagName, {
+        scope: {
+            navigator: {
+                hardwareConcurrency: 1
             },
+            document: {},
+            self: {
+                location: {
+                    href: new Blob(initCode)
+                }
+            },
+            clearInterval: _ => 1
+        },
 
-            enableDebugger,
-            {
-                cache: false
-            }
-        );
+        cache: false,
+        breakpoint: config.enableDebugger
+    });
 
     console.replyWithLogs("warn");
 
@@ -2615,7 +2670,7 @@ function loadLibVips() {
         encoded: true
     });
 
-    if (loadSource === "tag") {
+    if (config.loadSource === "tag") {
         wasm = XzDecompressor.decompress(wasm);
     }
 
@@ -2650,17 +2705,20 @@ function loadLodepng() {
         }
     });
 
-    const lodepng = ModuleLoader.loadModule(urls.LodepngInitUrl, tags.LodepngInitTagName, undefined, [
-        {
-            require: fakeRequire,
-            __dirname: ""
-        },
+    const lodepng = ModuleLoader.loadModule(
+        urls.LodepngInitUrl,
+        tags.LodepngInitTagName,
 
-        enableDebugger,
         {
-            cache: false
+            scope: {
+                require: fakeRequire,
+                __dirname: ""
+            },
+
+            cache: false,
+            breakpoint: config.enableDebugger
         }
-    ]);
+    );
 
     Patches.patchGlobalContext({ lodepng });
 }
@@ -2696,55 +2754,55 @@ function mainLoadMisc(loadLibrary) {
             case "none":
                 break;
             case "canvaskit":
-                useBase2nDecoder = true;
+                features.useBase2nDecoder = true;
 
-                if (forceXzDecompressor) {
-                    useXzDecompressor = true;
+                if (config.forceXzDecompressor) {
+                    features.useXzDecompressor = true;
                 } else {
-                    useZstdDecompressor = true;
+                    features.useZstdDecompressor = true;
                 }
 
                 break;
             case "resvg":
-                useBase2nDecoder = true;
-                useXzDecompressor = true;
+                features.useBase2nDecoder = true;
+                features.useXzDecompressor = true;
                 break;
             case "libvips":
-                useBase2nDecoder = true;
-                useXzDecompressor = true;
+                features.useBase2nDecoder = true;
+                features.useXzDecompressor = true;
                 break;
             case "lodepng":
-                useBase2nDecoder = true;
+                features.useBase2nDecoder = true;
                 break;
             default:
-                throw new LoaderError("Unknown library: " + library);
+                throw new LoaderError("Unknown library: " + library, library);
         }
     }
 
     if (Array.isArray(loadLibrary)) {
         if (loadLibrary.every(library => loadFuncLibs.includes(library))) {
-            useLoadFuncs = true;
+            features.useLoadFuncs = true;
         }
 
         loadLibrary.forEach(decideMiscConfig);
     } else {
         if (loadFuncLibs.includes(loadLibrary)) {
-            useLoadFuncs = true;
+            features.useLoadFuncs = true;
         }
 
         decideMiscConfig(loadLibrary);
     }
 
-    if (loadSource === "tag") {
-        if (useBase2nDecoder) {
+    if (config.loadSource === "tag") {
+        if (features.useBase2nDecoder) {
             loadBase2nDecoder();
         }
 
-        if (useXzDecompressor) {
+        if (features.useXzDecompressor) {
             loadXzDecompressor();
         }
 
-        if (useZstdDecompressor) {
+        if (features.useZstdDecompressor) {
             loadZstdDecompressor();
         }
     }
@@ -2780,7 +2838,7 @@ function mainLoadLibrary(loadLibrary) {
 
                 break;
             default:
-                throw new LoaderError("Unknown library: " + library);
+                throw new LoaderError("Unknown library: " + library, library);
         }
     }
 
@@ -2798,7 +2856,7 @@ function addLoadFuncs() {
                 oldIsolateGlobals = ModuleLoader.isolateGlobals;
 
             ModuleLoader.tagOwner = tagOwner;
-            ModuleLoader.isolateGlobals = isolateGlobals;
+            ModuleLoader.isolateGlobals = config.isolateGlobals;
 
             func(library);
 
@@ -2830,18 +2888,18 @@ function mainLoad(loadLibrary) {
 function main() {
     ModuleLoader.tagOwner = tagOwner;
 
-    mainLoad(loadLibrary);
+    mainLoad(config.loadLibrary);
 
     ModuleLoader.tagOwner = undefined;
     ModuleLoader.isolateGlobals = false;
 
-    if (useLoadFuncs) {
+    if (features.useLoadFuncs) {
         addLoadFuncs();
     }
 }
 
 try {
-    if (enableDebugger) debugger;
+    if (config.enableDebugger) debugger;
 
     // eval check
     function insideEval() {
@@ -2884,7 +2942,7 @@ try {
     // run main
     main();
 
-    if (enableDebugger) debugger;
+    if (config.enableDebugger) debugger;
     else throw new ExitError(".");
 } catch (err) {
     // output
