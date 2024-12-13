@@ -10,24 +10,33 @@ const enableDebugger = util.inspectorEnabled ?? false;
 let showTimes = false;
 
 // sources
-const urls = {
-    fonts: {
-        futura: "https://github.com/kelsanford/portfolio/raw/refs/heads/master/Fonts/futura/Futura%20Extra%20Black%20Condensed%20BT.ttf",
-        emojis: "https://github.com/googlefonts/noto-emoji/raw/main/fonts/NotoColorEmoji.ttf",
-        customEmoji: "https://files.catbox.moe/t4r4rf.ttf"
-    }
-};
+const urls = {};
 
 const tags = {
-        fonts: {
-            futura: "ck_font_futura",
-            emojis: /^ck_font_emoji\d+$/,
-            customEmoji: "ck_font_customemoji"
-        },
         DiscordHttpClient: "discordhttpclient",
         Table: "ck_table"
     },
     tagOwner = "883072834790916137";
+
+const fonts = {
+    futura: {
+        url: "https://github.com/kelsanford/portfolio/raw/refs/heads/master/Fonts/futura/Futura%20Extra%20Black%20Condensed%20BT.ttf",
+        tag: "ck_font_futura",
+        buf_size: null
+    },
+
+    emojis: {
+        url: "https://github.com/googlefonts/noto-emoji/raw/main/fonts/NotoColorEmoji.ttf",
+        tag: /^ck_font_emoji\d+$/,
+        buf_size: 10700 * 1024
+    },
+
+    customEmoji: {
+        url: "https://files.catbox.moe/t4r4rf.ttf",
+        tag: "ck_font_customemoji",
+        buf_size: null
+    }
+};
 
 // help
 const helpOption = ["help", "-help", "--help", "-h", "usage", "-usage", "-u"],
@@ -53,7 +62,7 @@ const Endpoints = {
 };
 
 // globals
-let rmsg, content, text;
+let targetMsg, args, text;
 let image, width, height;
 let CanvasKitUtil, DiscordHttpClient, DiscordConstants;
 let ranges, customEmojis, hasCustomEmojis;
@@ -62,26 +71,29 @@ let surface;
 const main = (() => {
     // parse args and attachment
     function parseArgs() {
-        [rmsg, content] = (() => {
-            let rmsg;
-            msg.content = `%t ${tag.name} ${tag.args ? " " + tag.args : ""}`;
+        [targetMsg, args] = (() => {
+            const oldContent = msg.content;
+            msg.content = tag.args ?? "";
+
+            let targetMsg = msg;
 
             if (msg.reference) {
                 const msgs = util.fetchMessages();
-                rmsg = msgs.findLast(x => x.id === msg.reference.messageId);
+                targetMsg = msgs.findLast(x => x.id === msg.reference.messageId);
 
-                if (typeof rmsg === "undefined") {
+                if (typeof targetMsg === "undefined") {
                     const out = ":warning: Reply message not found.";
                     throw new ExitError(out);
                 }
-            } else {
-                rmsg = msg;
             }
 
-            if (rmsg.attachments.length > 0) {
-                rmsg.file = rmsg.attachments[0];
+            if (targetMsg.attachments.length > 0) {
+                const attach = targetMsg.attachments[0];
+
+                targetMsg.file = attach;
+                targetMsg.fileUrl = attach.url;
             } else {
-                const urlMatch = rmsg.content.match(urlRegex);
+                const urlMatch = targetMsg.content.match(urlRegex);
 
                 if (urlMatch) {
                     const fileUrl = urlMatch[0],
@@ -89,43 +101,42 @@ const main = (() => {
 
                     if (attachMatch) {
                         const attachPrefix = attachMatch[0],
-                            embed = rmsg.embeds.find(embed => embed.thumbnail.url.startsWith(attachPrefix));
+                            embed = targetMsg.embeds.find(embed => embed.thumbnail.url.startsWith(attachPrefix));
 
                         if (!embed) {
                             const out = ":warning: Attachment embed not found. (it's needed because discord is dumb)";
                             throw new ExitError(out);
                         }
 
-                        rmsg.fileUrl = embed.thumbnail.url;
+                        targetMsg.fileUrl = embed.thumbnail.url;
                     } else {
-                        rmsg.fileUrl = fileUrl;
+                        targetMsg.fileUrl = fileUrl;
                     }
 
-                    let leftoverStr = rmsg.content;
+                    let leftoverStr = targetMsg.content;
                     leftoverStr =
                         leftoverStr.slice(0, urlMatch.index) + leftoverStr.slice(urlMatch.index + fileUrl.length);
 
-                    rmsg.content = leftoverStr.trim();
-                } else {
-                    const out = `:warning: Message doesn't have any attachments.\n${usage}`;
-                    throw new ExitError(out);
+                    targetMsg.content = leftoverStr.trim();
                 }
             }
 
-            return [rmsg, msg.content];
+            const args = msg.content;
+            msg.content = oldContent;
+
+            return [targetMsg, args];
         })();
 
         text = (() => {
-            const split = content.split(" ").slice(2);
+            const split = args.split(" "),
+                option = split[0];
 
-            checkArgs: if (split.length > 0) {
-                const option = split[0];
-
+            checkArgs: if (split.length === 1) {
                 if (helpOption.includes(option)) {
                     const out = `:information_source: ${help}`;
                     throw new ExitError(out);
                 }
-
+            } else if (split.length > 0) {
                 switch (option) {
                     case showTimesOption:
                         showTimes = true;
@@ -137,11 +148,15 @@ const main = (() => {
                 split.shift();
             }
 
-            let text = (tag.args = split.join(" "));
-            text = text.trim();
+            const text = split.join(" ");
 
             if (text.length < 1) {
                 const out = `:warning: No caption text provided.\n${usage}`;
+                throw new ExitError(out);
+            }
+
+            if (typeof targetMsg.fileUrl === "undefined") {
+                const out = `:warning: Message doesn't have any attachments.\n${usage}`;
                 throw new ExitError(out);
             }
 
@@ -200,8 +215,7 @@ const main = (() => {
         loadedFonts = {};
 
     function loadFonts(names = []) {
-        Benchmark.deleteTime("load_font");
-        Benchmark.startTiming("load_font");
+        Benchmark.restartTiming("load_font");
 
         for (const name of defaultFonts) {
             if (!names.includes(name)) names.unshift(name);
@@ -210,12 +224,19 @@ const main = (() => {
         const fontData = [];
 
         for (const name of names) {
-            const url = urls.fonts[name] ?? null,
-                tagName = tags.fonts[name] ?? null;
+            const fontInfo = fonts[name];
+
+            if (typeof fontInfo === "undefined") {
+                throw new CustomError(`Font ${name} not found`);
+            }
+
+            const url = fontInfo.url ?? null,
+                tagName = fontInfo.tag ?? null;
 
             loadedFonts[name] ??= ModuleLoader.getModuleCode(url, tagName, FileDataTypes.binary, {
                 encoded: true,
-                buf_size: 10700 * 1024
+                buf_size: fontInfo.buf_size,
+                cache: false
             });
 
             fontData.push(loadedFonts[name]);
@@ -245,7 +266,7 @@ const main = (() => {
             let image;
 
             try {
-                image = downloadImage(rmsg);
+                image = downloadImage(targetMsg);
             } catch (err) {
                 if (["UtilError", "CanvasUtilError"].includes(err.name)) {
                     const out = `:warning: ${err.message}.\n${usage}`;
@@ -427,8 +448,10 @@ const main = (() => {
                 );
 
                 if (foundRanges.length > 0) {
+                    Benchmark.stopTiming("draw_image");
                     fontMgr.delete();
                     fontMgr = loadFonts(foundRanges);
+                    Benchmark.restartTiming("draw_image");
 
                     paraStyle.textStyle.fontFamilies = CanvasKitUtil.getFontFamilies(fontMgr);
                     makeParagraph();

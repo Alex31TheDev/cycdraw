@@ -1817,8 +1817,6 @@ class ModuleLoader {
             default:
                 throw new LoaderError("Invalid load source: " + this.loadSource, this.loadSource);
         }
-
-        throw new LoaderError("No URL or tag name provided");
     }
 
     static clearCache() {
