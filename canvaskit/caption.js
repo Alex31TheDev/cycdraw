@@ -174,6 +174,8 @@ const main = (() => {
 
         ModuleLoader.tagOwner = tagOwner;
         CanvasKitUtil = ModuleLoader.loadModuleFromTag("canvaskitutil");
+
+        drawImageOpts = [CanvasKit.FilterMode.Linear, CanvasKit.MipmapMode.None];
     }
 
     // load ranges
@@ -224,6 +226,10 @@ const main = (() => {
         const fontData = [];
 
         for (const name of names) {
+            if (name === null || typeof name === "undefined") {
+                continue;
+            }
+
             const fontInfo = fonts[name];
 
             if (typeof fontInfo === "undefined") {
@@ -286,7 +292,7 @@ const main = (() => {
     }
 
     // calc dimensions
-    function calcFontSize(width, height) {
+    function calcFontSize(width) {
         let fontSize = width / 10;
 
         let margin = width / 25,
@@ -331,7 +337,7 @@ const main = (() => {
 
     // custom emoji
     function loadCustomEmojis() {
-        customEmojis = (() => {
+        [customEmojis, hasCustomEmojis] = (() => {
             const customEmojis = [];
 
             let match;
@@ -348,8 +354,8 @@ const main = (() => {
             customEmojiRegex.lastIndex = 0;
             text = text.trim();
 
-            hasCustomEmojis = customEmojis.length > 0;
-            if (!hasCustomEmojis) return customEmojis;
+            const hasCustomEmojis = customEmojis.length > 0;
+            if (!hasCustomEmojis) return [customEmojis, hasCustomEmojis];
 
             loadDiscordHttpClient();
             const client = new DiscordHttpClient({ token: "" });
@@ -381,7 +387,7 @@ const main = (() => {
             Benchmark.stopTiming("fetch_custom_emojis");
 
             text = text.replace(customEmojiRegex, customEmojiReplacement);
-            return customEmojis;
+            return [customEmojis, hasCustomEmojis];
         })();
     }
 
@@ -422,7 +428,18 @@ const main = (() => {
     }
 
     // caption
-    function getParagraph(text, paraStyle, availableSpace, fontMgr) {
+    let drawImageOpts;
+
+    function getParaStyle() {
+        return new CanvasKit.ParagraphStyle({
+            textStyle: {
+                color: CanvasKit.BLACK
+            },
+            textAlign: CanvasKit.TextAlign.Center
+        });
+    }
+
+    function getParagraph(text, availableSpace, paraStyle, fontMgr) {
         const builder = CanvasKit.ParagraphBuilder.Make(paraStyle, fontMgr);
         builder.addText(text);
 
@@ -432,97 +449,153 @@ const main = (() => {
         return paragraph;
     }
 
+    function layoutParagraph(text, paraStyle, fontMgr) {
+        let fontSize, availableSpace, paragraph, headerHeight, totalHeight, textWidth, textHeight;
+
+        const makeParagraph = _ => {
+            [width, height] = calcClampedSize(width, height, totalHeight, maxHeight);
+
+            [fontSize, availableSpace] = calcFontSize(width);
+            paraStyle.textStyle.fontSize = fontSize;
+
+            paragraph?.delete();
+            paragraph = getParagraph(text, availableSpace, paraStyle, fontMgr);
+
+            [textWidth, textHeight, headerHeight] = calcHeaderHeight(paragraph, fontSize);
+            totalHeight = height + headerHeight;
+        };
+
+        paraStyle.textStyle.fontFamilies = CanvasKitUtil.getFontFamilies(fontMgr);
+
+        do {
+            makeParagraph();
+        } while (totalHeight - maxHeight > maxHeightDelta);
+
+        const textX = (width - textWidth) / 2,
+            textY = (headerHeight - textHeight) / 2;
+
+        return [paragraph, headerHeight, totalHeight, textX, textY];
+    }
+
+    function loadUnresolvedFonts(paragraph, existingFonts, pre, post) {
+        const unresolved = paragraph.unresolvedCodepoints();
+
+        if (unresolved.length === 0) {
+            return;
+        }
+
+        const foundRanges = Object.keys(ranges).filter(name =>
+            unresolved.some(codepoint => isInRange(name, codepoint))
+        );
+
+        if (foundRanges.length === 0) {
+            return;
+        }
+
+        if (typeof pre === "function") pre();
+
+        fontMgr = loadFonts(foundRanges.concat(existingFonts));
+
+        if (typeof post === "function") post(fontMgr);
+        return fontMgr;
+    }
+
+    function prepareCaption() {
+        const existingFonts = [hasCustomEmojis ? "customEmoji" : undefined];
+        let fontMgr = loadFonts(existingFonts);
+
+        Benchmark.startTiming("prepare_caption");
+
+        const paraStyle = getParaStyle();
+        let paragraph, headerHeight, totalHeight, textX, textY;
+
+        const layout = (mgr = fontMgr) => {
+            [paragraph, headerHeight, totalHeight, textX, textY] = layoutParagraph(text, paraStyle, mgr);
+        };
+
+        layout();
+
+        fontMgr = loadUnresolvedFonts(
+            paragraph,
+            fontMgr,
+            existingFonts,
+
+            _ => {
+                fontMgr.delete();
+                Benchmark.stopTiming("prepare_caption");
+            },
+            mgr => {
+                Benchmark.restartTiming("prepare_caption");
+                layout(mgr);
+            }
+        );
+
+        getCustomEmojiRects(paragraph, textX, textY);
+        Benchmark.stopTiming("prepare_caption");
+
+        return [fontMgr, paragraph, headerHeight, totalHeight, textX, textY];
+    }
+
+    function drawCaption(canvas, paragraph, textX, textY) {
+        canvas.clear(CanvasKit.WHITE);
+
+        canvas.drawParagraph(paragraph, textX, textY);
+
+        const blankPaint = new CanvasKit.Paint(),
+            whitePaint = new CanvasKit.Paint();
+        whitePaint.setColor(CanvasKit.WHITE);
+
+        for (const emoji of customEmojis) {
+            canvas.drawRect(emoji.fullRect, whitePaint);
+            canvas.drawImageRectOptions(
+                emoji.image,
+
+                emoji.srcRect,
+                emoji.square ? emoji.destRect : emoji.centerRect,
+
+                ...drawImageOpts,
+                blankPaint
+            );
+        }
+
+        blankPaint.delete();
+        whitePaint.delete();
+    }
+
+    function drawImage(canvas, headerHeight, totalHeight) {
+        const blankPaint = new CanvasKit.Paint();
+
+        const imgSrcRect = [0, 0, image.width(), image.height()],
+            imgDestRect = [0, headerHeight, width, totalHeight];
+
+        canvas.drawImageRectOptions(image, imgSrcRect, imgDestRect, ...drawImageOpts, blankPaint);
+
+        blankPaint.delete();
+    }
+
     function captionMain() {
         Benchmark.startTiming("caption_total");
 
-        let fontMgr = loadFonts(hasCustomEmojis ? ["customEmoji"] : []);
-
         surface = (() => {
+            const [fontMgr, paragraph, headerHeight, totalHeight, textX, textY] = prepareCaption();
+
             Benchmark.startTiming("draw_image");
-
-            let fontSize, availableSpace, paragraph, headerHeight, totalHeight, textWidth, textHeight;
-
-            const paraStyle = new CanvasKit.ParagraphStyle({
-                textStyle: {
-                    color: CanvasKit.BLACK,
-                    fontFamilies: CanvasKitUtil.getFontFamilies(fontMgr)
-                },
-                textAlign: CanvasKit.TextAlign.Center
-            });
-
-            const makeParagraph = _ => {
-                [width, height] = calcClampedSize(width, height, totalHeight, maxHeight);
-                [fontSize, availableSpace] = calcFontSize(width, height);
-                paraStyle.textStyle.fontSize = fontSize;
-                paragraph = getParagraph(text, paraStyle, availableSpace, fontMgr);
-                [textWidth, textHeight, headerHeight] = calcHeaderHeight(paragraph, fontSize);
-                totalHeight = height + headerHeight;
-            };
-
-            do {
-                makeParagraph();
-            } while (totalHeight - maxHeight > maxHeightDelta);
-
-            const unresolved = paragraph.unresolvedCodepoints();
-
-            if (unresolved.length > 0) {
-                const foundRanges = Object.keys(ranges).filter(name =>
-                    unresolved.some(codepoint => isInRange(name, codepoint))
-                );
-
-                if (foundRanges.length > 0) {
-                    Benchmark.stopTiming("draw_image");
-                    fontMgr.delete();
-                    fontMgr = loadFonts(foundRanges);
-                    Benchmark.restartTiming("draw_image");
-
-                    paraStyle.textStyle.fontFamilies = CanvasKitUtil.getFontFamilies(fontMgr);
-                    makeParagraph();
-                }
-            }
 
             const surface = CanvasKit.MakeSurface(width, totalHeight),
                 canvas = surface.getCanvas();
 
-            canvas.clear(CanvasKit.WHITE);
-
-            const textX = (width - textWidth) / 2,
-                textY = (headerHeight - textHeight) / 2;
-
-            canvas.drawParagraph(paragraph, textX, textY);
-
-            const blankPaint = new CanvasKit.Paint(),
-                whitePaint = new CanvasKit.Paint();
-            whitePaint.setColor(CanvasKit.WHITE);
-
-            const drawImageOpts = [CanvasKit.FilterMode.Linear, CanvasKit.MipmapMode.None];
-
-            getCustomEmojiRects(paragraph, textX, textY);
-            for (const emoji of customEmojis) {
-                canvas.drawRect(emoji.fullRect, whitePaint);
-                canvas.drawImageRectOptions(
-                    emoji.image,
-
-                    emoji.srcRect,
-                    emoji.square ? emoji.destRect : emoji.centerRect,
-
-                    ...drawImageOpts,
-                    blankPaint
-                );
-            }
-
-            const imgSrcRect = [0, 0, image.width(), image.height()],
-                imgDestRect = [0, headerHeight, width, surface.height()];
-
-            canvas.drawImageRectOptions(image, imgSrcRect, imgDestRect, ...drawImageOpts, blankPaint);
+            drawCaption(canvas, paragraph, textX, textY);
+            drawImage(canvas, headerHeight, totalHeight);
 
             Benchmark.stopTiming("draw_image");
 
+            paragraph.delete();
             fontMgr.delete();
-            fontMgr = undefined;
-
             image.delete();
-            image = undefined;
+
+            for (const emoji of customEmojis) {
+                emoji.image.delete();
+            }
 
             return surface;
         })();
