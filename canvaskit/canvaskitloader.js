@@ -1030,8 +1030,14 @@ class Benchmark {
         this.timepoints.set(key, t1 - t0);
     }
 
-    static stopTiming(key) {
+    static stopTiming(key, save = true) {
         key = this._formatTimeKey(key);
+
+        if (!save) {
+            this.timepoints.delete(key);
+            return;
+        }
+
         const t1 = this.timepoints.get(key);
 
         if (typeof t1 === "undefined") {
@@ -1948,7 +1954,7 @@ class ModuleLoader {
         switch (returnType) {
             case FileDataTypes.text:
                 if (LoaderUtils.isArray(moduleCode)) {
-                    return TextEncoder.bytesToString(moduleCode);
+                    return LoaderTextEncoder.bytesToString(moduleCode);
                 }
 
                 return moduleCode;
@@ -1957,7 +1963,7 @@ class ModuleLoader {
                     return moduleCode;
                 }
 
-                return TextEncoder.stringToBytes(moduleCode);
+                return LoaderTextEncoder.stringToBytes(moduleCode);
             default:
                 throw new LoaderError("Unknown return type: " + returnType, returnType);
         }
@@ -2237,8 +2243,10 @@ const Patches = {
     },
 
     apply: (...patches) => {
+        Benchmark.restartTiming("apply_patches");
+
         const patchFuncs = patches.map(patch => {
-            const err = new LoaderError("Unknown patch: " + patch);
+            const err = new LoaderError("Unknown patch: " + patch, patch);
 
             if (!Patches._patchPrefixes.some(prefix => patch.startsWith(prefix))) {
                 throw err;
@@ -2256,9 +2264,19 @@ const Patches = {
         Patches.clearLoadedPatches();
         patchFuncs.forEach(func => func());
         Patches.addContextGlobals();
+
+        Benchmark.stopTiming("apply_patches");
     },
 
     applyAll: (library = config.loadLibrary) => {
+        let timeKey = "apply_patches";
+
+        if (library !== config.loadLibrary) {
+            timeKey += `_${library.toLowerCase()}`;
+        }
+
+        Benchmark.restartTiming(timeKey);
+
         Patches.clearLoadedPatches();
 
         Patches.polyfillConsole();
@@ -2291,6 +2309,7 @@ const Patches = {
 
                 break;
             default:
+                Benchmark.stopTiming(timeKey, false);
                 throw new LoaderError("Unknown library: " + library, library);
         }
 
@@ -2299,6 +2318,8 @@ const Patches = {
 
         Patches.patchWasmModule();
         Patches.patchWasmInstantiate();
+
+        Benchmark.stopTiming(timeKey);
     },
 
     checkGlobalPolyfill(name, msg) {
@@ -2344,6 +2365,8 @@ function loadBase2nDecoder() {
         if (typeof globalThis.decodeBase2n !== "undefined") {
             return;
         }
+
+        Benchmark.startTiming("load_decoder");
 
         const { base2n } = ModuleLoader.loadModule(
             null,
@@ -2395,6 +2418,8 @@ function loadBase2nDecoder() {
             decodeBase2n: patchedDecode,
             table
         });
+
+        Benchmark.stopTiming("load_decoder");
     }
 
     function unloadJsBase2nDecoder() {
@@ -2413,6 +2438,8 @@ function loadBase2nDecoder() {
         }
 
         Patches.checkGlobalPolyfill("Promise", "Can't load WASM Base2n decoder.");
+
+        Benchmark.startTiming("load_wasm_decoder");
 
         const Base2nWasmDec = ModuleLoader.loadModule(
             null,
@@ -2459,19 +2486,15 @@ function loadBase2nDecoder() {
         });
 
         wasmDecoderLoaded = true;
+        Benchmark.stopTiming("load_wasm_decoder");
     }
 
     const base2nCharset = config.useWasmBase2nDecoder ? "base64" : "normal";
 
-    Benchmark.startTiming("load_decoder");
     loadJsBase2nDecoder(base2nCharset);
-    Benchmark.stopTiming("load_decoder");
 
     if (config.useWasmBase2nDecoder) {
-        Benchmark.startTiming("load_wasm_decoder");
         loadWasmBase2nDecoder();
-        Benchmark.stopTiming("load_wasm_decoder");
-
         unloadJsBase2nDecoder();
     }
 }
@@ -2482,6 +2505,7 @@ function loadXzDecompressor() {
     }
 
     Benchmark.startTiming("load_xz_decompressor");
+
     const XzDecompressor = ModuleLoader.loadModule(
         null,
         tags.XzDecompressorTagName,
@@ -2503,13 +2527,14 @@ function loadXzDecompressor() {
     });
 
     XzDecompressor.loadWasm(xzWasm);
-    Benchmark.stopTiming("load_xz_decompressor");
 
     const originalDecompress = XzDecompressor.decompress,
         patchedDecompress = Benchmark.wrapFunction("xz_decompress", originalDecompress);
     XzDecompressor.decompress = patchedDecompress;
 
     Patches.patchGlobalContext({ XzDecompressor });
+
+    Benchmark.stopTiming("load_xz_decompressor");
 }
 
 function loadZstdDecompressor() {
@@ -2518,6 +2543,7 @@ function loadZstdDecompressor() {
     }
 
     Benchmark.startTiming("load_zstd_decompressor");
+
     const ZstdDecompressor = ModuleLoader.loadModule(
         null,
         tags.ZstdDecompressorTagName,
@@ -2539,17 +2565,24 @@ function loadZstdDecompressor() {
     });
 
     ZstdDecompressor.loadWasm(zstdWasm);
-    Benchmark.stopTiming("load_zstd_decompressor");
 
     const originalDecompress = ZstdDecompressor.decompress,
         patchedDecompress = Benchmark.wrapFunction("zstd_decompress", originalDecompress);
     ZstdDecompressor.decompress = patchedDecompress;
 
     Patches.patchGlobalContext({ ZstdDecompressor });
+
+    Benchmark.stopTiming("load_zstd_decompressor");
 }
 
 // canvaskit loader
 function loadCanvasKit() {
+    if (typeof globalThis.CanvasKit !== "undefined") {
+        return;
+    }
+
+    Benchmark.startTiming("load_canvaskit");
+
     const CanvasKitInit = ModuleLoader.loadModule(
         urls.CanvasKitLoaderUrl,
         tags.CanvasKitLoaderTagName,
@@ -2598,10 +2631,18 @@ function loadCanvasKit() {
     console.replyWithLogs("warn");
 
     Patches.patchGlobalContext({ CanvasKit });
+
+    Benchmark.stopTiming("load_canvaskit");
 }
 
 // resvg loader
 function loadResvg() {
+    if (typeof globalThis.Resvg !== "undefined") {
+        return;
+    }
+
+    Benchmark.startTiming("load_resvg");
+
     const ResvgInit = ModuleLoader.loadModule(
         urls.ResvgLoaderUrl,
         tags.ResvgLoaderTagName,
@@ -2635,10 +2676,18 @@ function loadResvg() {
     console.replyWithLogs("warn");
 
     Patches.patchGlobalContext({ Resvg: ResvgInit.Resvg });
+
+    Benchmark.stopTiming("load_resvg");
 }
 
 // libvips loader
 function loadLibVips() {
+    if (typeof globalThis.vips !== "undefined") {
+        return;
+    }
+
+    Benchmark.startTiming("load_libvips");
+
     const LibVipsInit = ModuleLoader.loadModule(urls.LibVipsLoaderUrl, tags.LibVipsLoaderTagName, {
         scope: {
             navigator: {
@@ -2680,10 +2729,18 @@ function loadLibVips() {
     console.replyWithLogs("warn");
 
     Patches.patchGlobalContext({ vips });
+
+    Benchmark.stopTiming("load_libvips");
 }
 
 // lodepng loader
 function loadLodepng() {
+    if (typeof globalThis.lodepng !== "undefined") {
+        return;
+    }
+
+    Benchmark.startTiming("load_lodepng");
+
     const wasm = ModuleLoader.getModuleCode(urls.LodepngWasmUrl, tags.LodepngWasmTagName, FileDataTypes.binary, {
         encoded: true
     });
@@ -2713,27 +2770,19 @@ function loadLodepng() {
         }
     );
 
+    console.replyWithLogs("warn");
+
     Patches.patchGlobalContext({ lodepng });
+
+    Benchmark.stopTiming("load_lodepng");
 }
 
 // main
 function mainPatch(loadLibrary) {
-    function subPatch(library) {
-        let timeKey = "apply_patches";
-
-        if (library !== loadLibrary) {
-            timeKey += `_${library.toLowerCase()}`;
-        }
-
-        Benchmark.restartTiming(timeKey);
-        Patches.applyAll(library);
-        Benchmark.stopTiming(timeKey);
-    }
-
     if (Array.isArray(loadLibrary)) {
-        loadLibrary.forEach(subPatch);
+        loadLibrary.forEach(Patches.applyAll);
     } else {
-        subPatch(loadLibrary);
+        Patches.applyAll(loadLibrary);
     }
 
     Patches.clearLoadedPatches();
@@ -2807,28 +2856,16 @@ function mainLoadLibrary(loadLibrary) {
             case "none":
                 break;
             case "canvaskit":
-                Benchmark.startTiming("load_canvaskit");
                 loadCanvasKit();
-                Benchmark.stopTiming("load_canvaskit");
-
                 break;
             case "resvg":
-                Benchmark.startTiming("load_resvg");
                 loadResvg();
-                Benchmark.stopTiming("load_resvg");
-
                 break;
             case "libvips":
-                Benchmark.startTiming("load_libvips");
                 loadLibVips();
-                Benchmark.stopTiming("load_libvips");
-
                 break;
             case "lodepng":
-                Benchmark.startTiming("load_lodepng");
                 loadLodepng();
-                Benchmark.stopTiming("load_lodepng");
-
                 break;
             default:
                 throw new LoaderError("Unknown library: " + library, library);
@@ -2891,24 +2928,24 @@ function main() {
     }
 }
 
+function insideEval() {
+    const evalExp = new RegExp(
+        util.env
+            ? `^.+\\n\\s+at\\s${insideEval.name}\\s\\(eval\\sat\\s.+\\)\\n\\s+at eval\\s\\(eval at\\s.+\\)`
+            : `^.+\\n\\s+at\\s${insideEval.name}\\s\\(eval\\sat\\s.+?\\(eval\\sat\\s.+\\)\\n\\s+at\\seval\\s\\(eval\\sat\\s.+?\\(eval\\sat\\s.+\\)`
+    );
+
+    try {
+        throw new Error();
+    } catch (err) {
+        return Boolean(err.stack.match(evalExp));
+    }
+}
+
 try {
     if (config.enableDebugger) debugger;
 
     // eval check
-    function insideEval() {
-        const evalExp = new RegExp(
-            util.env
-                ? `^.+\\n\\s+at\\s${insideEval.name}\\s\\(eval\\sat\\s.+\\)\\n\\s+at eval\\s\\(eval at\\s.+\\)`
-                : `^.+\\n\\s+at\\s${insideEval.name}\\s\\(eval\\sat\\s.+?\\(eval\\sat\\s.+\\)\\n\\s+at\\seval\\s\\(eval\\sat\\s.+?\\(eval\\sat\\s.+\\)`
-        );
-
-        try {
-            throw new Error();
-        } catch (err) {
-            return Boolean(err.stack.match(evalExp));
-        }
-    }
-
     if (!insideEval()) {
         msg.reply(":information_source: This is meant to be used inside eval, not as a standalone tag.", {
             embed: {
