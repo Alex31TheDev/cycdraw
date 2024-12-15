@@ -1705,19 +1705,41 @@ class ModuleLoader {
             exports
         };
 
-        const filteredGlobals = LoaderUtils.removeUndefinedValues(globals),
-            filteredScope = LoaderUtils.removeUndefinedValues(loadScope);
+        const newLoadScope = {},
+            loadGlobals = {},
+            customGlobalKeys = [];
+
+        for (const [key, obj] of Object.entries(loadScope)) {
+            if (obj === null || typeof obj !== "object") {
+                newLoadScope[key] = obj;
+            }
+
+            if (obj.globalHolder === true) {
+                customGlobalKeys.push(key);
+            } else if ("value" in obj) {
+                if (obj.global === true) {
+                    loadGlobals[key] = obj.value;
+                } else {
+                    newLoadScope[key] = obj.value;
+                }
+            } else {
+                newLoadScope[key] = obj;
+            }
+        }
+
+        const filteredGlobals = LoaderUtils.removeUndefinedValues({ ...globals, ...loadGlobals }),
+            filteredScope = LoaderUtils.removeUndefinedValues(newLoadScope);
 
         const originalGlobal = isolateGlobals ? LoaderUtils.shallowClone(globalThis, "enum") : undefined,
             patchedGlobal = LoaderUtils.shallowClone(isolateGlobals ? cleanGlobal : globalThis);
         Object.assign(patchedGlobal, filteredGlobals);
 
-        const patchedGlobalParams = Object.fromEntries(globalKeys.map(key => [key, patchedGlobal]));
+        const newGlobalKeys = globalKeys.concat(customGlobalKeys),
+            patchedGlobalParams = Object.fromEntries(newGlobalKeys.map(key => [key, patchedGlobal]));
 
         const scopeObj = {
             ...moduleObjs,
             ...patchedGlobalParams,
-            ...filteredGlobals,
             ...filteredScope
         };
 
@@ -1738,6 +1760,8 @@ class ModuleLoader {
             }
 
             Patches.patchGlobalContext(patchedGlobal);
+        } else {
+            Object.assign(scopeObj, filteredGlobals);
         }
 
         const cleanup = _ => {
@@ -2082,6 +2106,15 @@ const Patches = {
             tags.TextEncoderDecoderPolyfillTagName,
 
             {
+                scope: globals.Buffer
+                    ? undefined
+                    : {
+                          Buffer: {
+                              global: true,
+                              value: false
+                          }
+                      },
+
                 cache: false /*,
                 breakpoint: config.enableDebugger */
             }
