@@ -234,7 +234,7 @@ class Logger {
             return "";
         }
 
-        const format = logs.map(this._formatLog).join("\n");
+        const format = logs.map(info => this._formatLog(info)).join("\n");
         return format;
     }
 
@@ -302,7 +302,7 @@ class Logger {
         let format = `${info.level}: ${info.msg}`;
 
         if (info.objs.length > 0) {
-            const objStrs = info.objs.map(this._formatObject);
+            const objStrs = info.objs.map(obj => this._formatObject(obj));
             format += " " + objStrs.join(" ");
         }
 
@@ -1686,11 +1686,6 @@ class ModuleLoader {
 
         if (cache) this._Cache.addModule(module);
 
-        const moduleObjs = {
-            module,
-            exports
-        };
-
         let randomNames;
 
         if (breakpoint) moduleCode = this._Template.addDebuggerStmt(moduleCode);
@@ -1699,26 +1694,26 @@ class ModuleLoader {
             moduleCode = this._Template.wrapErrorHandling(moduleCode, randomNames);
         }
 
+        const moduleObjs = {
+            module,
+            exports
+        };
+
         const filteredGlobals = LoaderUtils.removeUndefinedValues(globals),
             filteredScope = LoaderUtils.removeUndefinedValues(loadScope);
 
+        const originalGlobal = isolateGlobals ? LoaderUtils.shallowClone(globalThis, "enum") : undefined,
+            patchedGlobal = LoaderUtils.shallowClone(isolateGlobals ? cleanGlobal : globalThis);
+        Object.assign(patchedGlobal, filteredGlobals);
+
+        const patchedGlobalParams = Object.fromEntries(globalKeys.map(key => [key, patchedGlobal]));
+
         const scopeObj = {
             ...moduleObjs,
+            ...patchedGlobalParams,
             ...filteredGlobals,
             ...filteredScope
         };
-
-        let originalGlobal, patchedGlobal;
-
-        if (isolateGlobals) {
-            originalGlobal = LoaderUtils.shallowClone(globalThis, "enum");
-
-            patchedGlobal = LoaderUtils.shallowClone(isolateGlobals ? cleanGlobal : globalThis);
-            Object.assign(patchedGlobal, filteredGlobals);
-
-            const patchedGlobalParams = Object.fromEntries(globalKeys.map(key => [key, patchedGlobal]));
-            Object.assign(scopeObj, patchedGlobalParams);
-        }
 
         const loadParams = Object.keys(scopeObj),
             loadArgs = Object.values(scopeObj);
