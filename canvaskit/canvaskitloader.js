@@ -902,6 +902,21 @@ const LoaderUtils = {
         return Object.fromEntries(Object.entries(obj).filter(([_, value]) => typeof value !== "undefined"));
     },
 
+    makeInfiniteObject: _ => {
+        const handler = {
+            get(target, prop, reciever) {
+                if (!Reflect.has(target, prop)) {
+                    const newProxy = new Proxy({}, this);
+                    Reflect.set(target, prop, newProxy, reciever);
+                }
+
+                return Reflect.get(target, prop, reciever);
+            }
+        };
+
+        return new Proxy({}, handler);
+    },
+
     makeNonConfigurableObject: (obj = {}) => {
         const newObj = {};
 
@@ -914,29 +929,95 @@ const LoaderUtils = {
             })
         );
 
-        return new Proxy(newObj, {
-            defineProperty(target, prop, descriptor) {
-                return Reflect.defineProperty(target, prop, {
-                    ...descriptor,
-                    configurable: false
-                });
-            },
-
-            set(target, prop, value) {
-                if (!Object.prototype.hasOwnProperty.call(target, prop)) {
-                    Reflect.defineProperty(target, prop, {
+        const handler = {
+            set(target, prop, value, reciever) {
+                if (!Reflect.has(target, prop)) {
+                    return Reflect.defineProperty(target, prop, {
                         value,
                         writable: true,
                         enumerable: true,
                         configurable: false
                     });
                 } else {
-                    target[prop] = value;
+                    return Reflect.set(target, prop, value, reciever);
+                }
+            },
+
+            defineProperty(target, prop, descriptor) {
+                return Reflect.defineProperty(target, prop, {
+                    ...descriptor,
+                    configurable: false
+                });
+            }
+        };
+
+        return new Proxy(newObj, handler);
+    },
+
+    makeMirrorObject: (mirrorObj, extraObj) => {
+        const resolveTarget = prop => {
+            return extraObj && Reflect.has(extraObj, prop) ? extraObj : mirrorObj;
+        };
+
+        const handler = {
+            get(_, prop, receiver) {
+                const target = resolveTarget(prop);
+                return Reflect.get(target, prop, receiver);
+            },
+
+            set(_, prop, value, receiver) {
+                const target = resolveTarget(prop);
+                return Reflect.set(target, prop, value, receiver);
+            },
+
+            has(_, prop) {
+                return (extraObj && Reflect.has(extraObj, prop)) || Reflect.has(mirrorObj, prop);
+            },
+
+            deleteProperty(_, prop) {
+                const target = resolveTarget(prop);
+                return Reflect.deleteProperty(target, prop);
+            },
+
+            ownKeys() {
+                const targetKeys = Reflect.ownKeys(mirrorObj),
+                    extraKeys = extraObj ? Reflect.ownKeys(extraObj) : [];
+
+                return Array.from(new Set([...targetKeys, ...extraKeys]));
+            },
+
+            getOwnPropertyDescriptor(_, prop) {
+                const target = resolveTarget(prop);
+                return Reflect.getOwnPropertyDescriptor(target, prop);
+            },
+
+            defineProperty(_, prop, descriptor) {
+                const target = resolveTarget(prop);
+                return Reflect.defineProperty(target, prop, descriptor);
+            },
+
+            preventExtensions() {
+                if (extraObj) {
+                    throw new UtilError("Cannot prevent extensions on a composite proxy");
                 }
 
-                return true;
+                return Reflect.preventExtensions(mirrorObj);
+            },
+
+            isExtensible() {
+                return Reflect.isExtensible(mirrorObj) && (!extraObj || Reflect.isExtensible(extraObj));
+            },
+
+            getPrototypeOf() {
+                return Reflect.getPrototypeOf(mirrorObj);
+            },
+
+            setPrototypeOf(_, proto) {
+                return Reflect.setPrototypeOf(mirrorObj, proto);
             }
-        });
+        };
+
+        return new Proxy(mirrorObj, handler);
     },
 
     templateReplace: (template, data) => {
@@ -1435,15 +1516,15 @@ class ModuleGlobalsUtil {
     }
 
     static _globalsProxyHandler = {
-        set(target, prop, value) {
+        set(target, prop, value, reciever) {
             if (typeof value === "undefined") {
                 return false;
             }
 
-            target[prop] = value;
-            Patches._loadedPatch(prop);
+            const success = Reflect.set(target, prop, value, reciever);
+            if (success) Patches._loadedPatch(prop);
 
-            return true;
+            return success;
         }
     };
 }
@@ -1456,7 +1537,7 @@ class ModuleRequireUtil {
     static createFakeRequire(obj = {}) {
         return function (id) {
             if (typeof id !== "string") {
-                return this._createInfiniteObject();
+                return LoaderUtils.makeInfiniteObject();
             }
 
             const ret = obj[id];
@@ -1467,23 +1548,9 @@ class ModuleRequireUtil {
                 case "function":
                     return ret(id);
                 default:
-                    return this._createInfiniteObject();
+                    return LoaderUtils.makeInfiniteObject();
             }
         }.bind(this);
-    }
-
-    static _infiniteObjProxyHandler = {
-        get(target, prop) {
-            if (!(prop in target)) {
-                target[prop] = new Proxy({}, this);
-            }
-
-            return target[prop];
-        }
-    };
-
-    static _createInfiniteObject() {
-        return new Proxy({}, this._infiniteObjProxyHandler);
     }
 }
 
@@ -1588,6 +1655,18 @@ class ModuleLoader {
     static enableCache = true;
 
     static Require = ModuleRequireUtil;
+
+    useDefault(vars, cb) {
+        const old = {};
+
+        for (const name of vars) {
+            old[name] = this[name];
+        }
+
+        if (typeof cb !== "function") {
+            return;
+        }
+    }
 
     static getModuleCodeFromUrl(url, returnType = FileDataTypes.text, options = {}) {
         if (url === null || typeof url === "undefined" || url.length < 1) {
@@ -2949,7 +3028,7 @@ function mainLoad(loadLibrary) {
 }
 
 function main() {
-    ModuleLoader.tagOwner = tagOwner;
+    ModuleLoader.useDefaultTagOwner();
 
     mainLoad(config.loadLibrary);
 
