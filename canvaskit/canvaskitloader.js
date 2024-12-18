@@ -8,7 +8,9 @@ const config = {
 
     isolateGlobals: util._isolateGlobals ?? true,
     useWasmBase2nDecoder: util._useWasmBase2nDecoder ?? true,
-    forceXzDecompressor: util._forceXzDecompressor ?? false
+    forceXzDecompressor: util._forceXzDecompressor ?? false,
+
+    tagOwner: "883072834790916137"
 };
 
 const features = {
@@ -43,36 +45,35 @@ const urls = {
 };
 
 const tags = {
-        Base2nTagName: "ck_base2n",
-        Base2nWasmWrapperTagName: "ck_base2nwasm_dec",
-        Base2nWasmInitTagName: "ck_base2nwasm_init",
-        Base2nWasmWasmTagName: "ck_base2nwasm_wasm",
+    Base2nTagName: "ck_base2n",
+    Base2nWasmWrapperTagName: "ck_base2nwasm_dec",
+    Base2nWasmInitTagName: "ck_base2nwasm_init",
+    Base2nWasmWasmTagName: "ck_base2nwasm_wasm",
 
-        XzDecompressorTagName: "ck_xz_decomp",
-        XzWasmTagName: "ck_xz_wasm",
+    XzDecompressorTagName: "ck_xz_decomp",
+    XzWasmTagName: "ck_xz_wasm",
 
-        ZstdDecompressorTagName: "ck_zstd_decomp",
-        ZstdWasmTagName: "ck_zstd_wasm",
+    ZstdDecompressorTagName: "ck_zstd_decomp",
+    ZstdWasmTagName: "ck_zstd_wasm",
 
-        PromisePolyfillTagName: "ck_promise_polyfill",
-        BufferPolyfillTagName: "ck_buffer_polyfill",
-        TextEncoderDecoderPolyfillTagName: "ck_textdecenc_polyfill",
-        WebWorkerPolyfillTagName: "",
+    PromisePolyfillTagName: "ck_promise_polyfill",
+    BufferPolyfillTagName: "ck_buffer_polyfill",
+    TextEncoderDecoderPolyfillTagName: "ck_textdecenc_polyfill",
+    WebWorkerPolyfillTagName: "",
 
-        CanvasKitLoaderTagName: /^ck_loader_init\d+$/,
-        CanvasKitWasm1TagName: /^ck_wasm\d+$/,
-        CanvasKitWasm2TagName: /^ck_wasm_new\d+$/,
+    CanvasKitLoaderTagName: /^ck_loader_init\d+$/,
+    CanvasKitWasm1TagName: /^ck_wasm\d+$/,
+    CanvasKitWasm2TagName: /^ck_wasm_new\d+$/,
 
-        ResvgLoaderTagName: "ck_resvg_init",
-        ResvgWasmTagName: /^ck_resvg_wasm\d+$/,
+    ResvgLoaderTagName: "ck_resvg_init",
+    ResvgWasmTagName: /^ck_resvg_wasm\d+$/,
 
-        LibVipsLoaderTagName: "",
-        LibVipsWasmTagName: "",
+    LibVipsLoaderTagName: "",
+    LibVipsWasmTagName: "",
 
-        LodepngInitTagName: "ck_lodepng_init",
-        LodepngWasmTagName: "ck_lodepng_wasm"
-    },
-    tagOwner = "883072834790916137";
+    LodepngInitTagName: "ck_lodepng_init",
+    LodepngWasmTagName: "ck_lodepng_wasm"
+};
 
 // info
 const usage = `Leveret: \`util.executeTag("canvaskitloader");\`
@@ -85,10 +86,6 @@ const docs = `CanvasKit GitHub: https://github.com/google/skia/tree/main/modules
 CanvasKit API docs: https://github.com/google/skia/blob/a004a27085d7dcc4efc3766c9abe92df03654c7c/modules/canvaskit/npm_build/types/index.d.ts
 
 Tag repo: https://github.com/Alex31TheDev/cycdraw/tree/main/canvaskit`;
-
-// misc
-const outCharLimit = util.outCharLimit ?? 1000,
-    outLineLimit = util.outLineLimit ?? 6;
 
 // errors
 class CustomError extends Error {
@@ -132,24 +129,24 @@ class LoaderError extends RefError {
 }
 
 // delete config props
-const defaultUtilProps = [
-    "version",
-    "env",
-    "timeLimit",
-    "inspectorEnabled",
-    "outCharLimit",
-    "outLineLimit",
-    "findUsers",
-    "fetchTag",
-    "findTags",
-    "dumpTags",
-    "fetchMessage",
-    "fetchMessages",
-    "findTags",
-    "executeTag"
-];
-
 (function deleteConfigProps() {
+    const defaultUtilProps = [
+        "version",
+        "env",
+        "timeLimit",
+        "inspectorEnabled",
+        "outCharLimit",
+        "outLineLimit",
+        "findUsers",
+        "fetchTag",
+        "findTags",
+        "dumpTags",
+        "fetchMessage",
+        "fetchMessages",
+        "findTags",
+        "executeTag"
+    ];
+
     for (const key of Object.keys(util)) {
         if (!defaultUtilProps.includes(key)) {
             delete util[key];
@@ -190,11 +187,11 @@ class Logger {
     }
 
     get level() {
-        return Logger._getIndLevel(this._level);
+        return Logger._getLevelByIndex(this._level);
     }
 
     set level(level) {
-        this._level = Logger._getLevelInd(level);
+        this._level = Logger._getLevelIndex(level);
     }
 
     log(level, ...args) {
@@ -222,8 +219,8 @@ class Logger {
         let logs = this.logs;
 
         if (typeof level === "string") {
-            const levelInd = Logger._getLevelInd(level);
-            logs = logs.filter(log => Logger._getLevelInd(log.level) >= levelInd);
+            const levelInd = Logger._getLevelIndex(level);
+            logs = logs.filter(log => Logger._getLevelIndex(log.level) >= levelInd);
         }
 
         if (typeof last === "number") {
@@ -251,7 +248,7 @@ class Logger {
         throw new ExitError();
     }
 
-    static _getLevelInd(level) {
+    static _getLevelIndex(level) {
         const levels = Object.entries(Logger.levels),
             find = levels.find(([key]) => key === level);
 
@@ -262,7 +259,7 @@ class Logger {
         return find[1];
     }
 
-    static _getIndLevel(ind) {
+    static _getLevelByIndex(ind) {
         const levels = Object.entries(Logger.levels),
             find = levels.find(([_, value]) => value === ind);
 
@@ -278,7 +275,7 @@ class Logger {
             return;
         }
 
-        const levelInd = Logger._getLevelInd(level);
+        const levelInd = Logger._getLevelIndex(level);
 
         if (levelInd < this._level) {
             return;
@@ -619,6 +616,7 @@ const md5 = (() => {
 
 const FileDataTypes = {
     text: "text",
+    json: "json",
     binary: "binary"
 };
 
@@ -626,8 +624,8 @@ const LoaderUtils = {
     HttpUtil,
     md5,
 
-    outCharLimit,
-    outLineLimit,
+    outCharLimit: util.outCharLimit ?? 1000,
+    outLineLimit: util.outLineLimit ?? 6,
 
     capitalize: str => {
         str = String(str).toLowerCase();
@@ -701,7 +699,7 @@ const LoaderUtils = {
     },
 
     exceedsLimits: str => {
-        return str.length > outCharLimit || str.split("\n").length > outLineLimit;
+        return str.length > LoaderUtils.outCharLimit || str.split("\n").length > LoaderUtils.outLineLimit;
     },
 
     codeBlock: str => {
@@ -714,7 +712,7 @@ const LoaderUtils = {
         return str;
     },
 
-    shallowClone: (obj, options) => {
+    assign: (target, source, options, props) => {
         switch (typeof options) {
             case "undefined":
                 options = ["both"];
@@ -724,36 +722,50 @@ const LoaderUtils = {
                 break;
         }
 
-        let enumerable, nonEnumerable, both;
+        let enumerable,
+            nonEnumerable,
+            both = options.includes("both");
 
-        if (options.includes("both")) {
-            enumerable = nonEnumerable = both = true;
+        if (both) {
+            enumerable = nonEnumerable = true;
         } else {
             enumerable = options.includes("enum");
             nonEnumerable = options.includes("nonenum");
+
+            both = enumerable && nonEnumerable;
         }
 
-        let clone = Object.create(Object.getPrototypeOf(obj)),
-            descriptors = {};
+        const keys = options.includes("keys");
 
-        if (both) {
-            descriptors = Object.getOwnPropertyDescriptors(obj);
-        } else if (enumerable) {
-            const enumerableProps = Object.keys(obj);
-            enumerableProps.forEach(prop => {
-                descriptors[prop] = Object.getOwnPropertyDescriptor(obj, prop);
-            });
-        } else if (nonEnumerable) {
-            const nonEnumerableProps = Object.getOwnPropertyNames(obj).filter(prop => !obj.propertyIsEnumerable(prop));
-            nonEnumerableProps.forEach(prop => {
-                descriptors[prop] = Object.getOwnPropertyDescriptor(obj, prop);
-            });
-        } else {
+        if ((!enumerable && !nonEnumerable && !both && !keys) || (both && keys)) {
             throw new UtilError("Invalid options: " + options.join(", "));
         }
 
-        Object.defineProperties(clone, descriptors);
-        return clone;
+        if (keys) {
+            Object.assign(target, source);
+        }
+
+        const allDescriptors = Object.entries(Object.getOwnPropertyDescriptors(source));
+        let descriptors;
+
+        if (both) {
+            descriptors = allDescriptors;
+        } else if (enumerable) {
+            descriptors = allDescriptors.filter(([_, desc]) => desc.enumerable);
+        } else if (nonEnumerable) {
+            descriptors = allDescriptors.filter(([_, desc]) => !desc.enumerable);
+        }
+
+        if (typeof props === "object") descriptors = descriptors.map(([key, desc]) => [key, { ...desc, ...props }]);
+        descriptors = Object.fromEntries(descriptors);
+
+        Object.defineProperties(target, descriptors);
+        return target;
+    },
+
+    shallowClone: (obj, options) => {
+        const clone = Object.create(Object.getPrototypeOf(obj));
+        return LoaderUtils.assign(clone, obj, options);
     },
 
     fetchAttachment: (msg, returnType = FileDataTypes.text, allowedContentType) => {
@@ -832,7 +844,7 @@ const LoaderUtils = {
             if (tag !== null && typeof tag !== "undefined") {
                 const userExcluded = enableUserBlacklist && excludedUsers.includes(tag.owner);
 
-                if (!userExcluded && tag.owner !== tagOwner) {
+                if (!userExcluded && tag.owner !== config.tagOwner) {
                     tags.push(tag);
                 }
             }
@@ -848,11 +860,13 @@ const LoaderUtils = {
             throw new UtilError("Unknown tag: " + name, name);
         }
 
-        if (typeof owner === "string" && tag.owner !== owner) {
-            throw new UtilError(`Incorrect tag owner (${tag.owner} =/= ${owner}) for tag: ${name}`, {
-                original: tag.owner,
-                needed: owner
-            });
+        if (typeof owner === "string" && owner.length > 0) {
+            if (tag.owner !== owner) {
+                throw new UtilError(`Incorrect tag owner (${tag.owner} =/= ${owner}) for tag: ${name}`, {
+                    original: tag.owner,
+                    needed: owner
+                });
+            }
         }
 
         return tag;
@@ -898,23 +912,52 @@ const LoaderUtils = {
         }
     },
 
+    templateReplace: (template, data) => {
+        return template.replace(/(?<!\\){{(.*?)}}(?!\\)/g, (match, key) => {
+            key = key.trim();
+            return data[key] ?? match;
+        });
+    },
+
     removeUndefinedValues: obj => {
         return Object.fromEntries(Object.entries(obj).filter(([_, value]) => typeof value !== "undefined"));
     },
 
-    makeInfiniteObject: _ => {
-        const handler = {
-            get(target, prop, reciever) {
-                if (!Reflect.has(target, prop)) {
-                    const newProxy = new Proxy({}, this);
-                    Reflect.set(target, prop, newProxy, reciever);
-                }
-
-                return Reflect.get(target, prop, reciever);
+    _infiniteProxyHandler: {
+        get(target, prop, reciever) {
+            if (!Reflect.has(target, prop)) {
+                const newProxy = new Proxy({}, this);
+                Reflect.set(target, prop, newProxy, reciever);
             }
-        };
 
-        return new Proxy({}, handler);
+            return Reflect.get(target, prop, reciever);
+        }
+    },
+
+    makeInfiniteObject: _ => {
+        return new Proxy({}, LoaderUtils._infiniteProxyHandler);
+    },
+
+    _nonConfigurableProxyHandler: {
+        set(target, prop, value, reciever) {
+            if (!Reflect.has(target, prop)) {
+                return Reflect.defineProperty(target, prop, {
+                    value,
+                    writable: true,
+                    enumerable: true,
+                    configurable: false
+                });
+            } else {
+                return Reflect.set(target, prop, value, reciever);
+            }
+        },
+
+        defineProperty(target, prop, descriptor) {
+            return Reflect.defineProperty(target, prop, {
+                ...descriptor,
+                configurable: false
+            });
+        }
     },
 
     makeNonConfigurableObject: (obj = {}) => {
@@ -929,29 +972,7 @@ const LoaderUtils = {
             })
         );
 
-        const handler = {
-            set(target, prop, value, reciever) {
-                if (!Reflect.has(target, prop)) {
-                    return Reflect.defineProperty(target, prop, {
-                        value,
-                        writable: true,
-                        enumerable: true,
-                        configurable: false
-                    });
-                } else {
-                    return Reflect.set(target, prop, value, reciever);
-                }
-            },
-
-            defineProperty(target, prop, descriptor) {
-                return Reflect.defineProperty(target, prop, {
-                    ...descriptor,
-                    configurable: false
-                });
-            }
-        };
-
-        return new Proxy(newObj, handler);
+        return new Proxy(newObj, LoaderUtils._nonConfigurableProxyHandler);
     },
 
     makeMirrorObject: (mirrorObj, extraObj) => {
@@ -1018,13 +1039,6 @@ const LoaderUtils = {
         };
 
         return new Proxy(mirrorObj, handler);
-    },
-
-    templateReplace: (template, data) => {
-        return template.replace(/(?<!\\){{(.*?)}}(?!\\)/g, (match, key) => {
-            key = key.trim();
-            return data[key] ?? match;
-        });
     }
 };
 
@@ -1067,7 +1081,7 @@ class Benchmark {
         return "dateNow";
     })();
 
-    static getCurrentTime(ms = false) {
+    static getCurrentTime(ms = true) {
         let time;
 
         switch (this.timeToUse) {
@@ -1092,7 +1106,7 @@ class Benchmark {
     static startTiming(key) {
         key = this._formatTimeKey(key);
 
-        const t1 = this.getCurrentTime();
+        const t1 = this.getCurrentTime(false);
         this.timepoints.set(key, t1);
     }
 
@@ -1107,7 +1121,7 @@ class Benchmark {
         delete this.data[key];
         t0 = this._msToTime(t0);
 
-        const t1 = this.getCurrentTime();
+        const t1 = this.getCurrentTime(false);
         this.timepoints.set(key, t1 - t0);
     }
 
@@ -1127,7 +1141,7 @@ class Benchmark {
 
         this.timepoints.delete(key);
 
-        const t2 = this.getCurrentTime(),
+        const t2 = this.getCurrentTime(false),
             dt = t2 - t1;
 
         this.data[key] = this._timeToMs(dt);
@@ -1191,7 +1205,12 @@ class Benchmark {
         let sumTimes;
 
         if (keys.length > 0) {
-            sumTimes = keys.map(key => this.data[key]).filter(time => typeof time !== "undefined");
+            sumTimes = keys
+                .map(key => {
+                    key = this._formatTimeKey(key);
+                    return this.data[key];
+                })
+                .filter(time => typeof time !== "undefined");
         } else {
             sumTimes = Object.values(this.data);
         }
@@ -1200,11 +1219,12 @@ class Benchmark {
     }
 
     static getAll(...includeSum) {
-        let format = true;
+        let format = LoaderUtils.lastElement(includeSum);
 
-        if (typeof LoaderUtils.lastElement(includeSum) === "boolean") {
-            format = LoaderUtils.lastElement(includeSum);
-            if (!format) includeSum.pop();
+        if (typeof format === "boolean") {
+            includeSum.pop();
+        } else {
+            format = true;
         }
 
         let useSum = includeSum.length > 0,
@@ -1405,9 +1425,6 @@ class Benchmark {
 }
 
 // module loader
-const cleanGlobal = LoaderUtils.shallowClone(globalThis, "nonenum"),
-    globalKeys = ["global", "globalThis"];
-
 class Module {
     constructor(name, id) {
         if (name instanceof Module) {
@@ -1455,8 +1472,8 @@ class ModuleCacheManager {
         }
     }
 
-    addModule(module, newName) {
-        if (typeof this.getModuleById(module.name) !== "undefined") {
+    addModule(module, newName, reload = false) {
+        if (!reload && typeof this.getModuleById(module.name) !== "undefined") {
             throw new LoaderError(`Module ${module.name} already exists`, module.name);
         }
 
@@ -1485,8 +1502,8 @@ class ModuleCacheManager {
         return this._code.get(name);
     }
 
-    addCode(name, code) {
-        if (typeof this.getCodeByName(name) !== "undefined") {
+    addCode(name, code, reload = false) {
+        if (!reload && typeof this.getCodeByName(name) !== "undefined") {
             throw new LoaderError(`Module ${name} already exists`, name);
         }
 
@@ -1510,6 +1527,9 @@ class ModuleCacheManager {
 }
 
 class ModuleGlobalsUtil {
+    static cleanGlobal = LoaderUtils.shallowClone(globalThis, "nonenum");
+    static globalKeys = ["global", "globalThis"];
+
     static createGlobalsObject(obj) {
         obj = LoaderUtils.makeNonConfigurableObject(obj);
         return new Proxy(obj, this._globalsProxyHandler);
@@ -1525,13 +1545,20 @@ class ModuleGlobalsUtil {
             if (success) Patches._loadedPatch(prop);
 
             return success;
+        },
+
+        defineProperty(target, prop, descriptor) {
+            const success = Reflect.defineProperty(target, prop, descriptor);
+            if (success) Patches._loadedPatch(prop);
+
+            return success;
         }
     };
 }
 
 class ModuleRequireUtil {
     static fakeRequire = function (id) {
-        return this._createInfiniteObject();
+        return LoaderUtils.makeInfiniteObject();
     };
 
     static createFakeRequire(obj = {}) {
@@ -1648,23 +1675,47 @@ class ModuleStackTraceUtil {
 
 class ModuleLoader {
     static loadSource = config.loadSource;
-    static isolateGlobals = config.isolateGlobals;
+    static isolateGlobals = false;
 
-    static tagOwner;
+    static tagOwner = null;
     static breakpoint = false;
     static enableCache = true;
 
     static Require = ModuleRequireUtil;
 
-    useDefault(vars, cb) {
-        const old = {};
+    static useDefault(...vars) {
+        const cb = LoaderUtils.lastElement(vars),
+            useCb = typeof cb === "function";
 
-        for (const name of vars) {
-            old[name] = this[name];
+        let old;
+
+        if (useCb) {
+            vars.pop();
+            old = {};
         }
 
-        if (typeof cb !== "function") {
-            return;
+        if (vars.length === 0) {
+            vars.push(...this._tagConfigVars);
+        }
+
+        for (const name of vars) {
+            if (!(name in config) || (!name) in this) {
+                throw new LoaderError(`Variable ${name} doesn't exist`);
+            }
+
+            if (!this._tagConfigVars.includes(name)) {
+                throw new LoaderError(`Variable ${name} can't be set`);
+            }
+
+            const defaultValue = config[name];
+            if (useCb) old[name] = this[name];
+
+            this[name] = defaultValue;
+        }
+
+        if (useCb) {
+            cb();
+            Object.assign(this, old);
         }
     }
 
@@ -1673,10 +1724,11 @@ class ModuleLoader {
             throw new LoaderError("Invalid URL");
         }
 
-        const cache = this.enableCache && (options.cache ?? true),
-            name = options.name ?? url;
+        const name = options.name ?? url,
+            cache = this.enableCache && (options.cache ?? true),
+            forceReload = options.forceReload ?? false;
 
-        if (cache) {
+        if (cache && !forceReload) {
             const foundCode = this._Cache.getCodeByName(name);
             if (typeof foundCode !== "undefined") return foundCode;
         }
@@ -1684,7 +1736,7 @@ class ModuleLoader {
         let moduleCode = this._fetchFromUrl(url, returnType, options);
         moduleCode = this._parseModuleCode(moduleCode, returnType);
 
-        if (cache) this._Cache.addCode(name, moduleCode);
+        if (cache) this._Cache.addCode(name, moduleCode, forceReload);
         return moduleCode;
     }
 
@@ -1693,10 +1745,11 @@ class ModuleLoader {
             throw new LoaderError("Invalid tag name");
         }
 
-        const cache = this.enableCache && (options.cache ?? true),
-            name = options.name ?? tagName;
+        const name = options.name ?? tagName,
+            cache = this.enableCache && (options.cache ?? true),
+            forceReload = options.forceReload ?? false;
 
-        if (cache) {
+        if (cache && !forceReload) {
             const foundCode = this._Cache.getCodeByName(name);
             if (typeof foundCode !== "undefined") return foundCode;
         }
@@ -1713,12 +1766,12 @@ class ModuleLoader {
 
         moduleCode = this._parseModuleCode(moduleCode, returnType);
 
-        if (cache) this._Cache.addCode(name, moduleCode);
+        if (cache) this._Cache.addCode(name, moduleCode, forceReload);
         return moduleCode;
     }
 
     static getModuleCode(url, tagName, ...args) {
-        switch (config.loadSource) {
+        switch (this.loadSource) {
             case "url":
                 if (url === null) {
                     return;
@@ -1732,18 +1785,16 @@ class ModuleLoader {
 
                 return this.getModuleCodeFromTag(tagName, ...args);
             default:
-                throw new LoaderError("Invalid load source: " + config.loadSource, config.loadSource);
+                throw new LoaderError("Invalid load source: " + this.loadSource, this.loadSource);
         }
     }
 
     static loadModuleFromSource(moduleCode, loadScope = {}, breakpoint = this.breakpoint, options = {}) {
         const moduleName = options.name,
             cache = this.enableCache && (options.cache ?? true),
-            isolateGlobals = options.isolateGlobals ?? this.isolateGlobals;
+            forceReload = options.forceReload ?? false;
 
-        const wrapErrors = true;
-
-        if (cache && typeof moduleName !== "undefined") {
+        if (cache && typeof moduleName !== "undefined" && !forceReload) {
             const foundModule = this._Cache.getModuleByName(moduleName);
             if (typeof foundModule !== "undefined") return foundModule.exports;
         }
@@ -1758,26 +1809,29 @@ class ModuleLoader {
 
         if (cache) {
             moduleId = md5(moduleCode);
-            const foundModule = this._Cache.getModuleById(moduleId);
 
-            if (typeof foundModule !== "undefined") {
-                if (foundModule.name !== moduleName) this._Cache.addModule(foundModule, moduleName);
-                return foundModule.exports;
+            if (!forceReload) {
+                const foundModule = this._Cache.getModuleById(moduleId);
+
+                if (typeof foundModule !== "undefined") {
+                    if (foundModule.name !== moduleName) this._Cache.addModule(foundModule, moduleName);
+                    return foundModule.exports;
+                }
             }
         }
 
         const module = new Module(moduleName, moduleId),
             exports = module.exports;
 
-        if (cache) this._Cache.addModule(module);
+        if (cache) this._Cache.addModule(module, undefined, forceReload);
 
-        let randomNames;
+        const isolateGlobals = options.isolateGlobals ?? this.isolateGlobals,
+            wrapErrors = true;
 
-        if (breakpoint) moduleCode = this._Template.addDebuggerStmt(moduleCode);
-        if (wrapErrors) {
-            randomNames = {};
-            moduleCode = this._Template.wrapErrorHandling(moduleCode, randomNames);
-        }
+        const randomNames = {};
+
+        if (breakpoint) moduleCode = ModuleTemplateUtil.addDebuggerStmt(moduleCode);
+        if (wrapErrors) moduleCode = ModuleTemplateUtil.wrapErrorHandling(moduleCode, randomNames);
 
         const moduleObjs = {
             module,
@@ -1809,11 +1863,18 @@ class ModuleLoader {
         const filteredGlobals = LoaderUtils.removeUndefinedValues({ ...globals, ...loadGlobals }),
             filteredScope = LoaderUtils.removeUndefinedValues(newLoadScope);
 
-        const originalGlobal = isolateGlobals ? LoaderUtils.shallowClone(globalThis, "enum") : undefined,
-            patchedGlobal = LoaderUtils.shallowClone(isolateGlobals ? cleanGlobal : globalThis);
-        Object.assign(patchedGlobal, filteredGlobals);
+        let originalGlobal, patchedGlobal;
 
-        const newGlobalKeys = globalKeys.concat(customGlobalKeys),
+        if (isolateGlobals) {
+            originalGlobal = LoaderUtils.shallowClone(globalThis, "enum");
+
+            patchedGlobal = LoaderUtils.shallowClone(ModuleGlobalsUtil.cleanGlobal);
+            Object.assign(patchedGlobal, filteredGlobals);
+        } else {
+            patchedGlobal = LoaderUtils.makeMirrorObject(globalThis, filteredGlobals);
+        }
+
+        const newGlobalKeys = ModuleGlobalsUtil.globalKeys.concat(customGlobalKeys),
             patchedGlobalParams = Object.fromEntries(newGlobalKeys.map(key => [key, patchedGlobal]));
 
         const scopeObj = {
@@ -1822,12 +1883,9 @@ class ModuleLoader {
             ...filteredScope
         };
 
-        const loadParams = Object.keys(scopeObj),
-            loadArgs = Object.values(scopeObj);
-
         if (isolateGlobals) {
             try {
-                Patches.removeFromGlobalContext(Object.keys(globalThis));
+                Patches.removeFromGlobalContext("nondefault");
             } catch (err) {
                 if (err instanceof TypeError) {
                     throw new LoaderError(
@@ -1843,9 +1901,12 @@ class ModuleLoader {
             Object.assign(scopeObj, filteredGlobals);
         }
 
+        const loadParams = Object.keys(scopeObj),
+            loadArgs = Object.values(scopeObj);
+
         const cleanup = _ => {
             if (isolateGlobals) {
-                Patches.removeFromGlobalContext(Object.keys(globalThis));
+                Patches.removeFromGlobalContext("nondefault");
                 Patches.patchGlobalContext(originalGlobal);
             }
 
@@ -1861,7 +1922,7 @@ class ModuleLoader {
             cleanup();
 
             if (err !== null) {
-                err.stack = this._StackTrace.rewriteStackTrace(err, randomNames, module.name);
+                err.stack = ModuleStackTraceUtil.rewriteStackTrace(err, randomNames, module.name);
                 throw new LoaderError(`Error occured while loading module ${module.name}.`, err);
             }
         } else {
@@ -1879,10 +1940,12 @@ class ModuleLoader {
     }
 
     static loadModuleFromUrl(url, options = {}) {
-        const [codeArgs, loadArgs] = this._getLoadArgs(url, options),
-            cache = this.enableCache && (options.cache ?? true);
+        const [codeArgs, loadArgs] = this._getLoadArgs(url, options);
 
-        if (cache) {
+        const cache = this.enableCache && (options.cache ?? true),
+            forceReload = options.forceReload ?? false;
+
+        if (cache && !forceReload) {
             const foundModule = this._Cache.getModuleByName(url);
             if (typeof foundModule !== "undefined") return foundModule.exports;
         }
@@ -1892,10 +1955,12 @@ class ModuleLoader {
     }
 
     static loadModuleFromTag(tagName, options = {}) {
-        const [codeArgs, loadArgs] = this._getLoadArgs(tagName, options),
-            cache = this.enableCache && (options.cache ?? true);
+        const [codeArgs, loadArgs] = this._getLoadArgs(tagName, options);
 
-        if (cache) {
+        const cache = this.enableCache && (options.cache ?? true),
+            forceReload = options.forceReload ?? false;
+
+        if (cache && !forceReload) {
             const foundModule = this._Cache.getModuleByName(tagName);
             if (typeof foundModule !== "undefined") return foundModule.exports;
         }
@@ -1927,15 +1992,16 @@ class ModuleLoader {
         return this._Cache.clearAll();
     }
 
+    static _tagConfigVars = ["loadSource", "isolateGlobals", "tagOwner"];
+
     static _Cache = new ModuleCacheManager();
-    static _Template = ModuleTemplateUtil;
-    static _StackTrace = ModuleStackTraceUtil;
 
     static _fetchFromUrl(url, returnType, options = {}) {
         let responseType;
 
         switch (returnType) {
             case FileDataTypes.text:
+            case FileDataTypes.json:
                 responseType = "text";
                 break;
             case FileDataTypes.binary:
@@ -2030,6 +2096,33 @@ class ModuleLoader {
         return body;
     }
 
+    static _parseModuleCode(moduleCode, returnType) {
+        switch (returnType) {
+            case FileDataTypes.text:
+                if (LoaderUtils.isArray(moduleCode)) {
+                    return LoaderTextEncoder.bytesToString(moduleCode);
+                }
+
+                return moduleCode;
+            case FileDataTypes.json:
+                let jsonString = moduleCode;
+
+                if (LoaderUtils.isArray(jsonString)) {
+                    jsonString = LoaderTextEncoder.bytesToString(moduleCode);
+                }
+
+                return JSON.parse(jsonString);
+            case FileDataTypes.binary:
+                if (LoaderUtils.isArray(moduleCode)) {
+                    return moduleCode;
+                }
+
+                return LoaderTextEncoder.stringToBytes(moduleCode);
+            default:
+                throw new LoaderError("Unknown return type: " + returnType, returnType);
+        }
+    }
+
     static _decodeModuleCode(moduleCode, buf_size) {
         if (wasmDecoderLoaded) {
             if (typeof fastDecodeBase2n === "undefined") {
@@ -2053,25 +2146,6 @@ class ModuleLoader {
         }
     }
 
-    static _parseModuleCode(moduleCode, returnType) {
-        switch (returnType) {
-            case FileDataTypes.text:
-                if (LoaderUtils.isArray(moduleCode)) {
-                    return LoaderTextEncoder.bytesToString(moduleCode);
-                }
-
-                return moduleCode;
-            case FileDataTypes.binary:
-                if (LoaderUtils.isArray(moduleCode)) {
-                    return moduleCode;
-                }
-
-                return LoaderTextEncoder.stringToBytes(moduleCode);
-            default:
-                throw new LoaderError("Unknown return type: " + returnType, returnType);
-        }
-    }
-
     static _getLoadArgs(name, options) {
         if (typeof options !== "object") {
             throw new LoaderError("Options must be an object");
@@ -2079,7 +2153,8 @@ class ModuleLoader {
 
         const commonOpts = {
             name: options.name ?? name,
-            cache: options.cache
+            cache: options.cache,
+            forceReload: options.forceReload
         };
 
         const codeOpts = {
@@ -2300,10 +2375,30 @@ const Patches = {
     },
 
     patchGlobalContext: objs => {
-        Object.assign(globalThis, objs);
+        if (objs === null || typeof objs !== "object") {
+            throw new LoaderError("Invalid patch objects");
+        }
+
+        LoaderUtils.assign(globalThis, objs, "enum", {
+            configurable: true
+        });
     },
 
     removeFromGlobalContext: keys => {
+        if (typeof keys === "string") {
+            const option = keys;
+
+            switch (option) {
+                case "nondefault":
+                    keys = Object.keys(globalThis);
+                    break;
+                default:
+                    throw new LoaderError("Invalid removal option: " + option, option);
+            }
+        } else if (!Array.isArray(keys)) {
+            throw new LoaderError("Invalid removal keys");
+        }
+
         for (const key of keys) {
             if (key !== "global") delete globalThis[key];
         }
@@ -2311,7 +2406,7 @@ const Patches = {
 
     addContextGlobals: objs => {
         if (typeof objs === "object") {
-            Object.assign(global, objs);
+            LoaderUtils.assign(globals, objs, "enum");
         }
 
         Patches._safePatchGlobals(globals);
@@ -2325,8 +2420,16 @@ const Patches = {
         globalObjs.LoaderUtils ??= LoaderUtils;
         globalObjs.Benchmark ??= Benchmark;
 
-        globalObjs.loadSource ??= config.loadSource;
         globalObjs.ModuleLoader ??= ModuleLoader;
+
+        if (!("loadSource" in globalObjs)) {
+            Object.defineProperty(globalObjs, "loadSource", {
+                get: function () {
+                    return ModuleLoader.loadSource;
+                },
+                enumerable: true
+            });
+        }
 
         globalObjs.Patches ??= {
             globals,
@@ -2457,15 +2560,16 @@ const Patches = {
     },
 
     _safePatchGlobals: objs => {
-        const newObjs = {};
+        const loadedObjs = {};
 
-        for (const name of Object.keys(objs)) {
-            if (Patches._loadedPatches.includes(name)) {
-                newObjs[name] = objs[name];
+        for (const prop of Object.keys(objs)) {
+            if (Patches._loadedPatches.includes(prop)) {
+                const descriptor = Object.getOwnPropertyDescriptor(objs, prop);
+                Object.defineProperty(loadedObjs, prop, descriptor);
             }
         }
 
-        Patches.patchGlobalContext(newObjs);
+        Patches.patchGlobalContext(loadedObjs);
     }
 };
 
@@ -2723,7 +2827,7 @@ function loadCanvasKit() {
         cache: false
     });
 
-    if (config.loadSource === "tag") {
+    if (ModuleLoader.loadSource === "tag") {
         if (features.useXzDecompressor) {
             wasm = XzDecompressor.decompress(wasm);
         } else if (features.useZstdDecompressor) {
@@ -2773,7 +2877,7 @@ function loadResvg() {
         cache: false
     });
 
-    if (config.loadSource === "tag") {
+    if (ModuleLoader.loadSource === "tag") {
         wasm = XzDecompressor.decompress(wasm);
     }
 
@@ -2824,7 +2928,7 @@ function loadLibVips() {
         encoded: true
     });
 
-    if (config.loadSource === "tag") {
+    if (ModuleLoader.loadSource === "tag") {
         wasm = XzDecompressor.decompress(wasm);
     }
 
@@ -2947,7 +3051,7 @@ function mainLoadMisc(loadLibrary) {
         decideMiscConfig(loadLibrary);
     }
 
-    if (config.loadSource === "tag") {
+    if (ModuleLoader.loadSource === "tag") {
         if (features.useBase2nDecoder) {
             loadBase2nDecoder();
         }
@@ -2994,16 +3098,9 @@ function mainLoadLibrary(loadLibrary) {
 function addLoadFuncs() {
     const wrapLoadFunc = func => {
         return function (library) {
-            const oldOwner = ModuleLoader.tagOwner,
-                oldIsolateGlobals = ModuleLoader.isolateGlobals;
-
-            ModuleLoader.tagOwner = tagOwner;
-            ModuleLoader.isolateGlobals = config.isolateGlobals;
-
-            func(library);
-
-            ModuleLoader.tagOwner = oldOwner;
-            ModuleLoader.isolateGlobals = oldIsolateGlobals;
+            ModuleLoader.useDefault(_ => {
+                func(library);
+            });
         };
     };
 
@@ -3028,12 +3125,9 @@ function mainLoad(loadLibrary) {
 }
 
 function main() {
-    ModuleLoader.useDefaultTagOwner();
-
-    mainLoad(config.loadLibrary);
-
-    ModuleLoader.tagOwner = undefined;
-    ModuleLoader.isolateGlobals = false;
+    ModuleLoader.useDefault(_ => {
+        mainLoad(config.loadLibrary);
+    });
 
     if (features.useLoadFuncs) {
         addLoadFuncs();
