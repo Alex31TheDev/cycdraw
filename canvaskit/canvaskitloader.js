@@ -2415,6 +2415,7 @@ const Patches = {
     addGlobalObjects: (library = config.loadLibrary) => {
         globalObjs.CustomError ??= CustomError;
         globalObjs.RefError ??= RefError;
+        globalObjs.ExitError ??= ExitError;
 
         globalObjs.FileDataTypes ??= FileDataTypes;
         globalObjs.LoaderUtils ??= LoaderUtils;
@@ -2430,6 +2431,8 @@ const Patches = {
                 enumerable: true
             });
         }
+
+        globalObjs.enableDebugger ??= config.enableDebugger;
 
         globalObjs.Patches ??= {
             globals,
