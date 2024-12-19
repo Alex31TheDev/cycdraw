@@ -1687,8 +1687,8 @@ class Image {
             y2 = tmp;
         }
 
-        const w = Math.abs(x2 - x1),
-            h = Math.abs(y2 - y1);
+        const w = Math.abs(x2 - x1) + 1,
+            h = Math.abs(y2 - y1) + 1;
 
         if (w === 0 && h === 0) {
             this.setPixel_u(x1, y1, color);
