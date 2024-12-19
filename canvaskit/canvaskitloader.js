@@ -617,7 +617,8 @@ const md5 = (() => {
 const FileDataTypes = {
     text: "text",
     json: "json",
-    binary: "binary"
+    binary: "binary",
+    module: "module"
 };
 
 const LoaderUtils = {
@@ -817,9 +818,11 @@ const LoaderUtils = {
             }
         }
 
-        return ModuleLoader.getModuleCodeFromUrl(url, returnType, {
+        const data = ModuleLoader.getModuleCodeFromUrl(url, returnType, {
             cache: false
         });
+
+        return { data, contentType };
     },
 
     dumpTags: search => {
@@ -1462,6 +1465,14 @@ class Benchmark {
 }
 
 // module loader
+class ModuleCode {
+    constructor(name, code, returnType) {
+        this.name = name.toString() ?? "";
+        this.code = code;
+        this.returnType = returnType;
+    }
+}
+
 class Module {
     constructor(name, id) {
         if (name instanceof Module) {
@@ -1510,11 +1521,13 @@ class ModuleCacheManager {
     }
 
     addModule(module, newName, reload = false) {
-        if (!reload && typeof this.getModuleById(module.name) !== "undefined") {
-            throw new LoaderError(`Module ${module.name} already exists`, module.name);
+        const name = module.name;
+
+        if (!reload && typeof this.getModuleById(name) !== "undefined") {
+            throw new LoaderError(`Module ${name} already exists`, name);
         }
 
-        this._cache.set(module.name, module);
+        this._cache.set(name, module);
 
         if (typeof newName !== "undefined") {
             const newModule = new Module(module, newName);
@@ -1539,17 +1552,23 @@ class ModuleCacheManager {
         return this._code.get(name);
     }
 
-    addCode(name, code, reload = false) {
+    addCode(code, reload = false) {
+        const name = code.name;
+
         if (!reload && typeof this.getCodeByName(name) !== "undefined") {
             throw new LoaderError(`Module ${name} already exists`, name);
         }
 
-        name = name.toString();
         this._code.set(name, code);
     }
 
     deleteCode(name) {
-        name = name.toString();
+        if (name instanceof ModuleCode) {
+            name = name.name;
+        } else {
+            name = name.toString();
+        }
+
         this._code.delete(name);
     }
 
@@ -1756,7 +1775,7 @@ class ModuleLoader {
         }
     }
 
-    static getModuleCodeFromUrl(url, returnType = FileDataTypes.text, options = {}) {
+    static getModuleCodeFromUrl(url, returnType = FileDataTypes.module, options = {}) {
         if (url === null || typeof url === "undefined" || url.length < 1) {
             throw new LoaderError("Invalid URL");
         }
@@ -1767,17 +1786,21 @@ class ModuleLoader {
 
         if (cache && !forceReload) {
             const foundCode = this._Cache.getCodeByName(name);
-            if (typeof foundCode !== "undefined") return foundCode;
+            if (typeof foundCode !== "undefined") return foundCode.code;
         }
 
         let moduleCode = this._fetchFromUrl(url, returnType, options);
         moduleCode = this._parseModuleCode(moduleCode, returnType);
 
-        if (cache) this._Cache.addCode(name, moduleCode, forceReload);
+        if (cache) {
+            const code = new ModuleCode(name, moduleCode, returnType);
+            this._Cache.addCode(code, forceReload);
+        }
+
         return moduleCode;
     }
 
-    static getModuleCodeFromTag(tagName, returnType = FileDataTypes.text, options = {}) {
+    static getModuleCodeFromTag(tagName, returnType = FileDataTypes.module, options = {}) {
         if (tagName === null || typeof tagName === "undefined") {
             throw new LoaderError("Invalid tag name");
         }
@@ -1788,7 +1811,7 @@ class ModuleLoader {
 
         if (cache && !forceReload) {
             const foundCode = this._Cache.getCodeByName(name);
-            if (typeof foundCode !== "undefined") return foundCode;
+            if (typeof foundCode !== "undefined") return foundCode.code;
         }
 
         const owner = options.owner ?? this.tagOwner,
@@ -1803,7 +1826,11 @@ class ModuleLoader {
 
         moduleCode = this._parseModuleCode(moduleCode, returnType);
 
-        if (cache) this._Cache.addCode(name, moduleCode, forceReload);
+        if (cache) {
+            const code = new ModuleCode(name, moduleCode, returnType);
+            this._Cache.addCode(code, forceReload);
+        }
+
         return moduleCode;
     }
 
@@ -1982,12 +2009,16 @@ class ModuleLoader {
         const cache = this.enableCache && (options.cache ?? true),
             forceReload = options.forceReload ?? false;
 
-        if (cache && !forceReload) {
+        const isModule = (options.returnType ?? FileDataTypes.module) === FileDataTypes.module;
+
+        if (cache && isModule && !forceReload) {
             const foundModule = this._Cache.getModuleByName(url);
             if (typeof foundModule !== "undefined") return foundModule.exports;
         }
 
         const moduleCode = this.getModuleCodeFromUrl(url, ...codeArgs);
+
+        if (!isModule) return moduleCode;
         return this.loadModuleFromSource(moduleCode, ...loadArgs);
     }
 
@@ -1997,12 +2028,16 @@ class ModuleLoader {
         const cache = this.enableCache && (options.cache ?? true),
             forceReload = options.forceReload ?? false;
 
-        if (cache && !forceReload) {
+        const isModule = (options.returnType ?? FileDataTypes.module) === FileDataTypes.module;
+
+        if (cache && isModule && !forceReload) {
             const foundModule = this._Cache.getModuleByName(tagName);
             if (typeof foundModule !== "undefined") return foundModule.exports;
         }
 
         const moduleCode = this.getModuleCodeFromTag(tagName, ...codeArgs);
+
+        if (!isModule) return moduleCode;
         return this.loadModuleFromSource(moduleCode, ...loadArgs);
     }
 
@@ -2039,6 +2074,7 @@ class ModuleLoader {
         switch (returnType) {
             case FileDataTypes.text:
             case FileDataTypes.json:
+            case FileDataTypes.module:
                 responseType = "text";
                 break;
             case FileDataTypes.binary:
@@ -2136,6 +2172,7 @@ class ModuleLoader {
     static _parseModuleCode(moduleCode, returnType) {
         switch (returnType) {
             case FileDataTypes.text:
+            case FileDataTypes.module:
                 if (LoaderUtils.isArray(moduleCode)) {
                     return LoaderTextEncoder.bytesToString(moduleCode);
                 }
@@ -2208,7 +2245,7 @@ class ModuleLoader {
             isolateGlobals: options.isolateGlobals
         };
 
-        const codeArgs = [undefined, codeOpts],
+        const codeArgs = [options.returnType, codeOpts],
             loadArgs = [options.scope, options.breakpoint, loadOpts];
 
         return [codeArgs, loadArgs];
