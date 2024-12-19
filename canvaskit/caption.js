@@ -5,23 +5,26 @@ const maxWidth = 1000,
     maxHeight = 2048,
     maxHeightDelta = 20;
 
-const enableDebugger = util.inspectorEnabled ?? false;
-
 let showTimes = false;
 
 // sources
 const urls = {};
 
 const tags = {
-        DiscordHttpClient: "discordhttpclient",
-        Table: "ck_table"
-    },
-    tagOwner = "883072834790916137";
+    DiscordHttpClient: "discordhttpclient",
+    Table: "ck_table"
+};
 
 const fonts = {
     futura: {
         url: "https://github.com/kelsanford/portfolio/raw/refs/heads/master/Fonts/futura/Futura%20Extra%20Black%20Condensed%20BT.ttf",
         tag: "ck_font_futura",
+        buf_size: 36 * 1024
+    },
+
+    roboto: {
+        url: "https://files.catbox.moe/fmh6l7.ttf",
+        tag: /^ck_font_roboto\d+$/,
         buf_size: null
     },
 
@@ -34,7 +37,7 @@ const fonts = {
     customEmoji: {
         url: "https://files.catbox.moe/t4r4rf.ttf",
         tag: "ck_font_customemoji",
-        buf_size: null
+        buf_size: 2 * 1024
     }
 };
 
@@ -52,9 +55,6 @@ const urlRegex = /(\S*?):\/\/(?:([^\/\.]+)\.)?([^\/\.]+)\.([^\/\s]+)\/?(\S*)?/,
 
 const customEmojiRegex = /<:(.+?):(\d+?)>/g,
     customEmojiReplacement = "\ue000";
-
-// errors
-class ExitError extends Error {}
 
 // classes
 const Endpoints = {
@@ -172,39 +172,21 @@ const main = (() => {
             util.executeTag("canvaskitloader");
         }
 
-        ModuleLoader.tagOwner = tagOwner;
+        ModuleLoader.useDefault("tagOwner");
+        ModuleLoader.enableCache = false;
+
         CanvasKitUtil = ModuleLoader.loadModuleFromTag("canvaskitutil");
 
         drawImageOpts = [CanvasKit.FilterMode.Linear, CanvasKit.MipmapMode.None];
     }
 
     // load ranges
-    function getRanges(str) {
-        return str.split(" ").map(range => {
-            const split = range.split("-");
-
-            const first = parseInt(split[0], 16),
-                last = split[1] ? parseInt(split[1], 16) : first;
-
-            return [first, last];
-        });
-    }
-
-    function isInRange(name, codepoint) {
-        const range = ranges[name];
-
-        for (const [first, last] of range) {
-            if (codepoint >= first && codepoint <= last) return true;
-        }
-
-        return false;
-    }
 
     function loadRanges() {
         Benchmark.startTiming("load_ranges");
 
         ranges = {
-            emojis: getRanges(
+            emojis: LoaderUtils.parseRanges(
                 "203C 2049 20E3 2122 2139 2194-2199 21A9-21AA 231A-231B 2328 23CF 23E9-23F3 23F8-23FA 24C2 25AA-25AB 25B6 25C0 25FB-25FE 2600-2604 260E 2611 2614-2615 2618 261D 2620 2622-2623 2626 262A 262E-262F 2638-263A 2640 2642 2648-2653 265F-2660 2663 2665-2666 2668 267B 267E-267F 2692-2697 2699 269B-269C 26A0-26A1 26A7 26AA-26AB 26B0-26B1 26BD-26BE 26C4-26C5 26C8 26CE-26CF 26D1 26D3-26D4 26E9-26EA 26F0-26F5 26F7-26FA 26FD 2702 2705 2708-270D 270F 2712 2714 2716 271D 2721 2728 2733-2734 2744 2747 274C 274E 2753-2755 2757 2763-2764 2795-2797 27A1 27B0 27BF 2934-2935 2B05-2B07 2B1B-2B1C 2B50 2B55 3030 303D 3297 3299 1F004 1F0CF 1F170-1F171 1F17E-1F17F 1F18E 1F191-1F19A 1F1E6-1F1FF 1F201-1F202 1F21A 1F22F 1F232-1F23A 1F250-1F251 1F300-1F321 1F324-1F393 1F396-1F397 1F399-1F39B 1F39E-1F3F0 1F3F3-1F3F5 1F3F7-1F4FD 1F4FF-1F53D 1F549-1F54E 1F550-1F567 1F56F-1F570 1F573-1F57A 1F587 1F58A-1F58D 1F590 1F595-1F596 1F5A4-1F5A5 1F5A8 1F5B1-1F5B2 1F5BC 1F5C2-1F5C4 1F5D1-1F5D3 1F5DC-1F5DE 1F5E1 1F5E3 1F5E8 1F5EF 1F5F3 1F5FA-1F64F 1F680-1F6C5 1F6CB-1F6D2 1F6D5-1F6D7 1F6DC-1F6E5 1F6E9 1F6EB-1F6EC 1F6F0 1F6F3-1F6FC 1F7E0-1F7EB 1F7F0 1F90C-1F93A 1F93C-1F945 1F947-1F9FF 1FA70-1FA7C 1FA80-1FA89 1FA8F-1FAC6 1FACE-1FADC 1FADF-1FAE9 1FAF0-1FAF8 E0030-E0039 E0061-E007A E007F FE4E5-FE4EE FE82C FE82E-FE837"
             )
         };
@@ -241,8 +223,7 @@ const main = (() => {
 
             loadedFonts[name] ??= ModuleLoader.getModuleCode(url, tagName, FileDataTypes.binary, {
                 encoded: true,
-                buf_size: fontInfo.buf_size,
-                cache: false
+                buf_size: fontInfo.buf_size
             });
 
             fontData.push(loadedFonts[name]);
@@ -485,7 +466,7 @@ const main = (() => {
         }
 
         const foundRanges = Object.keys(ranges).filter(name =>
-            unresolved.some(codepoint => isInRange(name, codepoint))
+            unresolved.some(codepoint => LoaderUtils.isInRange(ranges[name], codepoint))
         );
 
         if (foundRanges.length === 0) {
@@ -660,7 +641,7 @@ try {
     // output
     if (err instanceof ExitError) {
         const out = err.message;
-        msg.reply(out);
+        out;
     } else {
         throw err;
     }

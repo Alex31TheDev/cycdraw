@@ -687,6 +687,24 @@ const LoaderUtils = {
         return [first, second];
     },
 
+    _scriptRegex: /^(?:`{3}([\S]+\n)?([\s\S]+)`{3}|`([^`]+)`)$/,
+    parseScript: script => {
+        const match = script.match(LoaderUtils._scriptRegex);
+
+        if (!match) {
+            return [false, script, ""];
+        }
+
+        const body = (match[2] ?? match[3])?.trim();
+
+        if (typeof body === "undefined") {
+            return [false, script, ""];
+        }
+
+        const lang = match[1]?.trim() ?? "";
+        return [true, body, lang];
+    },
+
     randomString: n => {
         const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
@@ -1039,6 +1057,25 @@ const LoaderUtils = {
         };
 
         return new Proxy(mirrorObj, handler);
+    },
+
+    parseRanges: (str, base = 16) => {
+        return str.split(" ").map(range => {
+            const split = range.split("-");
+
+            const first = parseInt(split[0], base),
+                last = split[1] ? parseInt(split[1], base) : first;
+
+            return [first, last];
+        });
+    },
+
+    isInRange: (range, value) => {
+        for (const [first, last] of range) {
+            if (value >= first && value <= last) return true;
+        }
+
+        return false;
     }
 };
 
