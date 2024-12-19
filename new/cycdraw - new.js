@@ -1687,8 +1687,8 @@ class Image {
             y2 = tmp;
         }
 
-        const w = Math.abs(x2 - x1),
-            h = Math.abs(y2 - y1);
+        const w = Math.abs(x2 - x1) + 1,
+            h = Math.abs(y2 - y1) + 1;
 
         if (w === 0 && h === 0) {
             this.setPixel_u(x1, y1, color);
@@ -1735,8 +1735,8 @@ class Image {
     }
 
     blit(x, y, src, w, h) {
-        let sw = Math.min(w, src.w) || src.w,
-            sh = Math.min(h, src.h) || src.h;
+        let sw = w ?? src.w,
+            sh = h ?? src.h;
 
         if (sw + x >= this.w) {
             sw = this.w - x;
@@ -1751,7 +1751,7 @@ class Image {
         for (; i < sw; i++) {
             for (j = 0; j < sh; j++) {
                 const pos1 = 3 * ((j + y) * this.w + i + x),
-                    pos2 = 3 * (j * src.w + i);
+                    pos2 = 3 * (j * sw + i);
 
                 this.pixels[pos1] = src.pixels[pos2];
                 this.pixels[pos1 + 1] = src.pixels[pos2 + 1];
