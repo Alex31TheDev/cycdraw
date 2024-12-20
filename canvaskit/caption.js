@@ -633,11 +633,11 @@ const main = (() => {
         let new_sw = sw,
             new_sh = sh;
 
-        if (new_sw + x >= dw) {
-            new_sh = dw - x;
+        if (new_sw + x > dw) {
+            new_sw = dw - x;
         }
 
-        if (new_sh + y >= dh) {
+        if (new_sh + y > dh) {
             new_sh = dh - y;
         }
 
