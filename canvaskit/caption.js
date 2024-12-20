@@ -7,19 +7,28 @@ const maxWidth = 1000,
 
 let showTimes = false;
 
+const TENOR_API = {
+    key: "",
+    client_key: "caption"
+};
+
 // sources
 const urls = {};
 
 const tags = {
-    DiscordHttpClient: "discordhttpclient",
-    Table: "ck_table"
+    DiscordHttpClient: "ck_discordhttpclient",
+    TenorHttpClient: "ck_tenorhttpclient",
+
+    Table: "ck_table",
+
+    GifEncoder: "ck_gifenc"
 };
 
 const fonts = {
     futura: {
         url: "https://github.com/kelsanford/portfolio/raw/refs/heads/master/Fonts/futura/Futura%20Extra%20Black%20Condensed%20BT.ttf",
         tag: "ck_font_futura",
-        buf_size: 36 * 1024
+        buf_size: 38 * 1024
     },
 
     roboto: {
@@ -49,24 +58,27 @@ const help = `Usage: \`%t ${tag.name} [-show_time] [url] <caption>\`
 Captions the given image (from the message you answered or the URL)`,
     usage = `See \`%t ${tag.name} help\` for usage.`;
 
+// errors
+globalThis.ExitError = class extends Error {};
+
 // misc
 const urlRegex = /(\S*?):\/\/(?:([^\/\.]+)\.)?([^\/\.]+)\.([^\/\s]+)\/?(\S*)?/,
-    attachRegex = /^(https:\/\/(?:cdn|media).discordapp.(?:com|net)\/attachments\/\d+?\/\d+?\/[^?]+?)(?:\?|$)/;
+    attachRegex = /^(https:\/\/(?:cdn|media).discordapp.(?:com|net)\/attachments\/\d+?\/\d+?\/[^?]+?)(?:\?|$)/,
+    tenorRegex = /^https:\/\/tenor\.com\/view\/.+-(\d+)$/;
 
 const customEmojiRegex = /<:(.+?):(\d+?)>/g,
     customEmojiReplacement = "\ue000";
 
 // classes
-const Endpoints = {
-    customEmoji: id => LoaderUtils.HttpUtil.joinUrl("emojis", id)
+const DiscordEndpoints = {
+    customEmoji: id => HttpUtil.joinUrl("emojis", id)
 };
 
 // globals
 let targetMsg, args, text;
-let image, width, height;
-let CanvasKitUtil, DiscordHttpClient, DiscordConstants;
+let image, width, height, isGif;
 let ranges, customEmojis, hasCustomEmojis;
-let surface;
+let output;
 
 const main = (() => {
     // parse args and attachment
@@ -96,19 +108,30 @@ const main = (() => {
                 const urlMatch = targetMsg.content.match(urlRegex);
 
                 if (urlMatch) {
-                    const fileUrl = urlMatch[0],
-                        attachMatch = fileUrl.match(attachRegex);
+                    const fileUrl = urlMatch[0];
 
-                    if (attachMatch) {
+                    let attachMatch, tenorMatch;
+
+                    if ((attachMatch = fileUrl.match(attachRegex))) {
                         const attachPrefix = attachMatch[0],
-                            embed = targetMsg.embeds.find(embed => embed.thumbnail.url.startsWith(attachPrefix));
+                            embed = targetMsg.embeds.find(embed => {
+                                const thumbnail = embed.thumnail ?? embed.data.thumbnail;
+                                return thumbnail.url.startsWith(attachPrefix);
+                            });
 
                         if (!embed) {
                             const out = ":warning: Attachment embed not found. (it's needed because discord is dumb)";
                             throw new ExitError(out);
                         }
 
-                        targetMsg.fileUrl = embed.thumbnail.url;
+                        const thumbnail = embed.thumnail ?? embed.data.thumbnail;
+                        targetMsg.fileUrl = thumbnail.url;
+                    } else if ((tenorMatch = fileUrl.match(tenorRegex))) {
+                        targetMsg.tenorGif = {
+                            id: tenorMatch[1]
+                        };
+
+                        targetMsg.fileUrl = "placeholder";
                     } else {
                         targetMsg.fileUrl = fileUrl;
                     }
@@ -164,8 +187,10 @@ const main = (() => {
         })();
     }
 
-    // load canvaskit
+    // load libraries
     function loadCanvasKit() {
+        delete globalThis["ExitError"];
+
         if (util.env) {
             eval(util.fetchTag("canvaskitloader").body);
         } else {
@@ -175,13 +200,41 @@ const main = (() => {
         ModuleLoader.useDefault("tagOwner");
         ModuleLoader.enableCache = false;
 
-        CanvasKitUtil = ModuleLoader.loadModuleFromTag("canvaskitutil");
+        const CanvasKitUtil = ModuleLoader.loadModuleFromTag("canvaskitutil");
+        Patches.patchGlobalContext({ CanvasKitUtil });
 
         drawImageOpts = [CanvasKit.FilterMode.Linear, CanvasKit.MipmapMode.None];
     }
 
-    // load ranges
+    function loadGifEncoder() {
+        if (typeof globalThis.gifenc !== "undefined") {
+            return;
+        }
 
+        const gifenc = ModuleLoader.loadModuleFromTag(tags.GifEncoder);
+
+        Patches.patchGlobalContext({ gifenc });
+    }
+
+    function loadDiscordClient() {
+        const DiscordHttpClient = ModuleLoader.loadModuleFromTag(tags.DiscordHttpClient);
+
+        Patches.patchGlobalContext({
+            DiscordHttpClient,
+            DiscordConstants: DiscordHttpClient.Constants
+        });
+    }
+
+    function loadTenorClient() {
+        const TenorHttpClient = ModuleLoader.loadModuleFromTag(tags.TenorHttpClient);
+
+        Patches.patchGlobalContext({
+            TenorHttpClient,
+            TenorConstants: TenorHttpClient.Constants
+        });
+    }
+
+    // load ranges
     function loadRanges() {
         Benchmark.startTiming("load_ranges");
 
@@ -237,20 +290,32 @@ const main = (() => {
 
     function downloadImage(msg) {
         Benchmark.startTiming("download_image");
+        const { data } = LoaderUtils.fetchAttachment(msg, FileDataTypes.binary);
+        Benchmark.stopTiming("download_image");
 
-        const imgData = LoaderUtils.fetchAttachment(msg, FileDataTypes.binary),
-            image = CanvasKitUtil.makeImageFromEncoded(imgData);
+        Benchmark.startTiming("decode_image");
+        const image = CanvasKitUtil.makeImageOrGifFromEncoded(data);
+        Benchmark.stopTiming("decode_image");
 
-        let width = image.width(),
+        const isGif = image instanceof CanvasKit.AnimatedImage,
+            width = image.width(),
             height = image.height();
 
-        Benchmark.stopTiming("download_image");
-        return [image, width, height];
+        return [image, width, height, isGif];
     }
 
     function loadImage() {
-        [image, width, height] = (() => {
+        if (typeof targetMsg.tenorGif === "object") {
+            loadTenorClient();
+            const client = new TenorHttpClient(TENOR_API);
+
+            targetMsg.fileUrl = client.getGifUrl(targetMsg.tenorGif.id);
+            delete targetMsg.tenorGif;
+        }
+
+        [image, width, height, isGif] = (() => {
             let image;
+            Benchmark.startTiming("load_image");
 
             try {
                 image = downloadImage(targetMsg);
@@ -263,13 +328,13 @@ const main = (() => {
                 throw err;
             }
 
+            Benchmark.stopTiming("load_image");
             return image;
         })();
-    }
 
-    function loadDiscordHttpClient() {
-        DiscordHttpClient = ModuleLoader.loadModuleFromTag(tags.DiscordHttpClient);
-        DiscordConstants = DiscordHttpClient.DiscordConstants;
+        if (isGif) {
+            loadGifEncoder();
+        }
     }
 
     // calc dimensions
@@ -318,6 +383,8 @@ const main = (() => {
 
     // custom emoji
     function loadCustomEmojis() {
+        Benchmark.startTiming("load_custom_emojis");
+
         [customEmojis, hasCustomEmojis] = (() => {
             const customEmojis = [];
 
@@ -338,7 +405,7 @@ const main = (() => {
             const hasCustomEmojis = customEmojis.length > 0;
             if (!hasCustomEmojis) return [customEmojis, hasCustomEmojis];
 
-            loadDiscordHttpClient();
+            loadDiscordClient();
             const client = new DiscordHttpClient({ token: "" });
 
             Benchmark.startTiming("fetch_custom_emojis");
@@ -347,7 +414,7 @@ const main = (() => {
 
             for (const emoji of customEmojis) {
                 if (!(emoji.id in emojiImgs)) {
-                    const imgData = client.getAsset(Endpoints.customEmoji(emoji.id), {
+                    const imgData = client.getAsset(DiscordEndpoints.customEmoji(emoji.id), {
                             size: DiscordConstants.allowedSizes[3]
                         }),
                         image = CanvasKitUtil.makeImageFromEncoded(imgData);
@@ -370,9 +437,13 @@ const main = (() => {
             text = text.replace(customEmojiRegex, customEmojiReplacement);
             return [customEmojis, hasCustomEmojis];
         })();
+
+        Benchmark.stopTiming("load_custom_emojis");
     }
 
     function getCustomEmojiRects(paragraph, textX, textY) {
+        Benchmark.restartTiming("load_custom_emojis");
+
         for (const emoji of customEmojis) {
             const ind = emoji.ind;
 
@@ -406,6 +477,8 @@ const main = (() => {
                 emoji.centerRect = new Float32Array(rect);
             }
         }
+
+        Benchmark.stopTiming("load_custom_emojis");
     }
 
     // caption
@@ -490,24 +563,26 @@ const main = (() => {
         const paraStyle = getParaStyle();
         let paragraph, headerHeight, totalHeight, textX, textY;
 
-        const layout = (mgr = fontMgr) => {
-            [paragraph, headerHeight, totalHeight, textX, textY] = layoutParagraph(text, paraStyle, mgr);
+        const layout = _ => {
+            [paragraph, headerHeight, totalHeight, textX, textY] = layoutParagraph(text, paraStyle, fontMgr);
         };
 
         layout();
 
-        fontMgr = loadUnresolvedFonts(
+        loadUnresolvedFonts(
             paragraph,
-            fontMgr,
             existingFonts,
 
             _ => {
                 fontMgr.delete();
+
                 Benchmark.stopTiming("prepare_caption");
             },
             mgr => {
                 Benchmark.restartTiming("prepare_caption");
-                layout(mgr);
+
+                fontMgr = mgr;
+                layout();
             }
         );
 
@@ -543,7 +618,7 @@ const main = (() => {
         whitePaint.delete();
     }
 
-    function drawImage(canvas, headerHeight, totalHeight) {
+    function drawImageCanvas(canvas, headerHeight, totalHeight) {
         const blankPaint = new CanvasKit.Paint();
 
         const imgSrcRect = [0, 0, image.width(), image.height()],
@@ -554,47 +629,144 @@ const main = (() => {
         blankPaint.delete();
     }
 
+    function blit(dest, dw, dh, src, sw, sh, x, y) {
+        let new_sw = sw,
+            new_sh = sh;
+
+        if (new_sw + x >= dw) {
+            new_sh = dw - x;
+        }
+
+        if (new_sh + y >= dh) {
+            new_sh = dh - y;
+        }
+
+        let i = 0,
+            j;
+
+        for (; i < new_sw; i++) {
+            for (j = 0; j < new_sh; j++) {
+                const pos1 = 4 * ((j + y) * dw + i + x),
+                    pos2 = 4 * (j * sw + i);
+
+                dest[pos1] = src[pos2];
+                dest[pos1 + 1] = src[pos2 + 1];
+                dest[pos1 + 2] = src[pos2 + 2];
+                dest[pos1 + 3] = src[pos2 + 3];
+            }
+        }
+    }
+
+    function drawImageGif(gif, outBuffer, headerHeight, totalHeight, options = {}) {
+        const frameInd = options.frame ?? 0;
+
+        const delay = image.currentFrameDuration(),
+            frame = image.makeImageAtCurrentFrame();
+
+        const srcWidth = frame.width(),
+            srcHeight = frame.height();
+
+        const framePixels = CanvasKitUtil.readImagePixels(frame);
+        frame.delete();
+
+        blit(outBuffer, width, totalHeight, framePixels, srcWidth, srcHeight, 0, headerHeight);
+
+        const palette = gifenc.quantize(outBuffer, 256),
+            index = gifenc.applyPalette(outBuffer, palette);
+
+        gif.writeFrame(index, width, totalHeight, {
+            palette,
+            delay
+        });
+    }
+
     function captionMain() {
         Benchmark.startTiming("caption_total");
 
-        surface = (() => {
+        output = (() => {
             const [fontMgr, paragraph, headerHeight, totalHeight, textX, textY] = prepareCaption();
 
             Benchmark.startTiming("draw_image");
+            let output;
 
-            const surface = CanvasKit.MakeSurface(width, totalHeight),
-                canvas = surface.getCanvas();
+            if (isGif) {
+                const surface = CanvasKit.MakeSurface(width, headerHeight),
+                    canvas = surface.getCanvas();
 
-            drawCaption(canvas, paragraph, textX, textY);
-            drawImage(canvas, headerHeight, totalHeight);
+                drawCaption(canvas, paragraph, textX, textY);
+                const headerData = CanvasKitUtil.readSurfacePixels(surface, CanvasKit.AlphaType.Opaque);
+                surface.delete();
+
+                const outBuffer = new Uint8Array(4 * width * totalHeight);
+                blit(outBuffer, width, totalHeight, headerData, width, headerHeight, 0, 0);
+
+                const gif = gifenc.GIFEncoder(),
+                    frameCount = image.getFrameCount();
+
+                for (let frame = 0; frame < frameCount; frame++) {
+                    drawImageGif(gif, outBuffer, headerHeight, totalHeight, {
+                        frame
+                    });
+
+                    image.decodeNextFrame();
+                }
+
+                gif.finish();
+                output = gif;
+            } else {
+                const surface = CanvasKit.MakeSurface(width, totalHeight),
+                    canvas = surface.getCanvas();
+
+                drawCaption(canvas, paragraph, textX, textY);
+                drawImageCanvas(canvas, headerHeight, totalHeight);
+
+                output = surface;
+            }
 
             Benchmark.stopTiming("draw_image");
 
+            if (!isGif) {
+                image.delete();
+            }
+            image = undefined;
+
             paragraph.delete();
             fontMgr.delete();
-            image.delete();
 
             for (const emoji of customEmojis) {
                 emoji.image.delete();
             }
 
-            return surface;
+            return output;
         })();
 
         Benchmark.stopTiming("caption_total");
     }
 
     function sendOutput() {
-        if (surface === null || typeof surface === "undefined") {
-            throw new CustomError("No surface");
+        let imgBytes;
+
+        if (isGif) {
+            const gif = output;
+
+            Benchmark.startTiming("encode_image");
+            imgBytes = gif.bytes();
+            Benchmark.stopTiming("encode_image");
+        } else {
+            const surface = output;
+
+            if (surface === null || typeof surface === "undefined") {
+                throw new CustomError("No surface");
+            }
+
+            Benchmark.startTiming("encode_image");
+            imgBytes = CanvasKitUtil.encodeSurface(surface);
+            Benchmark.stopTiming("encode_image");
+
+            surface.delete();
         }
 
-        Benchmark.startTiming("encode_png");
-        const pngBytes = CanvasKitUtil.encodeSurface(surface);
-        Benchmark.stopTiming("encode_png");
-
-        surface.delete();
-        surface = undefined;
+        output = undefined;
 
         if (enableDebugger) debugger;
 
@@ -605,14 +777,14 @@ const main = (() => {
             Benchmark.deleteLastCountTime("tag_fetch");
             Benchmark.deleteLastCountTime("module_load");
 
-            const table = Benchmark.getTable("heavy", 1, "load_total", "load_ranges", "caption_total", "encode_png");
+            const table = Benchmark.getTable("heavy", 1, "load_total", "load_image", "caption_total", "encode_image");
             out = LoaderUtils.codeBlock(table);
         }
 
         msg.reply(out, {
             file: {
-                name: "caption.png",
-                data: pngBytes
+                name: `caption.${isGif ? "gif" : "png"}`,
+                data: imgBytes
             }
         });
 
@@ -622,19 +794,20 @@ const main = (() => {
     return _ => {
         parseArgs();
         loadCanvasKit();
+
+        if (enableDebugger) debugger;
+
         loadCustomEmojis();
         loadImage();
         loadRanges();
 
-        Benchmark.clearExcept("load_total", "load_ranges");
+        //Benchmark.clearExcept("load_total", "load_image", "load_custom_emojis");
         captionMain();
         sendOutput();
     };
 })();
 
 try {
-    if (enableDebugger) debugger;
-
     // run main
     main();
 } catch (err) {

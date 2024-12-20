@@ -332,100 +332,11 @@ class Logger {
 }
 
 // util
-const HttpUtil = {
-    protocolRegex: /^[^/:]+:\/*$/,
-    leadingSlashRegex: /^[\/]+/,
-    trailingSlashRegex: /[\/]+$/,
-    paramSlashRegex: /\/(\?|&|#[^!])/g,
-    paramSplitRegex: /(?:\?|&)+/,
-
-    joinUrl: (...parts) => {
-        const input = [].slice.call(parts);
-
-        let firstPart = input[0],
-            result = [];
-
-        if (typeof firstPart !== "string") {
-            throw new TypeError("URL part must be a string");
-        }
-
-        if (HttpUtil.protocolRegex.test(firstPart) && input.length > 1) {
-            firstPart = input.shift() + firstPart;
-        }
-
-        input[0] = firstPart;
-
-        for (let i = 0; i < input.length; i++) {
-            let part = input[i];
-
-            if (typeof part !== "string") {
-                throw new TypeError("URL part must be a string");
-            }
-
-            if (part.length < 1) {
-                continue;
-            }
-
-            if (i > 0) {
-                part = part.replace(HttpUtil.leadingSlashRegex, "");
-            }
-
-            if (i === input.length - 1) {
-                part = part.replace(HttpUtil.trailingSlashRegex, "/");
-            } else {
-                part = part.replace(HttpUtil.trailingSlashRegex, "");
-            }
-
-            result.push(part);
-        }
-
-        let str = result.join("/");
-        str = str.replace(HttpUtil.paramSlashRegex, "$1");
-
-        const [beforeHash, afterHash] = str.split("#"),
-            hash = afterHash?.length > 0 ? "#" + afterHash : "";
-
-        let paramParts = beforeHash.split(HttpUtil.paramSplitRegex);
-        paramParts = paramParts.filter(part => part.length > 0);
-
-        const beforeParams = paramParts.shift(),
-            params = (paramParts.length > 0 ? "?" : "") + paramParts.join("&");
-
-        str = beforeParams + params + hash;
-        return str;
-    },
-
-    getQueryString: params => {
-        if (typeof params === "undefined" || params.length < 1) {
-            return "";
-        }
-
-        const query = [];
-
-        Object.keys(params).forEach(x => {
-            query.push(x + "=" + encodeURIComponent(params[x]));
-        });
-
-        const queryString = query.join("&");
-        return "?" + queryString;
-    },
-
-    statusRegex: /Request failed with status code (\d+)/,
-    getReqErrStatus: err => {
-        if (!err.message) {
-            return;
-        }
-
-        const statusStr = err.message,
-            statusMatch = statusStr.match(LoaderUtils.statusRegex);
-
-        if (!statusMatch) {
-            return;
-        }
-
-        const status = parseInt(statusMatch[1], 10);
-        return status;
-    }
+const FileDataTypes = {
+    text: "text",
+    json: "json",
+    binary: "binary",
+    module: "module"
 };
 
 // source: http://www.myersdaily.org/joseph/javascript/md5.js
@@ -614,15 +525,7 @@ const md5 = (() => {
     };
 })();
 
-const FileDataTypes = {
-    text: "text",
-    json: "json",
-    binary: "binary",
-    module: "module"
-};
-
 const LoaderUtils = {
-    HttpUtil,
     md5,
 
     outCharLimit: util.outCharLimit ?? 1000,
@@ -788,8 +691,7 @@ const LoaderUtils = {
     },
 
     fetchAttachment: (msg, returnType = FileDataTypes.text, allowedContentType) => {
-        let attach, url;
-        let contentType;
+        let attach, url, contentType;
 
         if (typeof msg.file !== "undefined") {
             attach = msg.file;
@@ -1079,6 +981,108 @@ const LoaderUtils = {
         }
 
         return false;
+    }
+};
+
+const HttpUtil = {
+    protocolRegex: /^[^/:]+:\/*$/,
+    leadingSlashRegex: /^[\/]+/,
+    trailingSlashRegex: /[\/]+$/,
+    paramSlashRegex: /\/(\?|&|#[^!])/g,
+    paramSplitRegex: /(?:\?|&)+/,
+
+    joinUrl: (...parts) => {
+        const input = [].slice.call(parts);
+
+        let firstPart = input[0],
+            result = [];
+
+        if (typeof firstPart !== "string") {
+            throw new TypeError("URL part must be a string");
+        }
+
+        if (HttpUtil.protocolRegex.test(firstPart) && input.length > 1) {
+            firstPart = input.shift() + firstPart;
+        }
+
+        input[0] = firstPart;
+
+        for (let i = 0; i < input.length; i++) {
+            let part = input[i];
+
+            if (typeof part !== "string") {
+                throw new TypeError("URL part must be a string");
+            }
+
+            if (part.length < 1) {
+                continue;
+            }
+
+            if (i > 0) {
+                part = part.replace(HttpUtil.leadingSlashRegex, "");
+            }
+
+            if (i === input.length - 1) {
+                part = part.replace(HttpUtil.trailingSlashRegex, "/");
+            } else {
+                part = part.replace(HttpUtil.trailingSlashRegex, "");
+            }
+
+            result.push(part);
+        }
+
+        let str = result.join("/");
+        str = str.replace(HttpUtil.paramSlashRegex, "$1");
+
+        const [beforeHash, afterHash] = str.split("#"),
+            hash = afterHash?.length > 0 ? "#" + afterHash : "";
+
+        let paramParts = beforeHash.split(HttpUtil.paramSplitRegex);
+        paramParts = paramParts.filter(part => part.length > 0);
+
+        const beforeParams = paramParts.shift(),
+            params = (paramParts.length > 0 ? "?" : "") + paramParts.join("&");
+
+        str = beforeParams + params + hash;
+        return str;
+    },
+
+    getQueryString: params => {
+        if (params === null || typeof params === "undefined") {
+            return "";
+        }
+
+        const query = [];
+
+        Object.entries(params).forEach(([key, value]) => {
+            if (value !== null && typeof value !== "undefined") {
+                query.push(key + "=" + encodeURIComponent(value));
+            }
+        });
+
+        if (query.length < 1) {
+            return "";
+        }
+
+        const queryString = query.join("&");
+        return "?" + queryString;
+    },
+
+    statusRegex: /Request failed with status code (\d+)/,
+    getReqErrStatus: err => {
+        if (!err.message) {
+            return;
+        }
+
+        const statusStr = err.message,
+            statusMatch = statusStr.match(LoaderUtils.statusRegex);
+
+        if (!statusMatch) {
+            return;
+        }
+
+        const status = parseInt(statusMatch[1], 10);
+        return status;
     }
 };
 
@@ -1784,13 +1788,22 @@ class ModuleLoader {
             cache = this.enableCache && (options.cache ?? true),
             forceReload = options.forceReload ?? false;
 
+        const returnRes = options.returnResponse ?? false;
+
         if (cache && !forceReload) {
             const foundCode = this._Cache.getCodeByName(name);
             if (typeof foundCode !== "undefined") return foundCode.code;
         }
 
-        let moduleCode = this._fetchFromUrl(url, returnType, options);
-        moduleCode = this._parseModuleCode(moduleCode, returnType);
+        let res = this._fetchFromUrl(url, returnType, options),
+            moduleCode;
+
+        if (returnRes) {
+            res.data = this._parseModuleCode(res.data, returnType);
+            moduleCode = res;
+        } else {
+            moduleCode = this._parseModuleCode(res, returnType);
+        }
 
         if (cache) {
             const code = new ModuleCode(name, moduleCode, returnType);
@@ -1818,7 +1831,7 @@ class ModuleLoader {
             encoded = options.encoded ?? false,
             buf_size = options.buf_size;
 
-        let moduleCode = this._fetchTagBody(tagName, owner);
+        let moduleCode = this._fetchTagBody(tagName, owner, options);
 
         if (encoded) {
             moduleCode = this._decodeModuleCode(moduleCode, buf_size);
@@ -1909,6 +1922,7 @@ class ModuleLoader {
         for (const [key, obj] of Object.entries(loadScope)) {
             if (obj === null || typeof obj !== "object") {
                 newLoadScope[key] = obj;
+                continue;
             }
 
             if (obj.globalHolder === true) {
@@ -2114,7 +2128,7 @@ class ModuleLoader {
         return returnRes ? res : res.data;
     }
 
-    static _fetchTagBody(tagName, owner) {
+    static _fetchTagBody(tagName, owner, options = {}) {
         const useName = typeof tagName === "string",
             useArray = Array.isArray(tagName),
             usePattern = tagName instanceof RegExp;
@@ -2233,6 +2247,10 @@ class ModuleLoader {
 
         const codeOpts = {
             ...commonOpts,
+
+            requestOptions: options.requestOptions,
+            parseError: options.parseError,
+            returnResponse: options.returnResponse,
 
             owner: options.owner,
             encoded: options.encoded,
@@ -2491,9 +2509,10 @@ const Patches = {
         globalObjs.RefError ??= RefError;
         globalObjs.ExitError ??= ExitError;
 
+        globalObjs.Benchmark ??= Benchmark;
         globalObjs.FileDataTypes ??= FileDataTypes;
         globalObjs.LoaderUtils ??= LoaderUtils;
-        globalObjs.Benchmark ??= Benchmark;
+        globalObjs.HttpUtil ??= HttpUtil;
 
         globalObjs.ModuleLoader ??= ModuleLoader;
 

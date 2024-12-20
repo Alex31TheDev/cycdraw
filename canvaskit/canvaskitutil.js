@@ -3,6 +3,11 @@
 class CanvasUtilError extends CustomError {}
 
 const CanvasKitUtil = {
+    bufferIsGif: buf => {
+        const header = String.fromCharCode(...buf.slice(0, 6));
+        return ["GIF87a", "GIF89a"].includes(header);
+    },
+
     makeImageFromEncoded: imgData => {
         const image = CanvasKit.MakeImageFromEncoded(imgData);
 
@@ -13,13 +18,28 @@ const CanvasKitUtil = {
         return image;
     },
 
+    makeGifFromEncoded: gifData => {
+        const gif = CanvasKit.MakeAnimatedImageFromEncoded(gifData);
+
+        if (gif === null) {
+            throw new CanvasUtilError("Corrupted image or unsupported format");
+        }
+
+        return gif;
+    },
+
+    makeImageOrGifFromEncoded: data => {
+        const isGif = CanvasKitUtil.bufferIsGif(data);
+        return CanvasKitUtil[`make${isGif ? "Gif" : "Image"}FromEncoded`](data);
+    },
+
     downloadImage: url => {
-        const imgData = http.request({
-            url: url,
+        const data = http.request({
+            url,
             responseType: "arraybuffer"
         }).data;
 
-        return CanvasKitUtil.makeImageFromEncoded(imgData);
+        return CanvasKitUtil.makeImageOrGifFromEncoded(data);
     },
 
     makeTypefaceFromData: fontData => {
@@ -53,13 +73,20 @@ const CanvasKitUtil = {
         return families;
     },
 
-    encodeSurface: (surface, format, quality) => {
-        surface.flush();
+    readImagePixels: (image, alphaType = CanvasKit.AlphaType.Unpremul) => {
+        const pixels = image.readPixels(0, 0, {
+            width: image.width(),
+            height: image.height(),
+            colorType: CanvasKit.ColorType.RGBA_8888,
+            colorSpace: CanvasKit.ColorSpace.SRGB,
+            alphaType
+        });
 
-        const snapshot = surface.makeImageSnapshot(),
-            encodedBytes = snapshot.encodeToBytes(format, quality);
+        return pixels;
+    },
 
-        snapshot.delete();
+    encodeImage: (image, format, quality) => {
+        const encodedBytes = image.encodeToBytes(format, quality);
 
         if (encodedBytes === null) {
             throw new CanvasUtilError("Unkown format or invalid quality");
@@ -68,23 +95,29 @@ const CanvasKitUtil = {
         return encodedBytes;
     },
 
-    readSurfacePixels: (surface, alphaType = CanvasKit.AlphaType.Unpremul) => {
+    snapshotSurface: surface => {
         surface.flush();
+        return surface.makeImageSnapshot();
+    },
 
-        const snapshot = surface.makeImageSnapshot(),
-            width = snapshot.width(),
-            height = snapshot.height();
+    readSurfacePixels: (surface, alphaType) => {
+        const snapshot = CanvasKitUtil.snapshotSurface(surface);
 
-        const pixels = snapshot.readPixels(0, 0, {
-            width,
-            height,
-            colorType: CanvasKit.ColorType.RGBA_8888,
-            colorSpace: CanvasKit.ColorSpace.SRGB,
-            alphaType
-        });
+        try {
+            return CanvasKitUtil.readImagePixels(snapshot, alphaType);
+        } finally {
+            snapshot.delete();
+        }
+    },
 
-        snapshot.delete();
-        return pixels;
+    encodeSurface: (surface, format, quality) => {
+        const snapshot = CanvasKitUtil.snapshotSurface(surface);
+
+        try {
+            return CanvasKitUtil.encodeImage(snapshot, format, quality);
+        } finally {
+            snapshot.delete();
+        }
     }
 };
 

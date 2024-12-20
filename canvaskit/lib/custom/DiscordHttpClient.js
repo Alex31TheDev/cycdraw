@@ -39,8 +39,11 @@ const DiscordUtil = {
     }
 };
 
+const DiscordEndpoints = {};
+
 class DiscordHttpClient {
-    static DiscordConstants = DiscordConstants;
+    static Constants = DiscordConstants;
+    static Endpoints = DiscordEndpoints;
 
     constructor(config = {}) {
         this.config = config;
@@ -76,26 +79,23 @@ class DiscordHttpClient {
     }
 
     reqBase(options) {
-        let reqFunc;
+        try {
+            const url = options.url,
+                returnType = options.returnType ?? FileDataTypes.json;
 
-        function req(tries) {
-            try {
-                const { url, returnType } = options;
-                delete options.url;
-                delete options.returnType;
+            delete options.url;
+            delete options.returnType;
 
-                return ModuleLoader._fetchFromUrl(url, returnType, {
-                    requestOptions: options,
-                    parseError: false,
-                    returnResponse: true
-                });
-            } catch (err) {
-                return this.handleError(err, tries, reqFunc);
-            }
+            return ModuleLoader.getModuleCodeFromUrl(url, returnType, {
+                cache: false,
+
+                requestOptions: options,
+                parseError: false,
+                returnResponse: true
+            });
+        } catch (err) {
+            return this.handleError(err);
         }
-
-        reqFunc = req.bind(this);
-        return reqFunc(0);
     }
 
     handleError(err) {
@@ -114,7 +114,7 @@ class DiscordHttpClient {
     }
 
     apiMethod(route, method, options = {}) {
-        const reqUrl = LoaderUtils.HttpUtil.joinUrl(this.api, route);
+        const reqUrl = HttpUtil.joinUrl(this.api, route);
 
         if (this.verbose) {
             this.logger?.log(`${LoaderUtils.capitalize(method)} request: ${reqUrl}`);
@@ -144,7 +144,7 @@ class DiscordHttpClient {
                 break;
         }
 
-        const t1 = Date.now(),
+        const t1 = Benchmark.getCurrentTime(),
             res = this.reqBase({
                 url: reqUrl,
                 method,
@@ -153,11 +153,9 @@ class DiscordHttpClient {
             });
 
         if (this.verbose) {
-            this.logger?.log(
-                `${LoaderUtils.capitalize(method)} request: ${reqUrl} returned\nStatus: ${res.status}\nResponse: `
-            );
-            this.logger?.log(res.data);
-            this.logger?.log(`${LoaderUtils.capitalize(method)} took: ${Date.now() - t1}ms`);
+            this.logger?.log(`${LoaderUtils.capitalize(method)} request: ${reqUrl} returned\nStatus: ${res.status}`);
+            this.logger?.log("Response:", res.data);
+            this.logger?.log(`${LoaderUtils.capitalize(method)} took: ${Benchmark.getCurrentTime() - t1}ms`);
         }
 
         return res.data;
@@ -174,13 +172,13 @@ class DiscordHttpClient {
     }
 
     cdnGet(route, options) {
-        const reqUrl = LoaderUtils.HttpUtil.joinUrl(this.cdn, route);
+        const reqUrl = HttpUtil.joinUrl(this.cdn, route);
 
         if (this.verbose) {
             this.logger?.log(`CDN get: ${reqUrl}`);
         }
 
-        const t1 = Date.now(),
+        const t1 = Benchmark.getCurrentTime(),
             res = this.reqBase({
                 url: reqUrl,
                 method: "get",
@@ -190,7 +188,7 @@ class DiscordHttpClient {
 
         if (this.verbose) {
             this.logger?.log(`CDN get: ${reqUrl} returned\nStatus: ${res.status}`);
-            this.logger?.log(`Get took: ${Date.now() - t1}ms`);
+            this.logger?.log(`Get took: ${Benchmark.getCurrentTime() - t1}ms`);
         }
 
         return res.data;
@@ -198,7 +196,7 @@ class DiscordHttpClient {
 
     getAsset(route, options = {}) {
         const { size, ext } = DiscordUtil.getImageOpts(options);
-        route = LoaderUtils.HttpUtil.joinUrl(`${route}.${ext}`, LoaderUtils.HttpUtil.getQueryString({ size }));
+        route = HttpUtil.joinUrl(`${route}.${ext}`, HttpUtil.getQueryString({ size }));
 
         return this.cdnGet(route);
     }
