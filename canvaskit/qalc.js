@@ -1,3 +1,5 @@
+"use strict";
+
 const urls = {
     QalculatorInit: "https://files.catbox.moe/ovp1mx.js",
     QalculatorWasm: "https://files.catbox.moe/484lx1.wasm",
@@ -26,7 +28,7 @@ let font;
 const main = (() => {
     function getInput() {
         let input = tag.args ?? "";
-        [_, input] = LoaderUtils.parseScript(input);
+        [, input] = LoaderUtils.parseScript(input);
 
         if (input.length < 1) {
             const out = ":warning: No expression provided.";

@@ -261,7 +261,7 @@ class Logger {
 
     static _getLevelByIndex(ind) {
         const levels = Object.entries(Logger.levels),
-            find = levels.find(([_, value]) => value === ind);
+            find = levels.find(([, value]) => value === ind);
 
         if (typeof find === "undefined") {
             throw new LoggerError("Unknown level index: " + ind);
@@ -673,9 +673,9 @@ const LoaderUtils = {
         if (both) {
             descriptors = allDescriptors;
         } else if (enumerable) {
-            descriptors = allDescriptors.filter(([_, desc]) => desc.enumerable);
+            descriptors = allDescriptors.filter(([, desc]) => desc.enumerable);
         } else if (nonEnumerable) {
-            descriptors = allDescriptors.filter(([_, desc]) => !desc.enumerable);
+            descriptors = allDescriptors.filter(([, desc]) => !desc.enumerable);
         }
 
         if (typeof props === "object") descriptors = descriptors.map(([key, desc]) => [key, { ...desc, ...props }]);
@@ -843,7 +843,7 @@ const LoaderUtils = {
     },
 
     removeUndefinedValues: obj => {
-        return Object.fromEntries(Object.entries(obj).filter(([_, value]) => typeof value !== "undefined"));
+        return Object.fromEntries(Object.entries(obj).filter(([, value]) => typeof value !== "undefined"));
     },
 
     _infiniteProxyHandler: {
