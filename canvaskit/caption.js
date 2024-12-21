@@ -8,7 +8,7 @@ const maxWidth = 1000,
 let showTimes = false;
 
 const TENOR_API = {
-    key: "",
+    key: "AIzaSyAB6Nyymg7z6WDIOdbsg8t4Hp315TqNiuE",
     client_key: "caption"
 };
 
@@ -113,18 +113,18 @@ const main = (() => {
                     let attachMatch, tenorMatch;
 
                     if ((attachMatch = fileUrl.match(attachRegex))) {
-                        const attachPrefix = attachMatch[0],
+                        const attachPrefix = attachMatch[1],
                             embed = targetMsg.embeds.find(embed => {
-                                const thumbnail = embed.thumnail ?? embed.data.thumbnail;
-                                return thumbnail.url.startsWith(attachPrefix);
+                                const thumbnail = embed.thumbnail ?? embed.data?.thumbnail;
+                                return thumbnail && thumbnail.url.startsWith(attachPrefix);
                             });
 
-                        if (!embed) {
+                        if (typeof embed === "undefined") {
                             const out = ":warning: Attachment embed not found. (it's needed because discord is dumb)";
                             throw new ExitError(out);
                         }
 
-                        const thumbnail = embed.thumnail ?? embed.data.thumbnail;
+                        const thumbnail = embed.thumbnail ?? embed.data.thumbnail;
                         targetMsg.fileUrl = thumbnail.url;
                     } else if ((tenorMatch = fileUrl.match(tenorRegex))) {
                         targetMsg.tenorGif = {
@@ -253,10 +253,7 @@ const main = (() => {
 
     function loadFonts(names = []) {
         Benchmark.restartTiming("load_font");
-
-        for (const name of defaultFonts) {
-            if (!names.includes(name)) names.unshift(name);
-        }
+        names = Array.from(new Set(defaultFonts.concat(names)));
 
         const fontData = [];
 
@@ -531,14 +528,14 @@ const main = (() => {
         return [paragraph, headerHeight, totalHeight, textX, textY];
     }
 
-    function loadUnresolvedFonts(paragraph, existingFonts, pre, post) {
+    function loadUnresolvedFonts(paragraph, existing = {}, pre, post) {
         const unresolved = paragraph.unresolvedCodepoints();
 
         if (unresolved.length === 0) {
             return;
         }
 
-        const foundRanges = Object.keys(ranges).filter(name =>
+        let foundRanges = Object.keys(ranges).filter(name =>
             unresolved.some(codepoint => LoaderUtils.isInRange(ranges[name], codepoint))
         );
 
@@ -546,11 +543,16 @@ const main = (() => {
             return;
         }
 
-        if (typeof pre === "function") pre();
+        if (Array.isArray(existing.fonts)) {
+            foundRanges = Array.from(new Set(existing.fonts.concat(foundRanges)));
+        }
 
-        fontMgr = loadFonts(foundRanges.concat(existingFonts));
+        if (typeof pre === "function") pre(existing.fontMgr, foundRanges);
 
-        if (typeof post === "function") post(fontMgr);
+        existing.fontMgr?.delete();
+        const fontMgr = loadFonts(foundRanges);
+
+        if (typeof post === "function") post(fontMgr, foundRanges);
         return fontMgr;
     }
 
@@ -571,11 +573,12 @@ const main = (() => {
 
         loadUnresolvedFonts(
             paragraph,
-            existingFonts,
+            {
+                fonts: existingFonts,
+                fontMgr
+            },
 
             _ => {
-                fontMgr.delete();
-
                 Benchmark.stopTiming("prepare_caption");
             },
             mgr => {
