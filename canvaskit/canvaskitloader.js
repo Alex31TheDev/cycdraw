@@ -690,7 +690,7 @@ const LoaderUtils = {
         return LoaderUtils.assign(clone, obj, options);
     },
 
-    fetchAttachment: (msg, returnType = FileDataTypes.text, allowedContentType) => {
+    fetchAttachment: (msg, returnType = FileDataTypes.text, allowedContentTypes) => {
         let attach, url, contentType;
 
         if (typeof msg.file !== "undefined") {
@@ -710,12 +710,16 @@ const LoaderUtils = {
             throw new UtilError("Message doesn't have any attachments");
         }
 
-        if (typeof allowedContentType === "string") {
+        if (typeof allowedContentTypes !== "undefined") {
             if (typeof contentType === "undefined") {
                 throw new UtilError("Attachment doesn't have a content type");
             }
 
-            if (!contentType.includes(allowedContentType)) {
+            if (typeof allowedContentTypes === "string") {
+                allowedContentTypes = [allowedContentTypes];
+            }
+
+            if (!allowedContentTypes.some(type => contentType.includes(type))) {
                 throw new UtilError("Invalid content type: " + contentType, contentType);
             }
         }

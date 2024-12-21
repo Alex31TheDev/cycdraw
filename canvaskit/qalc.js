@@ -26,6 +26,19 @@ const plotWidth = 1280,
 let font;
 
 const main = (() => {
+    function initLoader() {
+        util.loadLibrary = "none";
+
+        if (util.env) {
+            eval(util.fetchTag("canvaskitloader").body);
+        } else {
+            util.executeTag("canvaskitloader");
+        }
+
+        ModuleLoader.useDefault("tagOwner");
+        ModuleLoader.enableCache = false;
+    }
+
     function getInput() {
         let input = tag.args ?? "";
         [, input] = LoaderUtils.parseScript(input);
@@ -36,14 +49,6 @@ const main = (() => {
         }
 
         return input;
-    }
-
-    function initLoader() {
-        util.loadLibrary = "none";
-        util.executeTag("canvaskitloader");
-
-        ModuleLoader.useDefault("tagOwner");
-        ModuleLoader.enableCache = false;
     }
 
     function patch() {

@@ -51,7 +51,7 @@ const fonts = {
 };
 
 // help
-const helpOption = ["help", "-help", "--help", "-h", "usage", "-usage", "-u"],
+const helpOptions = ["help", "-help", "--help", "-h", "usage", "-usage", "-u"],
     showTimesOption = "-show_times";
 
 const help = `Usage: \`%t ${tag.name} [-show_time] [url] <caption>\`
@@ -75,7 +75,7 @@ const DiscordEndpoints = {
 };
 
 // globals
-let targetMsg, args, text;
+let targetMsg, input, text;
 let image, width, height, isGif;
 let ranges, customEmojis, hasCustomEmojis;
 let output;
@@ -83,7 +83,7 @@ let output;
 const main = (() => {
     // parse args and attachment
     function parseArgs() {
-        [targetMsg, args] = (() => {
+        [targetMsg, input] = (() => {
             const oldContent = msg.content;
             msg.content = tag.args ?? "";
 
@@ -151,15 +151,19 @@ const main = (() => {
         })();
 
         text = (() => {
-            const split = args.split(" "),
+            let text = input;
+
+            const split = text.split(" "),
                 option = split[0];
 
-            checkArgs: if (split.length === 1) {
-                if (helpOption.includes(option)) {
+            checkArgs: if (split.length > 0) {
+                if (helpOptions.includes(option)) {
                     const out = `:information_source: ${help}`;
                     throw new ExitError(out);
                 }
-            } else if (split.length > 0) {
+
+                let removed = 1;
+
                 switch (option) {
                     case showTimesOption:
                         showTimes = true;
@@ -168,10 +172,9 @@ const main = (() => {
                         break checkArgs;
                 }
 
-                split.shift();
+                for (let i = 0; i < removed; i++) split.shift();
+                text = split.join(" ");
             }
-
-            const text = split.join(" ");
 
             if (text.length < 1) {
                 const out = `:warning: No caption text provided.\n${usage}`;
@@ -189,7 +192,7 @@ const main = (() => {
 
     // load libraries
     function loadCanvasKit() {
-        delete globalThis["ExitError"];
+        delete globalThis.ExitError;
 
         if (util.env) {
             eval(util.fetchTag("canvaskitloader").body);
