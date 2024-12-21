@@ -2,12 +2,13 @@
 
 globalThis.ExitError = class extends Error {};
 
-const defaultScale = 12;
+const defaultScale = 12,
+    maxScale = 100;
 
 const helpOptions = ["help", "-help", "--help", "-h", "usage", "-usage", "-u"],
     scaleOption = "-scale";
 
-const help = `Usage: \`%t ${tag.name} [-scale number] text\`
+const help = `Usage: \`%t ${tag.name} [-scale 1-100] text\`
 Encode the provided text or text file into a QR code.`,
     usage = `See \`%t ${tag.name} help\` for usage.`;
 
@@ -37,7 +38,7 @@ const main = (() => {
                         throw new ExitError(out);
                     }
 
-                    if (isNaN(scale)) {
+                    if (isNaN(scale) || scale < 1 || scale > maxScale) {
                         const out = `:warning: Invalid pixel scale provided: \`${scaleStr}\n\`` + usage;
                         throw new ExitError(out);
                     }
