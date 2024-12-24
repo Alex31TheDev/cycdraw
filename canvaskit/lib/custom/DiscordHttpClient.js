@@ -144,18 +144,23 @@ class DiscordHttpClient {
                 break;
         }
 
-        const t1 = Benchmark.getCurrentTime(),
-            res = this.reqBase({
-                url: reqUrl,
-                method,
-                headers,
-                ...options
-            });
+        if (this.verbose) {
+            Benchmark.startTiming("discord_req");
+        }
+
+        const res = this.reqBase({
+            url: reqUrl,
+            method,
+            headers,
+            ...options
+        });
 
         if (this.verbose) {
+            const ms = Benchmark.stopTiming("discord_req", false);
+
             this.logger?.log(`${LoaderUtils.capitalize(method)} request: ${reqUrl} returned\nStatus: ${res.status}`);
             this.logger?.log("Response:", res.data);
-            this.logger?.log(`${LoaderUtils.capitalize(method)} took: ${Benchmark.getCurrentTime() - t1}ms`);
+            this.logger?.log(`${LoaderUtils.capitalize(method)} took: ${ms}ms`);
         }
 
         return res.data;

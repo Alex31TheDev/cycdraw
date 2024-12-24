@@ -116,19 +116,22 @@ class TenorHttpClient {
 
         if (this.verbose) {
             this.logger?.log(`${LoaderUtils.capitalize(method)} request: ${reqUrl}`);
+
+            Benchmark.startTiming("tenor_req");
         }
 
-        const t1 = Benchmark.getCurrentTime(),
-            res = this.reqBase({
-                url: reqUrl,
-                method,
-                ...options
-            });
+        const res = this.reqBase({
+            url: reqUrl,
+            method,
+            ...options
+        });
 
         if (this.verbose) {
+            const ms = Benchmark.stopTiming("tenor_req", false);
+
             this.logger?.log(`${LoaderUtils.capitalize(method)} request: ${reqUrl} returned\nStatus: ${res.status}`);
             this.logger?.log("Response:", res.data);
-            this.logger?.log(`${LoaderUtils.capitalize(method)} took: ${Benchmark.getCurrentTime() - t1}ms`);
+            this.logger?.log(`${LoaderUtils.capitalize(method)} took: ${ms}ms`);
         }
 
         return res.data;

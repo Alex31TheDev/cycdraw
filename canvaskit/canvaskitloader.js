@@ -1117,18 +1117,6 @@ class Benchmark {
     static counts = Object.create(null);
     static timepoints = new Map();
 
-    static timeToUse = (_ => {
-        if (typeof this._performance !== "undefined") {
-            return "performanceNow";
-        }
-
-        if (typeof this._vm !== "undefined") {
-            return "vmTime";
-        }
-
-        return "dateNow";
-    })();
-
     static getCurrentTime(ms = true) {
         let time;
 
@@ -1176,15 +1164,15 @@ class Benchmark {
     static stopTiming(key, save = true) {
         key = this._formatTimeKey(key);
 
-        if (!save) {
+        if (save === null) {
             this.timepoints.delete(key);
-            return;
+            return NaN;
         }
 
         const t1 = this.timepoints.get(key);
 
         if (typeof t1 === "undefined") {
-            return;
+            return NaN;
         }
 
         this.timepoints.delete(key);
@@ -1192,15 +1180,22 @@ class Benchmark {
         const t2 = this.getCurrentTime(false),
             dt = t2 - t1;
 
-        this.data[key] = this._timeToMs(dt);
+        const ms = this._timeToMs(dt);
+        if (save) this.data[key] = ms;
+
+        return ms;
     }
 
-    static getTime(key) {
+    static getTime(key, format = true) {
         key = this._formatTimeKey(key);
         const time = this.data[key];
 
+        if (!format) {
+            return time ?? NaN;
+        }
+
         if (typeof time === "undefined") {
-            return "Key not found";
+            return `Key "${key}" not found.`;
         }
 
         return this._formatTime(key, time);
@@ -1286,7 +1281,7 @@ class Benchmark {
         }
 
         if (format) {
-            const times = Object.keys(this.data).map(key => this.getTime(key));
+            const times = Object.entries(this.data).map(([key, time]) => this._formatTime(key, time));
             if (useSum) times.push(this._formatTime("sum", sum));
 
             return times.join(",\n");
@@ -1298,35 +1293,62 @@ class Benchmark {
         }
     }
 
-    static getCount(name) {
+    static defineCount(name) {
+        const originalName = this._formatCountOrigName(name);
         name = this._formatCountName(name);
 
-        const count = this.counts[name],
-            originalName = this._origCountNames.get(name);
+        if (typeof this.counts[name] !== "undefined") {
+            return;
+        }
+
+        this.counts[name] = 0;
+        this._origCountNames.set(name, originalName);
+    }
+
+    static getCount(name, format = true) {
+        name = this._formatCountName(name);
+        const count = this.counts[name];
+
+        if (!format) {
+            return count ?? NaN;
+        }
+
+        const originalName = this._origCountNames.get(name);
 
         if (typeof count === "undefined" || typeof originalName === "undefined") {
-            return "Count not found";
+            return `Count "${name}" not found.`;
         }
 
         return this._formatCount(originalName, count);
     }
 
     static incrementCount(name) {
-        if (typeof this.counts[name] === "undefined") {
-            this._defineCount(name);
-        }
-
+        this.defineCount(name);
         name = this._formatCountName(name);
 
         this.counts[name]++;
         return this.counts[name];
     }
 
-    static deleteCount(name) {
+    static resetCount(name) {
         name = this._formatCountName(name);
 
         if (name in this.counts) {
             this.counts[name] = 0;
+            return true;
+        }
+
+        return false;
+    }
+
+    static deleteCount(name) {
+        name = this._formatCountName(name);
+
+        if (name in this.counts) {
+            delete this.counts[name];
+            this._origCountNames.delete(name);
+            this._origCountFuncs.delete(name);
+
             return true;
         }
 
@@ -1359,7 +1381,7 @@ class Benchmark {
     static wrapFunction(name, func) {
         const formattedName = this._formatCountName(name);
 
-        this._defineCount(name);
+        this.defineCount(name);
         this._origCountFuncs.set(formattedName, func);
 
         const _this = this;
@@ -1378,11 +1400,11 @@ class Benchmark {
         const formattedName = this._formatCountName(name);
 
         if (typeof this.counts[formattedName] === "undefined") {
-            return "Wrapper not found";
+            return `Wrapper "${name}" not found.`;
         }
 
         const originalFunc = this._origCountFuncs.get(formattedName);
-        this._deleteCount(name);
+        this.deleteCount(name);
 
         return originalFunc;
     }
@@ -1392,6 +1414,22 @@ class Benchmark {
     static _Date = Date;
     static _performance = globalThis.performance;
     static _vm = globalThis.vm;
+
+    static timeToUse = (_ => {
+        if (typeof this._performance !== "undefined") {
+            return "performanceNow";
+        }
+
+        if (typeof this._vm !== "undefined") {
+            return "vmTime";
+        }
+
+        if (typeof this._Date !== "undefined") {
+            return "dateNow";
+        }
+
+        throw new UtilError("No suitable timing function detected");
+    })();
 
     static _origCountNames = new Map();
     static _origCountFuncs = new Map();
@@ -1453,22 +1491,6 @@ class Benchmark {
         name = name.replaceAll(" ", "_");
         name += "_count";
         return name.toUpperCase();
-    }
-
-    static _defineCount(name) {
-        const originalName = this._formatCountOrigName(name);
-        name = this._formatCountName(name);
-
-        this.counts[name] ??= 0;
-        this._origCountNames.set(name, originalName);
-    }
-
-    static _deleteCount(name) {
-        name = this._formatCountName(name);
-
-        delete this.counts[name];
-        this._origCountNames.delete(name);
-        this._origCountFuncs.delete(name);
     }
 }
 
@@ -2624,7 +2646,7 @@ const Patches = {
 
                 break;
             default:
-                Benchmark.stopTiming(timeKey, false);
+                Benchmark.stopTiming(timeKey, null);
                 throw new LoaderError("Unknown library: " + library, library);
         }
 
