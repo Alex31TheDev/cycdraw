@@ -591,9 +591,9 @@ const LoaderUtils = {
         return [first, second];
     },
 
-    _scriptRegex: /^(?:`{3}([\S]+\n)?([\s\S]+)`{3}|`([^`]+)`)$/,
+    _parseScriptRegex: /^(?:`{3}([\S]+\n)?([\s\S]+)`{3}|`([^`]+)`)$/,
     parseScript: script => {
-        const match = script.match(LoaderUtils._scriptRegex);
+        const match = script.match(LoaderUtils._parseScriptRegex);
 
         if (!match) {
             return [false, script, ""];
@@ -799,10 +799,10 @@ const LoaderUtils = {
         return tag;
     },
 
-    leveretScriptBodyRegex: /^`{3}([\S]+)?\n([\s\S]+)\n`{3}$/u,
+    _leveretScriptBodyRegex: /^`{3}([\S]+)?\n([\s\S]+)\n`{3}$/u,
     getTagBody: tag => {
         let body = tag.body,
-            match = body.match(LoaderUtils.leveretScriptBodyRegex);
+            match = body.match(LoaderUtils._leveretScriptBodyRegex);
 
         if (match && match[2]) {
             body = match[2];
@@ -839,10 +839,11 @@ const LoaderUtils = {
         }
     },
 
-    templateReplace: (template, data) => {
-        return template.replace(/(?<!\\){{(.*?)}}(?!\\)/g, (match, key) => {
+    _templateReplaceRegex: /(?<!\\){{(.*?)}}(?!\\)/g,
+    templateReplace: (template, strings) => {
+        return template.replace(LoaderUtils._templateReplaceRegex, (match, key) => {
             key = key.trim();
-            return data[key] ?? match;
+            return strings[key] ?? match;
         });
     },
 
@@ -860,7 +861,6 @@ const LoaderUtils = {
             return Reflect.get(target, prop, reciever);
         }
     },
-
     makeInfiniteObject: _ => {
         return new Proxy({}, LoaderUtils._infiniteProxyHandler);
     },
@@ -886,7 +886,6 @@ const LoaderUtils = {
             });
         }
     },
-
     makeNonConfigurableObject: (obj = {}) => {
         const newObj = {};
 
