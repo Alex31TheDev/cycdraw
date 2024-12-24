@@ -1,4 +1,5 @@
 "use strict";
+/* global Qalc:readonly, Gnuplot:readonly, calc:readonly */
 
 const urls = {
     QalculatorInit: "https://files.catbox.moe/ovp1mx.js",

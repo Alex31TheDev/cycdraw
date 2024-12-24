@@ -1,4 +1,5 @@
 "use strict";
+/* global fastDecodeBase2n:readonly, decodeBase2n:readonly, table:readonly */
 
 // config
 const config = {
@@ -569,7 +570,7 @@ const LoaderUtils = {
         return Array.isArray(arr) || ArrayBuffer.isView(arr);
     },
 
-    urlRegex: /(\S*?):\/\/(?:([^\/\.]+)\.)?([^\/\.]+)\.([^\/\s]+)\/?(\S*)?/,
+    urlRegex: /(\S*?):\/\/(?:([^/.]+)\.)?([^/.]+)\.([^/\s]+)\/?(\S*)?/,
     validUrl: url => {
         const exp = new RegExp(`^${LoaderUtils.urlRegex.toString()}$`);
         return exp.test(url);
@@ -989,8 +990,8 @@ const LoaderUtils = {
 
 const HttpUtil = {
     protocolRegex: /^[^/:]+:\/*$/,
-    leadingSlashRegex: /^[\/]+/,
-    trailingSlashRegex: /[\/]+$/,
+    leadingSlashRegex: /^[/]+/,
+    trailingSlashRegex: /[/]+$/,
     paramSlashRegex: /\/(\?|&|#[^!])/g,
     paramSplitRegex: /(?:\?|&)+/,
 
@@ -3025,8 +3026,12 @@ function loadLibVips() {
 
     Benchmark.startTiming("load_libvips");
 
-    const LibVipsInit = ModuleLoader.loadModule(urls.LibVipsLoaderUrl, tags.LibVipsLoaderTagName, {
-        scope: {
+    const initCode = ModuleLoader.getModuleCode(urls.LibVipsLoaderUrl, tags.LibVipsLoaderTagName);
+
+    const LibVipsInit = ModuleLoader.loadModuleFromSource(
+        initCode,
+
+        {
             navigator: {
                 hardwareConcurrency: 1
             },
@@ -3039,9 +3044,11 @@ function loadLibVips() {
             clearInterval: _ => 1
         },
 
-        cache: false,
-        breakpoint: config.enableDebugger
-    });
+        config.enableDebugger,
+        {
+            cache: false
+        }
+    );
 
     console.replyWithLogs("warn");
 

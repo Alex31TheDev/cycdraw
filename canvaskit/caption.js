@@ -1,4 +1,5 @@
 "use strict";
+/* global CanvasKitUtil:readonly, gifenc:readonly, TenorHttpClient:readonly, DiscordHttpClient:readonly, DiscordConstants:readonly */
 
 // config
 const maxWidth = 1000,
@@ -62,7 +63,7 @@ Captions the given image (from the message you answered or the URL)`,
 globalThis.ExitError = class extends Error {};
 
 // misc
-const urlRegex = /(\S*?):\/\/(?:([^\/\.]+)\.)?([^\/\.]+)\.([^\/\s]+)\/?(\S*)?/,
+const urlRegex = /(\S*?):\/\/(?:([^/.]+)\.)?([^/.]+)\.([^/\s]+)\/?(\S*)?/,
     attachRegex = /^(https:\/\/(?:cdn|media).discordapp.(?:com|net)\/attachments\/\d+?\/\d+?\/[^?]+?)(?:\?|$)/,
     tenorRegex = /^https:\/\/tenor\.com\/view\/.+-(\d+)$/;
 

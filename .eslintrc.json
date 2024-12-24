@@ -1,0 +1,54 @@
+{
+    "parser": "@babel/eslint-parser",
+    "env": {
+        "node": true,
+        "es2023": true
+    },
+    "extends": "eslint:recommended",
+    "overrides": [],
+    "parserOptions": {
+        "requireConfigFile": false,
+        "babelOptions": {},
+        "ecmaVersion": "latest",
+        "sourceType": "module"
+    },
+    "rules": {
+        "no-unused-vars": "off",
+        "no-ex-assign": "off",
+        "no-case-declarations": "off",
+        "no-constant-condition": "off",
+        "no-empty": "off",
+        "no-debugger": "off"
+    },
+    "globals": {
+        "tag": "writable",
+        "msg": "writable",
+        "util": "writable",
+        "http": "writable",
+
+        "CustomError": "writable",
+        "ExitError": "writable",
+
+        "Benchmark": "writable",
+        "FileDataTypes": "writable",
+        "LoaderUtils": "writable",
+        "HttpUtil": "writable",
+        "ModuleLoader": "writable",
+        "Patches": "writable",
+
+        "loadSource": "writable",
+        "enableDebugger": "writable",
+
+        "XzDecompressor": "writable",
+        "ZstdDecompressor": "writable",
+
+        "CanvasKit": "writable",
+        "Resvg": "writable",
+        "lodepng": "writable",
+
+        "loadLibrary": "writable",
+        "loadBase2nDecoder": "writable",
+        "loadXzDecompressor": "writable",
+        "loadZstdDecompressor": "writable"
+    }
+}

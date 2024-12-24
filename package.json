@@ -12,16 +12,19 @@
         "build-min-canvaskitloader": "terser ./canvaskit/canvaskitloader.js -o ./canvaskit/build/loader/canvaskitloader.js -c passes=2",
         "build-split-loader": "node ./canvaskit/split-loader/build-split-loader.js ./canvaskit/split ./canvaskit/split/split_loader.js",
         "split-canvaskit-loader": "node ../base2n/scripts/splitter.cjs ./canvaskit/canvaskitloader.js ./canvaskit/split",
-        "split-min-loader": "node ../base2n/scripts/splitter.cjs ./canvaskit/build/loader/canvaskitloader.js ./canvaskit/split"
+        "split-min-loader": "node ../base2n/scripts/splitter.cjs ./canvaskit/build/loader/canvaskitloader.js ./canvaskit/split",
+        "lint-canvaskit": "eslint ./canvaskit --config .eslintrc.json --ignore-path ./canvaskit/.eslintignore --ext .js"
     },
     "keywords": [],
     "author": "",
     "license": "ISC",
     "dependencies": {
+        "@babel/eslint-parser": "^7.25.9",
         "pngjs": "^7.0.0"
     },
     "devDependencies": {
         "browserify": "^17.0.0",
+        "eslint": "^8.57.1",
         "prettier": "^3.2.5",
         "terser": "^5.36.0"
     }

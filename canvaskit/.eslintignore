@@ -1,0 +1,10 @@
+# Template
+*.template.js
+
+# Build
+/build/
+/canvaskit/build/
+/canvaskit/split/
+
+# Libs
+/canvaskit/lib/js/
