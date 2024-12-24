@@ -7,8 +7,12 @@
         "test": "echo \"Error: no test specified\" && exit 1",
         "prettier-format": "prettier --config .prettierrc --ignore-path .prettierignore --write **/*.js",
         "build-pngjs-tag": "browserify ./pngjs/index.js -o ./build/bundle.js",
-        "split-canvaskit-loader": "node ../base2n/scripts/splitter.cjs ./canvaskit/canvaskitloader.js",
-        "build-min-base2nwasm": "terser ./canvaskit/lib/custom/Base2nWasmDec.js -o ./canvaskit/lib/build/Base2nWasmDec.min.js  -c -m toplevel --mangle-props \"regex=/^#|_$/\""
+        "build-canvaskit-tag": "npm run build-min-canvaskitloader && npm run split-min-loader && npm run build-split-loader",
+        "build-min-base2nwasm": "terser ./canvaskit/lib/custom/Base2nWasmDec.js -o ./canvaskit/build/base2n/Base2nWasmDec.min.js -c passes=2 -m \"reserved=['Base2nError']\" --mangle-props \"regex=/^#|_$/\" --toplevel",
+        "build-min-canvaskitloader": "terser ./canvaskit/canvaskitloader.js -o ./canvaskit/build/loader/canvaskitloader.js -c passes=2",
+        "build-split-loader": "node ./canvaskit/split-loader/build-split-loader.js ./canvaskit/split ./canvaskit/split/split_loader.js",
+        "split-canvaskit-loader": "node ../base2n/scripts/splitter.cjs ./canvaskit/canvaskitloader.js ./canvaskit/split",
+        "split-min-loader": "node ../base2n/scripts/splitter.cjs ./canvaskit/build/loader/canvaskitloader.js ./canvaskit/split"
     },
     "keywords": [],
     "author": "",

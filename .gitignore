@@ -133,9 +133,9 @@ dist
 .vscode
 
 # Build
-build
-canvaskit/lib/build
-canvaskit/split
+/build
+/canvaskit/build
+/canvaskit/split
 
 # Libs
-canvaskit/lib/js
+/canvaskit/lib/js
