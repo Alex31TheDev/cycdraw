@@ -8,7 +8,7 @@
         "prettier-format": "prettier --config .prettierrc --ignore-path .prettierignore --write **/*.js",
         "build-pngjs-tag": "npm run bundle-pngjs && npm run build-min-pngjs",
         "build-canvaskit-tag": "npm run build-min-canvaskitloader && npm run split-min-loader && npm run build-split-loader",
-        "build-min-pngjs": "terser ./pngjs/build/bundle.js -o ./pngjs/build/bundle.min.js -c passes=2 -m --toplevel",
+        "build-min-pngjs": "terser ./pngjs/build/bundle.js -o ./pngjs/build/bundle.min.js -c passes=2 -m --mangle-props \"regex=/^(?!Z_)/\",keep_quoted --toplevel --comments false",
         "build-min-base2nwasm": "terser ./canvaskit/lib/custom/Base2nWasmDec.js -o ./canvaskit/build/base2n/Base2nWasmDec.min.js -c passes=2 -m \"reserved=['Base2nError']\" --mangle-props \"regex=/^#|_$/\" --toplevel",
         "build-min-canvaskitloader": "terser ./canvaskit/canvaskitloader.js -o ./canvaskit/build/loader/canvaskitloader.js -c passes=2",
         "bundle-pngjs": "browserify ./pngjs/index.js -o ./pngjs/build/bundle.js",

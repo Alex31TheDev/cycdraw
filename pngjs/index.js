@@ -50,8 +50,9 @@ function getImageFile(img) {
         data: encoded
     };
 
+    // prettier-ignore
     return {
-        file
+        "file": file
     };
 }
 
@@ -64,8 +65,9 @@ function getBenchmarkEmbed() {
         description: format
     };
 
+    // prettier-ignore
     return {
-        embed
+        "embed": embed
     };
 }
 

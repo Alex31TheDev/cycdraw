@@ -108,7 +108,7 @@ const Benchmark = {
         return times.join(",\n");
     },
 
-    getTable: (style = "thick", extraSpaces = 1) => {
+    getTable: (style = "heavy", extraSpaces = 1) => {
         const keys = Object.keys(Benchmark.data),
             times = Object.values(Benchmark.data);
 

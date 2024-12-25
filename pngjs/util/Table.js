@@ -1,6 +1,7 @@
+// prettier-ignore
 const Table = {
     charSets: {
-        light: {
+        "light": {
             corner: {
                 topLeft: "┌",
                 topRight: "┐",
@@ -22,7 +23,7 @@ const Table = {
             }
         },
 
-        heavy: {
+        "heavy": {
             corner: {
                 topLeft: "┏",
                 topRight: "┓",
@@ -44,7 +45,7 @@ const Table = {
             }
         },
 
-        doubleHorizontal: {
+        "doubleHorizontal": {
             corner: {
                 topLeft: "╒",
                 topRight: "╕",
@@ -66,7 +67,7 @@ const Table = {
             }
         },
 
-        doubleVertical: {
+        "doubleVertical": {
             corner: {
                 topLeft: "╓",
                 topRight: "╖",
@@ -88,7 +89,7 @@ const Table = {
             }
         },
 
-        double: {
+        "double": {
             corner: {
                 topLeft: "╔",
                 topRight: "╗",
