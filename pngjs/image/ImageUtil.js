@@ -1,11 +1,15 @@
+const Color = require("../structs/Color.js");
+const Colors = require("../collections/Colors.js");
+const Util = require("../util/Util.js");
+
 const ImageUtil = {
     inBounds: (img, x, y) => {
         return x >= 0 && x < img.width && y >= 0 && y < img.height;
     },
 
     clamp: (img, x, y) => {
-        x = Utils.clamp(Math.floor(x), 0, img.width);
-        y = Utils.clamp(Math.floor(y), 0, img.height);
+        x = Util.clamp(Math.floor(x), 0, img.width);
+        y = Util.clamp(Math.floor(y), 0, img.height);
 
         return [x, y];
     },

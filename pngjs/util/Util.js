@@ -108,7 +108,7 @@ const Util = {
             throw new CustomError("Unsuccessful download. Code: " + res.status);
         }
 
-        code = res.data.trim();
+        return res.data.trim();
     },
 
     urlRegex: /\w+?:\/\/(.+\.)?[\w|\d]+\.\w+\/?.*/,

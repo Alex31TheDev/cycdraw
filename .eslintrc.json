@@ -18,13 +18,16 @@
         "no-case-declarations": "off",
         "no-constant-condition": "off",
         "no-empty": "off",
-        "no-debugger": "off"
+        "no-debugger": "off",
+        "no-global-assign": "off",
+        "no-useless-escape": "warn"
     },
     "globals": {
         "tag": "writable",
         "msg": "writable",
         "util": "writable",
         "http": "writable",
+        "vm": "writable",
 
         "CustomError": "writable",
         "ExitError": "writable",

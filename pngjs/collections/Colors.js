@@ -23,7 +23,6 @@ const Colors = Object.freeze({
     hotPink: new Color(255, 105, 180),
     indigo: new Color(75, 0, 130),
     lightBlue: new Color(100, 149, 237),
-    lightBlue: new Color(173, 216, 230),
     lightCyan: new Color(224, 255, 255),
     lightGray: new Color(211, 211, 211),
     lightGreen: new Color(144, 238, 144),

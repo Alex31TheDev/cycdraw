@@ -7,6 +7,7 @@ const Colors = require("../collections/Colors.js");
 const Point = require("../structs/Point.js");
 const Benchmark = require("../util/Benchmark.js");
 const Util = require("../util/Util.js");
+const Codegen = require("../util/Codegen.js");
 
 class EvalContext {
     static names = [

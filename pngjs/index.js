@@ -1,5 +1,6 @@
 debugger;
 
+require("./patches.js");
 const PNG = require("pngjs").PNG;
 
 const Util = require("./util/Util.js");

@@ -1,3 +1,4 @@
+const Table = require("./Table.js");
 const CustomError = require("../errors/CustomError.js");
 
 const Benchmark = {
@@ -38,6 +39,7 @@ const Benchmark = {
         }
 
         Benchmark.data[key] = dt;
+        return dt;
     },
 
     getTime: key => {
@@ -81,16 +83,6 @@ const Benchmark = {
         Benchmark.timepoints.clear();
     },
 
-    clearExceptLast: (n = 1) => {
-        const clearKeys = Object.keys(Benchmark.data).slice(0, -n);
-
-        for (const key of clearKeys) {
-            delete Benchmark.data[key];
-        }
-
-        Benchmark.timepoints.clear();
-    },
-
     getSum: (...keys) => {
         let sumTimes;
 
@@ -104,7 +96,7 @@ const Benchmark = {
     },
 
     getAll: (...includeSum) => {
-        const times = Object.keys(Benchmark.data).map(key => Benchmark.getTime(key));
+        const times = Object.entries(Benchmark.data).map(([key, time]) => Benchmark._formatTime(key, time));
 
         if (includeSum[0]) {
             const keys = includeSum[0] === true ? [] : includeSum,
@@ -116,7 +108,7 @@ const Benchmark = {
         return times.join(",\n");
     },
 
-    getTable: (style = "doubleVertical", extraSpaces = 1) => {
+    getTable: (style = "thick", extraSpaces = 1) => {
         const keys = Object.keys(Benchmark.data),
             times = Object.values(Benchmark.data);
 

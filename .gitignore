@@ -133,7 +133,7 @@ dist
 .vscode
 
 # Build
-/build/
+/pngjs/build/
 /canvaskit/build/
 /canvaskit/split/
 
