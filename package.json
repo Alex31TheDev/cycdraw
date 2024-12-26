@@ -1,8 +1,6 @@
 {
     "name": "cycdraw",
-    "version": "1.0.0",
-    "description": "",
-    "main": "index.js",
+    "private": true,
     "scripts": {
         "test": "echo \"Error: no test specified\" && exit 1",
         "prettier-format": "prettier --config .prettierrc --ignore-path .prettierignore --write **/*.js",
@@ -22,9 +20,6 @@
         "lint-pngjs": "eslint ./pngjs --config .eslintrc.json --ext .js",
         "lint-canvaskit": "eslint ./canvaskit --config .eslintrc.json --ignore-path ./canvaskit/.eslintignore --ext .js"
     },
-    "keywords": [],
-    "author": "",
-    "license": "ISC",
     "dependencies": {
         "@babel/eslint-parser": "^7.25.9",
         "pngjs": "^7.0.0"
