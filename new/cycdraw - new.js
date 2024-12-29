@@ -16,7 +16,7 @@ const Utils = {
 
         if (end) {
             num = str.slice(start, end);
-            num = parseInt(num);
+            num = Number.parseInt(num);
         }
 
         return [end, num];
@@ -275,9 +275,9 @@ class Color {
 
         const comps = hex.match(/.{2}/g);
 
-        const r = parseInt(comps[0], 16) || 0,
-            g = parseInt(comps[1], 16) || 0,
-            b = parseInt(comps[2], 16) || 0;
+        const r = Number.parseInt(comps[0], 16) || 0,
+            g = Number.parseInt(comps[1], 16) || 0,
+            b = Number.parseInt(comps[2], 16) || 0;
 
         return new Color(r, g, b);
     }
@@ -1293,7 +1293,7 @@ class ArgsParser {
             } else if (!isNaN(val)) {
                 val = Number(val);
 
-                if (Math.floor(val) === val) {
+                if (Math.trunc(val) === val) {
                     type = OptionTypes.int;
                 } else {
                     type = OptionTypes.float;

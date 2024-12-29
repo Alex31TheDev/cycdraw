@@ -23,9 +23,9 @@ const DiscordUtil = {
         }
 
         if (typeof size === "string") {
-            size = parseInt(size, 10);
+            size = LoaderUtils.parseInt(size);
 
-            if (isNaN(size)) {
+            if (Number.isNaN(size)) {
                 throw new ClientError("Invalid size provided: " + size);
             }
         }

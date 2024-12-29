@@ -532,6 +532,25 @@ const LoaderUtils = {
     outCharLimit: util.outCharLimit ?? 1000,
     outLineLimit: util.outLineLimit ?? 6,
 
+    parseInt: (str, radix = 10) => {
+        if (typeof str !== "string" || typeof radix !== "number") {
+            return NaN;
+        }
+
+        if (radix < 2 || radix > 36) {
+            return NaN;
+        }
+
+        const validChars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ".slice(0, radix),
+            exp = new RegExp(`^[+-]?[${validChars}]+$`, "i");
+
+        if (!exp.test(str)) {
+            return NaN;
+        }
+
+        return Number.parseInt(str, radix);
+    },
+
     capitalize: str => {
         str = String(str).toLowerCase();
         return str[0].toUpperCase() + str.substring(1);
@@ -972,8 +991,8 @@ const LoaderUtils = {
         return str.split(" ").map(range => {
             const split = range.split("-");
 
-            const first = parseInt(split[0], base),
-                last = split[1] ? parseInt(split[1], base) : first;
+            const first = Number.parseInt(split[0], base),
+                last = split[1] ? Number.parseInt(split[1], base) : first;
 
             return [first, last];
         });
@@ -1085,7 +1104,7 @@ const HttpUtil = {
             return;
         }
 
-        const status = parseInt(statusMatch[1], 10);
+        const status = Number.parseInt(statusMatch[1], 10);
         return status;
     }
 };

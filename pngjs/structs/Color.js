@@ -26,9 +26,9 @@ class Color {
 
         const comps = hex.match(/.{2}/g);
 
-        const r = parseInt(comps[0], 16) || 0,
-            g = parseInt(comps[1], 16) || 0,
-            b = parseInt(comps[2], 16) || 0;
+        const r = Number.parseInt(comps[0], 16) || 0,
+            g = Number.parseInt(comps[1], 16) || 0,
+            b = Number.parseInt(comps[2], 16) || 0;
 
         return new Color(r, g, b);
     }

@@ -124,10 +124,10 @@ class Color {
             this.b = Math.min(Math.max(Math.round(b), 0), 255);
             this.a = Math.min(Math.max(Math.round(a), 0), 255);
 
-            this.r = isNaN(this.r) ? 255 : this.r;
-            this.g = isNaN(this.g) ? 255 : this.g;
-            this.b = isNaN(this.b) ? 255 : this.b;
-            this.a = isNaN(this.a) ? 255 : this.a;
+            this.r = Number.isNaN(this.r) ? 255 : this.r;
+            this.g = Number.isNaN(this.g) ? 255 : this.g;
+            this.b = Number.isNaN(this.b) ? 255 : this.b;
+            this.a = Number.isNaN(this.a) ? 255 : this.a;
         }
     }
 }
