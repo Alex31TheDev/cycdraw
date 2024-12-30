@@ -1718,12 +1718,14 @@ class ModuleRequireUtil {
             const ret = obj[id];
 
             switch (typeof ret) {
-                case "object":
-                    return ret;
-                case "function":
-                    return ret(id);
-                default:
+                case "undefined":
                     return LoaderUtils.makeInfiniteObject();
+                case "function":
+                    if (!/^class[\s{]/.test(ret.toString())) {
+                        return ret(id);
+                    }
+                default:
+                    return ret;
             }
         }.bind(this);
     }
@@ -2378,7 +2380,8 @@ const globals = ModuleGlobalsUtil.createGlobalsObject({
     Blob: undefined,
     XMLHttpRequest: undefined,
     Event: undefined,
-    Worker: undefined
+    Worker: undefined,
+    ImageData: undefined
 });
 
 const globalObjs = ModuleGlobalsUtil.createGlobalsObject();
@@ -2513,6 +2516,16 @@ const Patches = {
         );
 
         globals.Worker = Worker;
+    },
+
+    polyfillImageData: () => {
+        globals.ImageData ??= class ImageData {
+            constructor(data, width, height) {
+                this.data = data;
+                this.width = width;
+                this.height = height;
+            }
+        };
     },
 
     patchWasmModule: () => {
@@ -2706,6 +2719,7 @@ const Patches = {
                     Patches.polyfillPromise();
                 }
 
+                Patches.polyfillImageData();
                 break;
             default:
                 Benchmark.stopTiming(timeKey, null);
@@ -3158,7 +3172,9 @@ function loadLodepng() {
 
         fs: {
             readFileSync: (path, options) => wasm
-        }
+        },
+
+        "@canvas/image-data": globals.ImageData
     });
 
     const lodepng = ModuleLoader.loadModule(
