@@ -1747,7 +1747,7 @@ class Image {
         }
     }
 
-    blit(x, y, src, w, h) {
+    blit(x, y, src, w, h, x = 0, y = 0) {
         let sw = Math.min(w, src.w) || src.w,
             sh = Math.min(h, src.h) || src.h;
 
@@ -1761,10 +1761,10 @@ class Image {
         let i = 0,
             j;
 
-        for (; i < sw; i++) {
-            for (j = 0; j < sh; j++) {
-                const pos1 = 3 * ((j + y) * this.w + i + x),
-                    pos2 = 3 * (j * src.w + i);
+        for (; i < sh; i++) {
+            for (j = 0; j < sw; j++) {
+                const pos1 = 3 * ((i + y) * this.w + j + x),
+                    pos2 = 3 * (i * src.w + j);
 
                 this.pixels[pos1] = src.pixels[pos2];
                 this.pixels[pos1 + 1] = src.pixels[pos2 + 1];

@@ -649,7 +649,7 @@ const main = (() => {
         blankPaint.delete();
     }
 
-    function imageBufferBlit(dest, dw, dh, src, sw, sh, x, y) {
+    function imageBufferBlit(dest, dw, dh, src, sw, sh, x = 0, y = 0) {
         let new_sw = sw,
             new_sh = sh;
 
@@ -664,10 +664,10 @@ const main = (() => {
         let i = 0,
             j;
 
-        for (; i < new_sw; i++) {
-            for (j = 0; j < new_sh; j++) {
-                const pos1 = 4 * ((j + y) * dw + i + x),
-                    pos2 = 4 * (j * sw + i);
+        for (; i < new_sh; i++) {
+            for (j = 0; j < new_sw; j++) {
+                const pos1 = 4 * ((i + y) * dw + j + x),
+                    pos2 = 4 * (i * sw + j);
 
                 dest[pos1] = src[pos2];
                 dest[pos1 + 1] = src[pos2 + 1];
@@ -748,7 +748,7 @@ const main = (() => {
                 surface.delete();
 
                 const outBuffer = new Uint8Array(4 * width * totalHeight);
-                imageBufferBlit(outBuffer, width, totalHeight, headerData, width, headerHeight, 0, 0);
+                imageBufferBlit(outBuffer, width, totalHeight, headerData, width, headerHeight);
 
                 const gif = gifenc.GIFEncoder(),
                     frameCount = image.getFrameCount();
