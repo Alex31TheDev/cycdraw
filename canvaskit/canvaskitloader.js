@@ -573,6 +573,10 @@ const LoaderUtils = {
         return Math.round((num + Number.EPSILON) * exp) / exp;
     },
 
+    deviate: (x, y) => {
+        return x + (Math.random() * (2 * y) - y);
+    },
+
     firstElement: (arr, start = 0) => {
         return arr[start];
     },
@@ -593,6 +597,11 @@ const LoaderUtils = {
     validUrl: url => {
         const exp = new RegExp(`^${LoaderUtils.urlRegex.toString()}$`);
         return exp.test(url);
+    },
+
+    _tagNameRegex: /^[A-Za-z0-9\-_]+$/,
+    validTagName: name => {
+        return name.length > 0 && name.length <= 32 && LoaderUtils._tagNameRegex.test(name);
     },
 
     splitAt: (str, sep = " ") => {
@@ -763,7 +772,11 @@ const LoaderUtils = {
         return all;
     },
 
-    fullDump: (search, excludedNames = [], excludedUsers = []) => {
+    fullDump: (search, options = {}) => {
+        const excludedNames = options.excludedNames ?? [],
+            excludedUsers = options.excludedUsers ?? [],
+            fixTags = options.fixTags ?? true;
+
         let all = LoaderUtils.dumpTags(search);
 
         const enableNameBlacklist = excludedNames.length > 0,
@@ -781,7 +794,7 @@ const LoaderUtils = {
             );
         }
 
-        return all.reduce((tags, name) => {
+        let tags = all.reduce((tags, name) => {
             let tag;
 
             try {
@@ -798,6 +811,36 @@ const LoaderUtils = {
 
             return tags;
         }, []);
+
+        if (!fixTags) {
+            return tags;
+        }
+
+        tags = tags.filter(tag => [tag.name, tag.body].every(prop => typeof prop === "string"));
+        tags = tags.filter(tag => LoaderUtils.validTagName(tag.name));
+
+        tags.forEach(tag => {
+            tag.isAlias = tag.hops.length > 1;
+            tag.aliasName = "";
+
+            if (tag.isAlias) {
+                tag.isScript = false;
+
+                tag.name = tag.hops[0];
+                tag.aliasName = tag.hops[1];
+                tag.body = "";
+
+                return;
+            } else {
+                tag.args = "";
+            }
+
+            const newBody = LoaderUtils.getTagBody(tag);
+            tag.isScript = tag.body !== newBody;
+            tag.body = newBody;
+        });
+
+        return tags;
     },
 
     fetchTag: (name, owner) => {
