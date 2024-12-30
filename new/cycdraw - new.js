@@ -268,6 +268,20 @@ class Color {
         return `Color: {${this.r}, ${this.g}, ${this.b}}`;
     }
 
+    equals(clr) {
+        return this.r === clr.r && this.g === clr.g && this.b === clr.b;
+    }
+
+    approxEquals(clr, tolerance = 2) {
+        const distance = Math.sqrt(
+            (this.r - clr.r) * (this.r - clr.r) +
+                (this.g - clr.g) * (this.g - clr.g) +
+                (this.b - clr.b) * (this.b - clr.b)
+        );
+
+        return distance <= tolerance;
+    }
+
     static fromHex(hex) {
         if (hex.startsWith("#")) {
             hex = hex.slice(1);
