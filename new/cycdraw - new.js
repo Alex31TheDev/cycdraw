@@ -252,9 +252,11 @@ class ChecksumError extends CustomError {}
 class Color {
     constructor(r, g, b) {
         if (r instanceof Color) {
-            this.r = r.r;
-            this.g = r.g;
-            this.b = r.b;
+            const clr = r;
+
+            this.r = clr.r;
+            this.g = clr.g;
+            this.b = clr.b;
 
             return this;
         }
@@ -385,6 +387,15 @@ class Color {
 
 class Point {
     constructor(x, y) {
+        if (x instanceof Point) {
+            const p = r;
+
+            this.x = p.x;
+            this.y = p.y;
+
+            return this;
+        }
+
         this.x = x;
         this.y = y;
     }
@@ -1375,7 +1386,18 @@ class Image {
         this.w = Math.floor(w);
         this.h = Math.floor(h);
 
-        this.pixels = new Uint8Array(w * h * 3).fill(0);
+        this.pixels = new Uint8Array(Image.getBufSize(this)).fill(0);
+    }
+
+    static getBufSize(w, h) {
+        if (typeof w === "object") {
+            const img = w;
+
+            w = img.w;
+            h = img.h;
+        }
+
+        return 3 * w * h;
     }
 
     static fromArray(pixels, w, h) {
@@ -1383,7 +1405,7 @@ class Image {
             throw new DrawingError("Pixel array is invalid");
         }
 
-        if (pixels.length > w * h * 3) {
+        if (pixels.length > Image.getBufSize(w, h)) {
             throw new DrawingError("Pixel array is too large");
         }
 
@@ -1620,7 +1642,7 @@ class Image {
     }
 
     rotate90(direction) {
-        const pixels2 = new Uint8Array(this.w * this.h * 3);
+        const pixels2 = new Uint8Array(Image.getBufSize(this));
 
         switch (direction) {
             case 0:
