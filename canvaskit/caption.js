@@ -1,5 +1,5 @@
 "use strict";
-/* global CanvasKitUtil:readonly, gifenc:readonly, TenorHttpClient:readonly, DiscordHttpClient:readonly, DiscordConstants:readonly */
+/* global CanvasKitUtil:readonly, gifenc:readonly, Image:readonly TenorHttpClient:readonly, DiscordHttpClient:readonly, DiscordConstants:readonly */
 
 // config
 const maxWidth = 1000,
@@ -22,6 +22,7 @@ const tags = {
 
     Table: "ck_table",
 
+    Cycdraw: "ck_cycdraw",
     GifEncoder: "ck_gifenc"
 };
 
@@ -221,9 +222,10 @@ const main = (() => {
             return;
         }
 
-        const gifenc = ModuleLoader.loadModuleFromTag(tags.GifEncoder);
+        const gifenc = ModuleLoader.loadModuleFromTag(tags.GifEncoder),
+            cycdraw = ModuleLoader.loadModuleFromTag(tags.Cycdraw);
 
-        Patches.patchGlobalContext({ gifenc });
+        Patches.patchGlobalContext({ ...cycdraw, gifenc });
     }
 
     function loadDiscordClient() {
@@ -649,80 +651,25 @@ const main = (() => {
         blankPaint.delete();
     }
 
-    function imageBufferBlit(dest, dw, dh, src, sw, sh, x = 0, y = 0) {
-        let new_sw = sw,
-            new_sh = sh;
-
-        if (new_sw + x > dw) {
-            new_sw = dw - x;
-        }
-
-        if (new_sh + y > dh) {
-            new_sh = dh - y;
-        }
-
-        let i = 0,
-            j;
-
-        for (; i < new_sh; i++) {
-            for (j = 0; j < new_sw; j++) {
-                const pos1 = 4 * ((i + y) * dw + j + x),
-                    pos2 = 4 * (i * sw + j);
-
-                dest[pos1] = src[pos2];
-                dest[pos1 + 1] = src[pos2 + 1];
-                dest[pos1 + 2] = src[pos2 + 2];
-                dest[pos1 + 3] = src[pos2 + 3];
-            }
-        }
-    }
-
-    function nearestNeighborDownscale(dest, dw, dh, src, sw, sh) {
-        let i = 0,
-            j;
-
-        for (; i < dh; i++) {
-            for (j = 0; j < dw; j++) {
-                const x = Math.floor((j * sw) / dw),
-                    y = Math.floor((i * sh) / dh);
-
-                let pos1 = 4 * (i * dw + j),
-                    pos2 = 4 * (y * sw + x);
-
-                dest[pos1] = src[pos2];
-                dest[pos1 + 1] = src[pos2 + 1];
-                dest[pos1 + 2] = src[pos2 + 2];
-                dest[pos1 + 3] = src[pos2 + 3];
-            }
-        }
-    }
-
-    function drawImageGif(gif, outBuffer, headerHeight, totalHeight, options = {}) {
+    function drawImageGif(gif, outImage, headerHeight, totalHeight, options = {}) {
         const frameInd = options.frame ?? 0;
 
-        const delay = image.currentFrameDuration(),
+        let delay = image.currentFrameDuration(),
             frame = image.makeImageAtCurrentFrame();
-
-        let srcWidth = originalWidth,
-            srcHeight = originalHeight;
 
         let framePixels = CanvasKitUtil.readImagePixels(frame);
         frame.delete();
+        frame = Image.fromPixels(framePixels, originalWidth, originalHeight);
+        framePixels = undefined;
 
         if (imageOversized) {
-            const originalPixels = framePixels;
-            framePixels = new Uint8Array(4 * width * height);
-
-            nearestNeighborDownscale(framePixels, width, height, originalPixels, srcWidth, srcHeight);
-
-            srcWidth = width;
-            srcHeight = height;
+            frame.scale(width, height);
         }
 
-        imageBufferBlit(outBuffer, width, totalHeight, framePixels, srcWidth, srcHeight, 0, headerHeight);
+        outImage.blit(0, headerHeight, frame);
 
-        const palette = gifenc.quantize(outBuffer, 256),
-            index = gifenc.applyPalette(outBuffer, palette);
+        const palette = gifenc.quantize(outImage.pixels, 256),
+            index = gifenc.applyPalette(outImage.pixels, palette);
 
         gif.writeFrame(index, width, totalHeight, {
             palette,
@@ -740,21 +687,24 @@ const main = (() => {
             let output;
 
             if (isGif) {
-                const surface = CanvasKit.MakeSurface(width, headerHeight),
+                let surface = CanvasKit.MakeSurface(width, headerHeight),
                     canvas = surface.getCanvas();
 
                 drawCaption(canvas, paragraph, textX, textY);
-                const headerData = CanvasKitUtil.readSurfacePixels(surface, CanvasKit.AlphaType.Opaque);
-                surface.delete();
 
-                const outBuffer = new Uint8Array(4 * width * totalHeight);
-                imageBufferBlit(outBuffer, width, totalHeight, headerData, width, headerHeight);
+                let headerPixels = CanvasKitUtil.readSurfacePixels(surface, CanvasKit.AlphaType.Opaque);
+                surface.delete();
+                const header = Image.fromPixels(headerPixels, width, headerHeight);
+                surface = canvas = headerPixels = undefined;
+
+                const outImage = new Image(width, totalHeight);
+                outImage.blit(0, 0, header);
 
                 const gif = gifenc.GIFEncoder(),
                     frameCount = image.getFrameCount();
 
                 for (let frame = 0; frame < frameCount; frame++) {
-                    drawImageGif(gif, outBuffer, headerHeight, totalHeight, {
+                    drawImageGif(gif, outImage, headerHeight, totalHeight, {
                         frame
                     });
 
@@ -775,9 +725,7 @@ const main = (() => {
 
             Benchmark.stopTiming("draw_image");
 
-            if (!isGif) {
-                image.delete();
-            }
+            if (!isGif) image.delete();
             image = undefined;
 
             paragraph.delete();

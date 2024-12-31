@@ -1724,7 +1724,7 @@ class ModuleRequireUtil {
                     if (!/^class[\s{]/.test(ret.toString())) {
                         return ret(id);
                     }
-                default:
+                default: // eslint-disable-line
                     return ret;
             }
         }.bind(this);

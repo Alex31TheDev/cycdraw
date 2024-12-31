@@ -388,7 +388,7 @@ class Color {
 class Point {
     constructor(x, y) {
         if (x instanceof Point) {
-            const p = r;
+            const p = x;
 
             this.x = p.x;
             this.y = p.y;
@@ -554,7 +554,7 @@ class Grid {
 }
 
 class Font {
-    constructor(charSet, spacing = 0, postProc) {
+    constructor(charSet, spacing = 1, postProc) {
         this.spacing = spacing;
         this.loadGlyphs(charSet);
 
@@ -570,14 +570,14 @@ class Font {
         this.charSet = Object.keys(charSet);
         this.charMap = {};
 
-        this.unknown = undefined;
+        let unknown;
 
-        for (const key of Object.keys(charSet)) {
+        for (const key of this.charSet) {
             const char = charSet[key],
-                glyph = Image.fromArray(char.pixels, char.w, char.h);
+                glyph = Image.fromPixels(char.pixels, char.w, char.h);
 
             if (key === "unknown") {
-                this.unknown = glyph;
+                unknown = glyph;
 
                 const ind = this.charSet.indexOf(key);
                 this.charSet.splice(ind, 1);
@@ -586,9 +586,11 @@ class Font {
             }
         }
 
-        if (typeof this.unknown === "undefined") {
-            this.unknown = new Image(1, 1);
+        if (typeof unknown === "undefined") {
+            unknown = new Image(1, 1);
         }
+
+        this.unknown = unknown;
     }
 
     getGlyph(char) {
@@ -1400,7 +1402,7 @@ class Image {
         return 3 * w * h;
     }
 
-    static fromArray(pixels, w, h) {
+    static fromPixels(pixels, w, h) {
         if (pixels.length % 3 !== 0) {
             throw new DrawingError("Pixel array is invalid");
         }
@@ -1409,11 +1411,16 @@ class Image {
             throw new DrawingError("Pixel array is too large");
         }
 
-        let img = new Image(w, h),
-            i = 0;
+        let img = new Image(w, h);
 
-        for (; i < pixels.length; i++) {
-            img.pixels[i] = pixels[i] & 0xff;
+        let i = 0;
+
+        if (pixels instanceof Uint8Array) {
+            img.pixels = pixels;
+        } else {
+            for (; i < pixels.length; i++) {
+                img.pixels[i] = pixels[i] & 0xff;
+            }
         }
 
         return img;
@@ -1437,73 +1444,6 @@ class Image {
         y = Utils.clamp(Math.floor(y), 0, this.h);
 
         return [x, y];
-    }
-
-    _clampLiangBarsky(x0src, y0src, x1src, y1src) {
-        if (this.inBounds(x0src, y0src) && this.inBounds(x1src, y1src)) {
-            return [Math.floor(x0src), Math.floor(y0src), Math.floor(x1src), Math.floor(y1src)];
-        }
-
-        const edgeLeft = 0,
-            edgeRight = this.w,
-            edgeBottom = 0,
-            edgeTop = this.h;
-
-        const xdelta = x1src - x0src,
-            ydelta = y1src - y0src;
-
-        let t0 = 0.0,
-            t1 = 1.0;
-
-        let p, q, r;
-
-        for (let edge = 0; edge < 4; edge++) {
-            switch (edge) {
-                case 0:
-                    p = -xdelta;
-                    q = -(edgeLeft - x0src);
-                    break;
-                case 1:
-                    p = xdelta;
-                    q = edgeRight - x0src;
-                    break;
-                case 2:
-                    p = -ydelta;
-                    q = -(edgeBottom - y0src);
-                    break;
-                case 3:
-                    p = ydelta;
-                    q = edgeTop - y0src;
-                    break;
-            }
-
-            r = q / p;
-
-            if (p === 0 && q < 0) {
-                return false;
-            }
-
-            if (p < 0) {
-                if (r > t1) {
-                    return false;
-                } else if (r > t0) {
-                    t0 = r;
-                }
-            } else if (p > 0) {
-                if (r < t0) {
-                    return false;
-                } else if (r < t1) {
-                    t1 = r;
-                }
-            }
-        }
-
-        const x0clip = Math.floor(x0src + t0 * xdelta),
-            y0clip = Math.floor(y0src + t0 * ydelta),
-            x1clip = Math.floor(x0src + t1 * xdelta),
-            y1clip = Math.floor(y0src + t1 * ydelta);
-
-        return [x0clip, y0clip, x1clip, y1clip];
     }
 
     getPixel(x, y) {
@@ -1653,7 +1593,7 @@ class Image {
                         x;
 
                     let pos1 = 0,
-                        pos2 = 0;
+                        pos2 = yi;
 
                     for (; y < this.h; y++) {
                         for (x = 0; x < this.w; x++) {
@@ -1667,6 +1607,7 @@ class Image {
                         pos2 = 3 * (this.h - y - 2);
                     }
                 }
+
                 break;
             case 1:
                 {
@@ -1676,7 +1617,7 @@ class Image {
                         x;
 
                     let pos1 = 0,
-                        pos2 = this.pixels.length - 3 * this.h;
+                        pos2 = this.pixels.length + yi + 3;
 
                     for (; y < this.h; y++) {
                         for (x = 0; x < this.w; x++) {
@@ -1690,6 +1631,7 @@ class Image {
                         pos2 = this.pixels.length - 3 * (this.h - y - 1);
                     }
                 }
+
                 break;
             default:
                 return;
@@ -1702,6 +1644,48 @@ class Image {
         this.pixels = pixels2;
     }
 
+    drawFrame(x1, y1, x2, y2, color) {
+        let tmp;
+
+        if (x1 > x2) {
+            tmp = x1;
+            x1 = x2;
+            x2 = tmp;
+        }
+
+        if (y1 > y2) {
+            tmp = y1;
+            y1 = y2;
+            y2 = tmp;
+        }
+
+        const w = x2 - x1 + 1,
+            h = y2 - y1 + 1;
+
+        if (w === 1 && h === 1) {
+            this.setPixel(x1, y1, color);
+            return;
+        } else if (w === 1 || h === 1) {
+            this.setPixel(x1, y1, color);
+            this.setPixel(x2, y2, color);
+        } else {
+            this.setPixel(x1, y1, color);
+            this.setPixel(x1, y2, color);
+            this.setPixel(x2, y1, color);
+            this.setPixel(x2, y2, color);
+        }
+
+        if (w >= 3) {
+            this.fill(x1 + 1, y1, x2 - 1, y1, color);
+            this.fill(x1 + 1, y2, x2 - 1, y2, color);
+        }
+
+        if (h >= 3) {
+            this.fill(x1, y1 + 1, x1, y2 - 1, color);
+            this.fill(x2, y1 + 1, x2, y2 - 1, color);
+        }
+    }
+
     fill(x1, y1, x2, y2, color) {
         if ((x1 < 0 && x2 < 0) || (x1 > this.w && x2 > this.w) || (y1 < 0 && y2 < 0) || (y1 > this.h && y2 > this.h)) {
             return;
@@ -1710,39 +1694,41 @@ class Image {
         [x1, y1] = this.clamp(x1, y1);
         [x2, y2] = this.clamp(x2, y2);
 
-        if (x2 < x1) {
-            let tmp = x1;
-            x1 = x2;
-            x2 = tmp;
-        }
-
-        if (y2 < y1) {
-            let tmp = y1;
-            y1 = y2;
-            y2 = tmp;
-        }
-
         const w = Math.abs(x2 - x1) + 1,
             h = Math.abs(y2 - y1) + 1;
 
-        if (w === 0 && h === 0) {
+        let tmp;
+
+        if (w === 1 && h === 1) {
             this.setPixel_u(x1, y1, color);
-        } else if (h === 0) {
+        } else if (h === 1) {
             let pos1 = 3 * (y1 * this.w + x1),
                 pos2 = 3 * (y2 * this.w + x2);
 
-            while (pos1 < pos2) {
+            if (pos1 > pos2) {
+                tmp = pos1;
+                pos1 = pos2;
+                pos2 = tmp;
+            }
+
+            while (pos1 <= pos2) {
                 this.pixels[pos1++] = color.r;
                 this.pixels[pos1++] = color.g;
                 this.pixels[pos1++] = color.b;
             }
-        } else if (w === 0) {
+        } else if (w === 1) {
             const yi = 3 * (this.w - 1);
 
             let pos1 = 3 * (y1 * this.w + x1),
                 pos2 = 3 * (y2 * this.w + x2);
 
-            while (pos1 < pos2) {
+            if (pos1 > pos2) {
+                tmp = pos1;
+                pos1 = pos2;
+                pos2 = tmp;
+            }
+
+            while (pos1 <= pos2) {
                 this.pixels[pos1++] = color.r;
                 this.pixels[pos1++] = color.g;
                 this.pixels[pos1++] = color.b;
@@ -1751,6 +1737,18 @@ class Image {
             }
         } else {
             const yi = -3 * (w - this.w);
+
+            if (x1 > x2) {
+                tmp = x1;
+                x1 = x2;
+                x2 = tmp;
+            }
+
+            if (y1 > y2) {
+                tmp = y1;
+                y1 = y2;
+                y2 = tmp;
+            }
 
             let i = 0,
                 j;
@@ -1769,7 +1767,7 @@ class Image {
         }
     }
 
-    blit(x, y, src, w, h, x = 0, y = 0) {
+    blit(x, y, src, w, h) {
         let sw = Math.min(w, src.w) || src.w,
             sh = Math.min(h, src.h) || src.h;
 
@@ -1793,6 +1791,35 @@ class Image {
                 this.pixels[pos1 + 2] = src.pixels[pos2 + 2];
             }
         }
+    }
+
+    scale(w, h) {
+        if (w === this.w && h === this.h) {
+            return;
+        }
+
+        const pixels2 = new Uint8Array(Image.getBufSize(w, h));
+
+        let i = 0,
+            j;
+
+        for (; i < h; i++) {
+            for (j = 0; j < w; j++) {
+                const x = Math.floor((j / w) * this.w),
+                    y = Math.floor((i / h) * this.h);
+
+                let pos1 = 3 * (i * w + j),
+                    pos2 = 3 * (y * this.w + x);
+
+                pixels2[pos1] = this.pixels[pos2];
+                pixels2[pos1 + 1] = this.pixels[pos2 + 1];
+                pixels2[pos1 + 2] = this.pixels[pos2 + 2];
+            }
+        }
+
+        this.pixels = pixels2;
+        this.w = w;
+        this.h = h;
     }
 
     invert() {
@@ -1824,11 +1851,7 @@ class Image {
         }
     }
 
-    fillRadius(x, y, color, r) {
-        if (!this.inBounds(x + r, y + r) && !this.inBounds(x - r, y - r)) {
-            return;
-        }
-
+    fillRadius(x, y, r, color) {
         r = Math.floor(r);
 
         if (r === 0) {
@@ -1836,41 +1859,87 @@ class Image {
             return;
         }
 
+        const w = 2 * r - 1;
+
         const x1 = Math.max(0, x - r),
             y1 = Math.max(0, y - r);
 
-        let w = 2 * r,
-            h = 2 * r;
+        const x2 = x1 + w,
+            y2 = y1 + w;
 
-        if (x1 + w > this.w) {
-            w = this.w - x1;
+        this.fill(x1, y1, x2, y2, color);
+    }
+
+    _clampLiangBarsky(x0src, y0src, x1src, y1src) {
+        if (this.inBounds(x0src, y0src) && this.inBounds(x1src, y1src)) {
+            return [Math.floor(x0src), Math.floor(y0src), Math.floor(x1src), Math.floor(y1src)];
         }
 
-        if (y1 + h > this.h) {
-            h = this.h - y1;
-        }
+        const edgeLeft = 0,
+            edgeRight = this.w,
+            edgeBottom = 0,
+            edgeTop = this.h;
 
-        const yi = -3 * (w - this.w + 1);
+        const xdelta = x1src - x0src,
+            ydelta = y1src - y0src;
 
-        let i = 0,
-            j;
+        let t0 = 0.0,
+            t1 = 1.0;
 
-        let pos = 3 * (y1 * this.w + x1);
+        let p, q, r;
 
-        for (; i <= h; i++) {
-            for (j = 0; j <= w; j++) {
-                this.pixels[pos++] = color.r;
-                this.pixels[pos++] = color.g;
-                this.pixels[pos++] = color.b;
+        for (let edge = 0; edge < 4; edge++) {
+            switch (edge) {
+                case 0:
+                    p = -xdelta;
+                    q = -(edgeLeft - x0src);
+                    break;
+                case 1:
+                    p = xdelta;
+                    q = edgeRight - x0src;
+                    break;
+                case 2:
+                    p = -ydelta;
+                    q = -(edgeBottom - y0src);
+                    break;
+                case 3:
+                    p = ydelta;
+                    q = edgeTop - y0src;
+                    break;
             }
 
-            pos += yi;
+            r = q / p;
+
+            if (p === 0 && q < 0) {
+                return false;
+            }
+
+            if (p < 0) {
+                if (r > t1) {
+                    return false;
+                } else if (r > t0) {
+                    t0 = r;
+                }
+            } else if (p > 0) {
+                if (r < t0) {
+                    return false;
+                } else if (r < t1) {
+                    t1 = r;
+                }
+            }
         }
+
+        const x0clip = Math.floor(x0src + t0 * xdelta),
+            y0clip = Math.floor(y0src + t0 * ydelta),
+            x1clip = Math.floor(x0src + t1 * xdelta),
+            y1clip = Math.floor(y0src + t1 * ydelta);
+
+        return [x0clip, y0clip, x1clip, y1clip];
     }
 
     drawLine(x1, y1, x2, y2, color) {
         if (x1 === x2 && y1 === y2) {
-            this.setPixel_u(x1, y1, color);
+            this.setPixel(x1, y1, color);
             return;
         }
 
@@ -1885,6 +1954,8 @@ class Image {
         let dx = x2 - x1,
             dy = y2 - y1;
 
+        let tmp;
+
         if (dx === 0 && dy === 0) {
             this.setPixel_u(x1, y1, color);
         } else if (dy === 0) {
@@ -1892,12 +1963,12 @@ class Image {
                 pos2 = 3 * (y2 * this.w + x2);
 
             if (pos1 > pos2) {
-                let tmp = pos1;
+                tmp = pos1;
                 pos1 = pos2;
                 pos2 = tmp;
             }
 
-            while (pos1 < pos2) {
+            while (pos1 <= pos2) {
                 this.pixels[pos1++] = color.r;
                 this.pixels[pos1++] = color.g;
                 this.pixels[pos1++] = color.b;
@@ -1909,12 +1980,12 @@ class Image {
                 pos2 = 3 * (y2 * this.w + x2);
 
             if (pos1 > pos2) {
-                let tmp = pos1;
+                tmp = pos1;
                 pos1 = pos2;
                 pos2 = tmp;
             }
 
-            while (pos1 < pos2) {
+            while (pos1 <= pos2) {
                 this.pixels[pos1++] = color.r;
                 this.pixels[pos1++] = color.g;
                 this.pixels[pos1++] = color.b;
@@ -1923,7 +1994,7 @@ class Image {
             }
         } else if (Math.abs(dy) < Math.abs(dx)) {
             if (x1 > x2) {
-                let tmp = x2;
+                tmp = x2;
                 x2 = x1;
                 x1 = tmp;
 
@@ -1962,7 +2033,7 @@ class Image {
             }
         } else {
             if (y1 > y2) {
-                let tmp = x2;
+                tmp = x2;
                 x2 = x1;
                 x1 = tmp;
 
@@ -2004,8 +2075,129 @@ class Image {
         }
     }
 
-    drawGrid(grid, color, thicc) {
-        if (!thicc) {
+    drawTriangle(x1, y1, x2, y2, x3, y3, color) {
+        this.drawLine(x1, y1, x2, y2, color);
+        this.drawLine(x2, y2, x3, y3, color);
+        this.drawLine(x3, y3, x1, y1, color);
+    }
+
+    _interpolate(x1, y1, x2, y2, y) {
+        if (y2 === y1) {
+            return x1;
+        }
+
+        return x1 + ((x2 - x1) * (y - y1)) / (y2 - y1);
+    }
+
+    fillTriangle(x1, y1, x2, y2, x3, y3, color) {
+        const points = [
+            { x: x1, y: y1 },
+            { x: x2, y: y2 },
+            { x: x3, y: y3 }
+        ].sort((a, b) => a.y - b.y);
+
+        ({ x: x1, y: y1 } = points[0]);
+        ({ x: x2, y: y2 } = points[1]);
+        ({ x: x3, y: y3 } = points[2]);
+
+        for (let y = y1; y <= y3; y++) {
+            let xLeft, xRight;
+
+            if (y < y2) {
+                xLeft = this._interpolate(x1, y1, x2, y2, y);
+                xRight = this._interpolate(x1, y1, x3, y3, y);
+            } else {
+                xLeft = this._interpolate(x2, y2, x3, y3, y);
+                xRight = this._interpolate(x1, y1, x3, y3, y);
+            }
+
+            xLeft = Math.round(xLeft);
+            xRight = Math.round(xRight);
+
+            this.fill(Math.min(xLeft, xRight), y, Math.max(xLeft, xRight), y, color);
+        }
+    }
+
+    _circlePoints(xc, yc, x, y, color) {
+        this.setPixel(xc + x, yc + y, color);
+        this.setPixel(xc - x, yc + y, color);
+        this.setPixel(xc + x, yc - y, color);
+        this.setPixel(xc - x, yc - y, color);
+        this.setPixel(xc + y, yc + x, color);
+        this.setPixel(xc - y, yc + x, color);
+        this.setPixel(xc + y, yc - x, color);
+        this.setPixel(xc - y, yc - x, color);
+    }
+
+    drawCircle(xc, yc, r, color) {
+        let x = 0,
+            y = r,
+            d = 3 - 2 * r;
+
+        this._circlePoints(xc, yc, x, y, color);
+
+        while (y >= x) {
+            x++;
+
+            if (d > 0) {
+                y--;
+                d += 4 * (x - y) + 10;
+            } else {
+                d += 4 * x + 6;
+            }
+
+            this._circlePoints(xc, yc, x, y, color);
+        }
+    }
+
+    _circleLines(xc, yc, x, y, color) {
+        this.fill(xc + x, yc + y, xc - x, yc + y, color);
+        this.fill(xc + x, yc - y, xc - x, yc - y, color);
+        this.fill(xc + y, yc + x, xc - y, yc + x, color);
+        this.fill(xc + y, yc - x, xc - y, yc - x, color);
+    }
+
+    fillCircle(xc, yc, r, color) {
+        let x = r - 1,
+            y = 0,
+            d = 3 - 2 * r;
+
+        this.fill(xc + x, yc, xc - x, yc, color);
+
+        while (x >= y) {
+            y++;
+            const dx = d > 0;
+
+            if (dx) {
+                x--;
+                d = d + 4 * (y - x) + 10;
+            } else {
+                d = d + 4 * y + 6;
+            }
+
+            this._circleLines(xc, yc, x, y, color);
+        }
+    }
+
+    drawPoints(points, color, size) {
+        if (points.length % 2 !== 0) {
+            throw new DrawingError("Invalid points array");
+        }
+
+        let pixel = this.setPixel;
+        if (size) {
+            pixel = this.fillRadius;
+        }
+
+        pixel = pixel.bind(this);
+
+        for (let i = 0; i < points.length; i += 2) {
+            pixel(points[i], points[i + 1], color, size);
+        }
+    }
+
+    drawGrid(grid, color, thickness) {
+        if (typeof thickness !== "number" || thickness <= 1) {
             for (let i = 0; i <= grid.xDiv; i++) {
                 let x1, y2;
 
@@ -2031,7 +2223,7 @@ class Image {
                 this.setPixel(x1, y2 + 1, color);
             }
         } else {
-            const steps = Math.floor(thicc / 2);
+            const steps = Math.floor(thickness / 2);
 
             for (let i = 0; i <= grid.xDiv; i++) {
                 let x1, y2;
@@ -2042,7 +2234,7 @@ class Image {
                     const y1 = grid.y + j * grid.yMult;
                     y2 = grid.y + (j + 1) * grid.yMult - 1;
 
-                    this.drawLineThick(x1, y1, x1, y2, color, thicc);
+                    this.drawLineThick(x1, y1, x1, y2, color, thickness);
                 }
 
                 if (i !== grid.xDiv) {
@@ -2051,60 +2243,12 @@ class Image {
                             y1 = grid.y + j * grid.yMult,
                             x3 = grid.x + (i + 1) * grid.xMult - steps;
 
-                        this.drawLineThick(x2, y1, x3, y1, color, thicc);
+                        this.drawLineThick(x2, y1, x3, y1, color, thickness);
                     }
                 }
 
                 this.fill(x1 - steps, y2 + 1, x1 + steps, y2 + 1, color);
             }
-        }
-    }
-
-    drawPoints(points, color, size) {
-        if (points.length % 2 !== 0) {
-            throw new DrawingError("Invalid points array");
-        }
-
-        let pixel = this.setPixel;
-        if (size) {
-            pixel = this.fillRadius;
-        }
-
-        pixel = pixel.bind(this);
-
-        for (let i = 0; i < points.length; i += 2) {
-            pixel(points[i], points[i + 1], color, size);
-        }
-    }
-
-    _circlePoints(xc, yc, x, y, color) {
-        this.setPixel(xc + x, yc + y, color);
-        this.setPixel(xc - x, yc + y, color);
-        this.setPixel(xc + x, yc - y, color);
-        this.setPixel(xc - x, yc - y, color);
-        this.setPixel(xc + y, yc + x, color);
-        this.setPixel(xc - y, yc + x, color);
-        this.setPixel(xc + y, yc - x, color);
-        this.setPixel(xc - y, yc - x, color);
-    }
-
-    drawCircle(xc, yc, r, color) {
-        let x = 0,
-            y = r,
-            d = 3 - 2 * r;
-
-        this._circlePoints(xc, yc, x, y, color);
-
-        while (y >= x) {
-            x++;
-            if (d > 0) {
-                y--;
-                d = d + 4 * (x - y) + 10;
-            } else {
-                d = d + 4 * x + 6;
-            }
-
-            this._circlePoints(xc, yc, x, y, color);
         }
     }
 
@@ -2125,6 +2269,8 @@ class Image {
         }
     }
 }
+
+const DigitFont = new Font(f_1);
 
 // leveret
 function exit(msg) {
@@ -2401,8 +2547,6 @@ function handleMsg() {
 
     Benchmark.stopTiming("create_img");
     Benchmark.startTiming("draw_img");
-
-    const DigitFont = new Font(f_1);
 
     const ctxVars = [
         evalArgs,
