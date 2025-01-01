@@ -77,17 +77,25 @@ const DiscordEndpoints = {
 };
 
 // globals
+
+// input
 let targetMsg, input, text;
 
+// image
 let image, width, height, isGif;
 let originalWidth,
     originalHeight,
     imageOversized = false;
 
-let fontRanges, customEmojis, hasCustomEmojis;
+// fonts
+let fontRanges;
+let customEmojis, hasCustomEmojis;
 
+// caption
+let drawImageOpts;
 let output;
 
+// main
 const main = (() => {
     // parse args and attachment
     function parseArgs() {
@@ -244,6 +252,13 @@ const main = (() => {
             TenorHttpClient,
             TenorConstants: TenorHttpClient.Constants
         });
+    }
+
+    function loadTableGen() {
+        ModuleLoader.loadModuleFromTag(tags.Table);
+
+        Benchmark.deleteLastCountTime("tag_fetch");
+        Benchmark.deleteLastCountTime("module_load");
     }
 
     // load ranges
@@ -494,8 +509,6 @@ const main = (() => {
     }
 
     // caption
-    let drawImageOpts;
-
     function getParaStyle() {
         return new CanvasKit.ParagraphStyle({
             textStyle: {
@@ -770,10 +783,7 @@ const main = (() => {
 
         let out;
         if (showTimes) {
-            ModuleLoader.loadModuleFromTag(tags.Table);
-
-            Benchmark.deleteLastCountTime("tag_fetch");
-            Benchmark.deleteLastCountTime("module_load");
+            loadTableGen();
 
             const table = Benchmark.getTable("heavy", 1, "load_total", "load_image", "caption_total", "encode_image");
             out = LoaderUtils.codeBlock(table);
