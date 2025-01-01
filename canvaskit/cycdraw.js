@@ -903,48 +903,6 @@ class Image {
         this.pixels = pixels2;
     }
 
-    drawFrame(x1, y1, x2, y2, color) {
-        let tmp;
-
-        if (x1 > x2) {
-            tmp = x1;
-            x1 = x2;
-            x2 = tmp;
-        }
-
-        if (y1 > y2) {
-            tmp = y1;
-            y1 = y2;
-            y2 = tmp;
-        }
-
-        const w = x2 - x1 + 1,
-            h = y2 - y1 + 1;
-
-        if (w === 1 && h === 1) {
-            this.setPixel(x1, y1, color);
-            return;
-        } else if (w === 1 || h === 1) {
-            this.setPixel(x1, y1, color);
-            this.setPixel(x2, y2, color);
-        } else {
-            this.setPixel(x1, y1, color);
-            this.setPixel(x1, y2, color);
-            this.setPixel(x2, y1, color);
-            this.setPixel(x2, y2, color);
-        }
-
-        if (w >= 3) {
-            this.fill(x1 + 1, y1, x2 - 1, y1, color);
-            this.fill(x1 + 1, y2, x2 - 1, y2, color);
-        }
-
-        if (h >= 3) {
-            this.fill(x1, y1 + 1, x1, y2 - 1, color);
-            this.fill(x2, y1 + 1, x2, y2 - 1, color);
-        }
-    }
-
     fill(x1, y1, x2, y2, color) {
         if ((x1 < 0 && x2 < 0) || (x1 > this.w && x2 > this.w) || (y1 < 0 && y2 < 0) || (y1 > this.h && y2 > this.h)) {
             return;
@@ -1213,6 +1171,67 @@ class Image {
             y2 = y1 + w;
 
         this.fill(x1, y1, x2, y2, color);
+    }
+
+    drawFrame(x1, y1, x2, y2, color) {
+        let tmp;
+
+        if (x1 > x2) {
+            tmp = x1;
+            x1 = x2;
+            x2 = tmp;
+        }
+
+        if (y1 > y2) {
+            tmp = y1;
+            y1 = y2;
+            y2 = tmp;
+        }
+
+        const w = x2 - x1 + 1,
+            h = y2 - y1 + 1;
+
+        if (w === 1 && h === 1) {
+            this.setPixel(x1, y1, color);
+            return;
+        } else if (w === 1 || h === 1) {
+            this.setPixel(x1, y1, color);
+            this.setPixel(x2, y2, color);
+        } else {
+            this.setPixel(x1, y1, color);
+            this.setPixel(x1, y2, color);
+            this.setPixel(x2, y1, color);
+            this.setPixel(x2, y2, color);
+        }
+
+        if (w >= 3) {
+            this.fill(x1 + 1, y1, x2 - 1, y1, color);
+            this.fill(x1 + 1, y2, x2 - 1, y2, color);
+        }
+
+        if (h >= 3) {
+            this.fill(x1, y1 + 1, x1, y2 - 1, color);
+            this.fill(x2, y1 + 1, x2, y2 - 1, color);
+        }
+    }
+
+    drawFrameRadius(x, y, r, color) {
+        r = Math.floor(r);
+
+        if (r === 0) {
+            this.setPixel(x, y, color);
+            return;
+        }
+
+        const w = 2 * r - 1;
+
+        const x1 = Math.max(0, x - r),
+            y1 = Math.max(0, y - r);
+
+        const x2 = x1 + w,
+            y2 = y1 + w;
+
+        this.drawFrame(x1, y1, x2, y2, color);
     }
 
     _clampLiangBarsky(x0src, y0src, x1src, y1src) {
