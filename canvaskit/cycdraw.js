@@ -1049,6 +1049,9 @@ class Image {
     }
 
     blit(x, y, src, w, h) {
+        w = Math.floor(w);
+        h = Math.floor(h);
+
         let sw = Math.min(w, src.w) || src.w,
             sh = Math.min(h, src.h) || src.h;
 
@@ -1076,6 +1079,9 @@ class Image {
     }
 
     overlap(x, y, src, w, h) {
+        w = Math.floor(w);
+        h = Math.floor(h);
+
         let sw = Math.min(w, src.w) || src.w,
             sh = Math.min(h, src.h) || src.h;
 
@@ -1110,6 +1116,9 @@ class Image {
     }
 
     scale(w, h) {
+        w = Math.floor(w);
+        h = Math.floor(h);
+
         if (w === this.w && h === this.h) {
             return;
         }
@@ -1455,6 +1464,15 @@ class Image {
     }
 
     fillTriangle(x1, y1, x2, y2, x3, y3, color) {
+        if (
+            (x1 < 0 && x2 < 0 && x3 < 0) ||
+            (x1 > this.w && x2 > this.w && x3 > this.w) ||
+            (y1 < 0 && y2 < 0 && y3 < 0) ||
+            (y1 > this.h && y2 > this.h && y3 > this.h)
+        ) {
+            return;
+        }
+
         const points = [
             { x: x1, y: y1 },
             { x: x2, y: y2 },
@@ -1498,14 +1516,33 @@ class Image {
     }
 
     drawCircle(xc, yc, r, color) {
+        r = Math.floor(r);
+
+        if (r === 0) {
+            this.setPixel(xc, yc, color);
+            return;
+        }
+
+        const left = xc - r,
+            right = xc + r,
+            up = yc - r,
+            down = yc + r;
+
+        if (right < 0 || left > this.w || down < 0 || up > this.h) {
+            return;
+        }
+
+        xc = Math.floor(xc);
+        yc = Math.floor(yc);
+
         let x = 0,
             y = r,
             d = 3 - 2 * r;
 
-        this.setPixel(xc, yc + r, color);
-        this.setPixel(xc, yc - r, color);
-        this.setPixel(xc + r, yc, color);
-        this.setPixel(xc - r, yc, color);
+        this.setPixel(left, yc, color);
+        this.setPixel(right, yc, color);
+        this.setPixel(xc, up, color);
+        this.setPixel(xc, down, color);
 
         while (y >= x) {
             x++;
@@ -1532,11 +1569,28 @@ class Image {
     }
 
     fillCircle(xc, yc, r, color) {
+        r = Math.floor(r);
+
+        if (r === 0) {
+            this.setPixel(xc, yc, color);
+            return;
+        }
+
+        const left = xc - r,
+            right = xc + r;
+
+        if (right < 0 || left > this.w || yc + r < 0 || yc - r > this.h) {
+            return;
+        }
+
+        xc = Math.floor(xc);
+        yc = Math.floor(yc);
+
         let x = r - 1,
             y = 0,
             d = 3 - 2 * r;
 
-        this.fill(xc + x, yc, xc - x, yc, color);
+        this.fill(left + 1, yc, right - 1, yc, color);
 
         while (x >= y) {
             y++;
