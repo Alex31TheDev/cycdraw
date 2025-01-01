@@ -2100,6 +2100,23 @@ class Image {
         }
     }
 
+    drawLineThick(x1, y1, x2, y2, color, thickness) {
+        const thick2 = Math.floor(thickness / 2);
+
+        const dx = Math.abs(x2 - x1),
+            dy = Math.abs(y2 - y1);
+
+        if (dy < dx) {
+            for (let i = -thick2; i <= thick2; i++) {
+                this.drawLine(x1, y1 + i, x2, y2 + i, color);
+            }
+        } else {
+            for (let i = -thick2; i <= thick2; i++) {
+                this.drawLine(x1 + i, y1, x2 + i, y2, color);
+            }
+        }
+    }
+
     drawTriangle(x1, y1, x2, y2, x3, y3, color) {
         this.drawLine(x1, y1, x2, y2, color);
         this.drawLine(x2, y2, x3, y3, color);
