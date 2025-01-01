@@ -554,8 +554,12 @@ class Grid {
 }
 
 class Font {
-    constructor(charSet, spacing = 1, postProc) {
+    constructor(charSet, spacing = 1, options = {}) {
         this.spacing = spacing;
+
+        this.options = options;
+        const postProc = options.postProc;
+
         this.loadGlyphs(charSet);
 
         if (typeof postProc !== "undefined") {
@@ -1776,6 +1780,13 @@ class Image {
     }
 
     scale(w, h) {
+        if (typeof h === "undefined") {
+            const x = w;
+
+            w = this.w * x;
+            h = this.h * x;
+        }
+
         w = Math.floor(w);
         h = Math.floor(h);
 
