@@ -1440,8 +1440,8 @@ class Image {
     }
 
     clamp(x, y) {
-        x = Utils.clamp(Math.floor(x), 0, this.w);
-        y = Utils.clamp(Math.floor(y), 0, this.h);
+        x = Utils.clamp(Math.floor(x), 0, this.w - 1);
+        y = Utils.clamp(Math.floor(y), 0, this.h - 1);
 
         return [x, y];
     }

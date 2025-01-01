@@ -5,12 +5,18 @@ class DrawingError extends CustomError {}
 class Color {
     constructor(r, g, b, a) {
         if (r instanceof Color) {
-            const clr = r;
+            const clr = r,
+                new_a = g;
 
             this.r = clr.r;
             this.g = clr.g;
             this.b = clr.b;
-            this.a = clr.a;
+
+            if (typeof new_a === "undefined") {
+                this.a = clr.a;
+            } else {
+                this.a = LoaderUtils.clamp(Math.round(new_a), 0, 255);
+            }
 
             return this;
         }
@@ -635,8 +641,8 @@ class Image {
     }
 
     clamp(x, y) {
-        x = LoaderUtils.clamp(Math.floor(x), 0, this.w);
-        y = LoaderUtils.clamp(Math.floor(y), 0, this.h);
+        x = LoaderUtils.clamp(Math.floor(x), 0, this.w - 1);
+        y = LoaderUtils.clamp(Math.floor(y), 0, this.h - 1);
 
         return [x, y];
     }
