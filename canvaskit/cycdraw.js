@@ -393,6 +393,27 @@ class Font {
 
         return this.unknown;
     }
+
+    measureString(str) {
+        let w = 0,
+            h = 0;
+
+        for (let i = 0; i < str.length; i++) {
+            const char = str[i];
+
+            if (char === "\n") {
+                continue;
+            }
+
+            const glyph = this.getGlyph(char);
+
+            w += glyph.w + this.spacing;
+            h = Math.max(h, glyph.h);
+        }
+
+        w -= this.spacing;
+        return [w, h];
+    }
 }
 
 // named colors
@@ -1688,7 +1709,8 @@ class Image {
     }
 
     drawString(x, y, str, font) {
-        let x_of = 0;
+        let x_of = 0,
+            h = 0;
 
         for (let i = 0; i < str.length; i++) {
             const char = str[i];
@@ -1701,7 +1723,11 @@ class Image {
             this.blit(x + x_of, y, glyph);
 
             x_of += glyph.w + font.spacing;
+            h = Math.max(h, glyph.h);
         }
+
+        const w = x_of - font.spacing;
+        return [w, h];
     }
 }
 
