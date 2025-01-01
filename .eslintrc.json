@@ -20,7 +20,8 @@
         "no-empty": "off",
         "no-debugger": "off",
         "no-global-assign": "off",
-        "no-useless-escape": "warn"
+        "no-useless-escape": "warn",
+        "eqeqeq": ["error", "always", { "null": "ignore" }]
     },
     "globals": {
         "tag": "writable",
