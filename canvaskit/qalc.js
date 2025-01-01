@@ -1,6 +1,11 @@
 "use strict";
 /* global Qalc:readonly, Gnuplot:readonly, calc:readonly */
 
+// config
+const plotWidth = 1280,
+    plotHeight = 720;
+
+// sources
 const urls = {
     QalculatorInit: "https://files.catbox.moe/ovp1mx.js",
     QalculatorWasm: "https://files.catbox.moe/484lx1.wasm",
@@ -21,12 +26,25 @@ const tags = {
     RobotoRegular: /^ck_font_roboto\d+$/
 };
 
-const plotWidth = 1280,
-    plotHeight = 720;
-
+// globals
 let font;
 
+// main
 const main = (() => {
+    // parse args
+    function getInput() {
+        let input = tag.args ?? "";
+        [, input] = LoaderUtils.parseScript(input);
+
+        if (input.length < 1) {
+            const out = ":warning: No expression provided.";
+            throw new ExitError(out);
+        }
+
+        return input;
+    }
+
+    // load libraries
     function initLoader() {
         util.loadLibrary = "none";
 
@@ -38,18 +56,6 @@ const main = (() => {
 
         ModuleLoader.useDefault("tagOwner");
         ModuleLoader.enableCache = false;
-    }
-
-    function getInput() {
-        let input = tag.args ?? "";
-        [, input] = LoaderUtils.parseScript(input);
-
-        if (input.length < 1) {
-            const out = ":warning: No expression provided.";
-            throw new ExitError(out);
-        }
-
-        return input;
     }
 
     function patch() {
@@ -145,6 +151,7 @@ const main = (() => {
         });
     }
 
+    // init libraries
     function initQalculator() {
         const calc = new Qalc.Calculator();
         calc.loadGlobalDefinitions();
@@ -152,6 +159,7 @@ const main = (() => {
         Patches.patchGlobalContext({ calc });
     }
 
+    // qalculate main
     function runGnuplot(data_files, commands, extra_commandline, persist) {
         const FS = Gnuplot.FS;
 
@@ -228,8 +236,10 @@ set output '/output'`
 })();
 
 try {
+    // run main
     main();
 } catch (err) {
+    // output
     if (err instanceof ExitError) {
         const out = err.message;
         out;

@@ -1,11 +1,16 @@
 "use strict";
 /* global qrcode:readonly */
 
-globalThis.ExitError = class extends Error {};
-
+// config
 const defaultScale = 12,
     maxScale = 100;
 
+// sources
+const tags = {
+    QRCode: "ck_qrcode"
+};
+
+// help
 const helpOptions = ["help", "-help", "--help", "-h", "usage", "-usage", "-u"],
     scaleOption = "-scale";
 
@@ -13,7 +18,12 @@ const help = `Usage: \`%t ${tag.name} [-scale 1-100] text\`
 Encode the provided text or text file into a QR code.`,
     usage = `See \`%t ${tag.name} help\` for usage.`;
 
+// errors
+globalThis.ExitError = class extends Error {};
+
+// main
 const main = (() => {
+    // parse args and attachment
     function getInput() {
         let input = tag.args ?? "",
             scale = defaultScale;
@@ -74,21 +84,6 @@ const main = (() => {
         };
     }
 
-    function loadLodepng() {
-        delete globalThis.ExitError;
-
-        util.loadLibrary = "lodepng";
-
-        if (util.env) {
-            eval(util.fetchTag("canvaskitloader").body);
-        } else {
-            util.executeTag("canvaskitloader");
-        }
-
-        ModuleLoader.useDefault("tagOwner");
-        ModuleLoader.enableCache = false;
-    }
-
     function getAttachmentInput() {
         let input;
 
@@ -111,13 +106,30 @@ const main = (() => {
         return input;
     }
 
+    // load libraries
+    function loadLodepng() {
+        delete globalThis.ExitError;
+
+        util.loadLibrary = "lodepng";
+
+        if (util.env) {
+            eval(util.fetchTag("canvaskitloader").body);
+        } else {
+            util.executeTag("canvaskitloader");
+        }
+
+        ModuleLoader.useDefault("tagOwner");
+        ModuleLoader.enableCache = false;
+    }
+
     function loadQrcode() {
         Patches.apply("polyfillTextEncoderDecoder");
-        const { qrcode } = ModuleLoader.loadModuleFromTag("ck_qrcode");
+        const { qrcode } = ModuleLoader.loadModuleFromTag(tags.QRCode);
 
         Patches.patchGlobalContext({ qrcode });
     }
 
+    // QR code main
     function createQrcode(str) {
         try {
             const code = qrcode.create(str);
@@ -150,6 +162,7 @@ const main = (() => {
                             py = y * scale + i;
 
                         const ind2 = (py * width + px) * 4;
+
                         pixels[ind2] = clr;
                         pixels[ind2 + 1] = clr;
                         pixels[ind2 + 2] = clr;
@@ -159,23 +172,10 @@ const main = (() => {
             }
         }
 
-        return { width, pixels };
+        return { pixels, width };
     }
 
-    return _ => {
-        let { input, scale, hasAttachment } = getInput();
-
-        loadLodepng();
-
-        if (hasAttachment) {
-            input = getAttachmentInput();
-        }
-
-        loadQrcode();
-
-        const code = createQrcode(input),
-            { width, pixels } = drawQrcode(code, scale);
-
+    function sendOutput(pixels, width) {
         const pngBytes = lodepng.encode({
             width: width,
             height: width,
@@ -190,12 +190,31 @@ const main = (() => {
         });
 
         throw new ExitError();
+    }
+
+    return _ => {
+        let { input, scale, hasAttachment } = getInput();
+
+        loadLodepng();
+
+        if (hasAttachment) {
+            input = getAttachmentInput();
+        }
+
+        loadQrcode();
+
+        const code = createQrcode(input),
+            { pixels, width } = drawQrcode(code, scale);
+
+        sendOutput(pixels, width);
     };
 })();
 
 try {
+    // run main
     main();
 } catch (err) {
+    // output
     if (err instanceof ExitError) {
         const out = err.message;
         out;
