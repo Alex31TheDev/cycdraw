@@ -1187,25 +1187,27 @@ class Image {
     }
 
     fillRadius(x, y, r, color) {
-        r = Math.floor(r);
+        r = Math.round(2 * r) / 2;
 
-        if (r === 0) {
+        if (Math.floor(r) === 0) {
             this.setPixel(x, y, color);
             return;
         }
 
-        const w = 2 * r - 1;
+        const x1 = x - r + 1,
+            y1 = y - r + 1;
 
-        const x1 = Math.max(0, x - r),
-            y1 = Math.max(0, y - r);
-
-        const x2 = x1 + w,
-            y2 = y1 + w;
+        const x2 = x + r,
+            y2 = y + r;
 
         this.fill(x1, y1, x2, y2, color);
     }
 
     drawFrame(x1, y1, x2, y2, color) {
+        if ((x1 < 0 && x2 < 0) || (x1 > this.w && x2 > this.w) || (y1 < 0 && y2 < 0) || (y1 > this.h && y2 > this.h)) {
+            return;
+        }
+
         let tmp;
 
         if (x1 > x2) {
@@ -1248,20 +1250,18 @@ class Image {
     }
 
     drawFrameRadius(x, y, r, color) {
-        r = Math.floor(r);
+        r = Math.round(2 * r) / 2;
 
-        if (r === 0) {
+        if (Math.floor(r) === 0) {
             this.setPixel(x, y, color);
             return;
         }
 
-        const w = 2 * r - 1;
+        const x1 = x - r + 1,
+            y1 = y - r + 1;
 
-        const x1 = Math.max(0, x - r),
-            y1 = Math.max(0, y - r);
-
-        const x2 = x1 + w,
-            y2 = y1 + w;
+        const x2 = x + r,
+            y2 = y + r;
 
         this.drawFrame(x1, y1, x2, y2, color);
     }
@@ -1584,7 +1584,7 @@ class Image {
     }
 
     drawCircle(xc, yc, r, color) {
-        r = Math.floor(r);
+        r = Math.round(r);
 
         if (r === 0) {
             this.setPixel(xc, yc, color);
@@ -1603,14 +1603,14 @@ class Image {
         xc = Math.floor(xc);
         yc = Math.floor(yc);
 
-        let x = 0,
-            y = r,
-            d = 3 - 2 * r;
-
         this.setPixel(left, yc, color);
         this.setPixel(right, yc, color);
         this.setPixel(xc, up, color);
         this.setPixel(xc, down, color);
+
+        let x = 0,
+            y = r,
+            d = 3 - 2 * r;
 
         while (y >= x) {
             x++;
@@ -1637,7 +1637,7 @@ class Image {
     }
 
     fillCircle(xc, yc, r, color) {
-        r = Math.floor(r);
+        r = Math.round(r);
 
         if (r === 0) {
             this.setPixel(xc, yc, color);
@@ -1654,15 +1654,16 @@ class Image {
         xc = Math.floor(xc);
         yc = Math.floor(yc);
 
-        let x = r - 1,
+        this.fill(left, yc, right, yc, color);
+
+        let x = r,
             y = 0,
             d = 3 - 2 * r;
 
-        this.fill(left + 1, yc, right - 1, yc, color);
+        let dx = d > 0;
 
         while (x >= y) {
             y++;
-            const dx = d > 0;
 
             if (dx) {
                 x--;
@@ -1671,6 +1672,7 @@ class Image {
                 d = d + 4 * y + 6;
             }
 
+            dx = d > 0;
             this._circleLines(xc, yc, x, y, color, dx);
         }
     }

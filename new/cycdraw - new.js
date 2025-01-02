@@ -1848,25 +1848,27 @@ class Image {
     }
 
     fillRadius(x, y, r, color) {
-        r = Math.floor(r);
+        r = Math.round(2 * r) / 2;
 
-        if (r === 0) {
+        if (Math.floor(r) === 0) {
             this.setPixel(x, y, color);
             return;
         }
 
-        const w = 2 * r - 1;
+        const x1 = x - r + 1,
+            y1 = y - r + 1;
 
-        const x1 = Math.max(0, x - r),
-            y1 = Math.max(0, y - r);
-
-        const x2 = x1 + w,
-            y2 = y1 + w;
+        const x2 = x + r,
+            y2 = y + r;
 
         this.fill(x1, y1, x2, y2, color);
     }
 
     drawFrame(x1, y1, x2, y2, color) {
+        if ((x1 < 0 && x2 < 0) || (x1 > this.w && x2 > this.w) || (y1 < 0 && y2 < 0) || (y1 > this.h && y2 > this.h)) {
+            return;
+        }
+
         let tmp;
 
         if (x1 > x2) {
@@ -1909,20 +1911,18 @@ class Image {
     }
 
     drawFrameRadius(x, y, r, color) {
-        r = Math.floor(r);
+        r = Math.round(2 * r) / 2;
 
-        if (r === 0) {
+        if (Math.floor(r) === 0) {
             this.setPixel(x, y, color);
             return;
         }
 
-        const w = 2 * r - 1;
+        const x1 = x - r + 1,
+            y1 = y - r + 1;
 
-        const x1 = Math.max(0, x - r),
-            y1 = Math.max(0, y - r);
-
-        const x2 = x1 + w,
-            y2 = y1 + w;
+        const x2 = x + r,
+            y2 = y + r;
 
         this.drawFrame(x1, y1, x2, y2, color);
     }
@@ -2213,7 +2213,7 @@ class Image {
     }
 
     drawCircle(xc, yc, r, color) {
-        r = Math.floor(r);
+        r = Math.round(r);
 
         if (r === 0) {
             this.setPixel(xc, yc, color);
@@ -2227,11 +2227,11 @@ class Image {
         xc = Math.floor(xc);
         yc = Math.floor(yc);
 
+        this._circlePoints(xc, yc, x, y, color);
+
         let x = 0,
             y = r,
             d = 3 - 2 * r;
-
-        this._circlePoints(xc, yc, x, y, color);
 
         while (y >= x) {
             x++;
@@ -2269,11 +2269,11 @@ class Image {
         xc = Math.floor(xc);
         yc = Math.floor(yc);
 
+        this.fill(xc + x, yc, xc - x, yc, color);
+
         let x = r - 1,
             y = 0,
             d = 3 - 2 * r;
-
-        this.fill(xc + x, yc, xc - x, yc, color);
 
         while (x >= y) {
             y++;
