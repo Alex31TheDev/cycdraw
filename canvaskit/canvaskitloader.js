@@ -532,6 +532,10 @@ const LoaderUtils = {
     outCharLimit: util.outCharLimit ?? 1000,
     outLineLimit: util.outLineLimit ?? 6,
 
+    stripSpaces: str => {
+        return str.replace(/\s+/g, "");
+    },
+
     parseInt: (str, radix = 10) => {
         if (typeof str !== "string" || typeof radix !== "number") {
             return NaN;
@@ -554,6 +558,23 @@ const LoaderUtils = {
     capitalize: str => {
         str = String(str).toLowerCase();
         return str[0].toUpperCase() + str.substring(1);
+    },
+
+    _camelToWordsRegex: /([a-z])([A-Z])/g,
+    camelCaseToWords: str => {
+        const words = str.replace(LoaderUtils._camelToWordsRegex, "$1 $2");
+        return words.toLowerCase();
+    },
+
+    _wordsToCamelRegex: /(?:^\w|[A-Z]|\b\w|\s+)/g,
+    wordsToCamelCase: str => {
+        str = str.toLowerCase();
+
+        const camel = str.replace(LoaderUtils._wordsToCamelRegex, (match, i) =>
+            match[`to${i ? "Upper" : "Lower"}Case`]()
+        );
+
+        return LoaderUtils.stripSpaces(camel);
     },
 
     removeRangeStr: (str, i, length = 1) => {
@@ -908,6 +929,19 @@ const LoaderUtils = {
             key = key.trim();
             return strings[key] ?? match;
         });
+    },
+
+    getArgumentPositions: (func, names) => {
+        const code = func.toString();
+
+        const argNames = code
+            .match(/\(([^)]*)\)/)[1]
+            .split(",")
+            .map(arg => arg.trim())
+            .filter(Boolean);
+
+        const positions = names.map(name => argNames.indexOf(name));
+        return positions.filter(pos => pos !== -1);
     },
 
     removeUndefinedValues: obj => {

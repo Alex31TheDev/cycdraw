@@ -5,8 +5,8 @@ const width = 400,
     height = 300;
 
 let sort,
-    style = "basic",
-    arraySize = 99;
+    style,
+    arraySize = 100;
 
 let showTimes = false;
 
@@ -56,10 +56,14 @@ let stretchX, stretchY, angle;
 let gif, img;
 
 let frame = 0,
+    frameCount = 1,
     stage = 0;
 
 let delay,
-    timeMult = 0.15;
+    delayMult = 1,
+    sortDelayMult = 1;
+
+const timeMult = 0.15;
 
 // drawing
 const radius = (height - 30) / 2;
@@ -70,7 +74,10 @@ const p1_x = Math.floor(width / 2),
 let usedColors, rainbowColors, palette;
 let LargeDigitFont;
 
-let nth, writeFrame;
+let nth,
+    nthMult = 1;
+
+let writeFrame;
 
 // sorts
 const [stages, sorts] = (() => {
@@ -81,8 +88,8 @@ const [stages, sorts] = (() => {
     }
 
     function shuffle() {
-        for (let i = 0; i < arraySize; i++) {
-            const rand = Math.floor(Math.random() * (arraySize - 1));
+        for (let i = 0; i < array.length; i++) {
+            const rand = Math.floor(Math.random() * (array.length - 1));
             swap(i, rand);
 
             if (i % 4 === 0) {
@@ -94,7 +101,7 @@ const [stages, sorts] = (() => {
     }
 
     function sweep() {
-        for (let i = 0; i < arraySize; i++) {
+        for (let i = 0; i < array.length; i++) {
             if (array[i] !== i + 1) {
                 return false;
             }
@@ -108,9 +115,9 @@ const [stages, sorts] = (() => {
 
     // selection
     function selectionSort() {
-        for (let i = 0; i < arraySize; i++) {
+        for (let i = 0; i < array.length; i++) {
             let min_idx = i;
-            for (let j = i + 1; j < arraySize; j++) {
+            for (let j = i + 1; j < array.length; j++) {
                 if (array[min_idx] > array[j]) {
                     min_idx = j;
 
@@ -126,7 +133,7 @@ const [stages, sorts] = (() => {
 
     // bubble
     function bubbleSort() {
-        let n = arraySize,
+        let n = array.length,
             swapped;
 
         do {
@@ -149,7 +156,7 @@ const [stages, sorts] = (() => {
 
     // insertion
     function insertionSort() {
-        for (let i = 1; i < arraySize; i++) {
+        for (let i = 1; i < array.length; i++) {
             let j = i;
 
             while (j > 0 && array[j] < array[j - 1]) {
@@ -214,7 +221,7 @@ const [stages, sorts] = (() => {
     }
 
     function heapSort() {
-        let n = arraySize;
+        let n = array.length;
 
         for (let i = Math.floor(n / 2) - 1; i >= 0; i--) {
             heapify(n, i);
@@ -266,7 +273,7 @@ const [stages, sorts] = (() => {
         for (let k = 0; k < temp.length; k++) {
             array[leftStart + k] = temp[k];
 
-            if (leftEnd - leftStart >= arraySize / 50) {
+            if (leftEnd - leftStart >= array.length / 50) {
                 marked.push(leftStart + k);
                 writeFrame();
             }
@@ -338,7 +345,7 @@ const [stages, sorts] = (() => {
     function analyzePow(array, base) {
         let pow = 0;
 
-        for (let i = 0; i < arraySize; i++) {
+        for (let i = 0; i < array.length; i++) {
             const logValue = Math.log(array[i]) / Math.log(base);
 
             if (Math.floor(logValue) > pow) {
@@ -381,12 +388,12 @@ const [stages, sorts] = (() => {
 
         for (let p = 0; p <= maxPower; p++) {
             for (let i = 0; i < vRegs.length; i++) {
-                vRegs[i] = arraySize - 1;
+                vRegs[i] = array.length - 1;
             }
 
             pos = 0;
 
-            for (let i = 0; i < arraySize; i++) {
+            for (let i = 0; i < array.length; i++) {
                 const digit = getDigit(array[pos], p, radix);
 
                 if (digit === 0) {
@@ -412,7 +419,7 @@ const [stages, sorts] = (() => {
     function analyzeMax() {
         let max = -Infinity;
 
-        for (let i = 0; i < arraySize; i++) {
+        for (let i = 0; i < array.length; i++) {
             max = Math.max(array[i], max);
 
             marked.push(i);
@@ -427,23 +434,23 @@ const [stages, sorts] = (() => {
 
     function gravitySort() {
         const max = analyzeMax(),
-            abacus = Array.from({ length: arraySize }, () => Array(max).fill(0));
+            abacus = Array.from({ length: array.length }, () => Array(max).fill(0));
 
         const oldNth = nth;
         nth *= 10;
 
-        for (let j = 0; j < arraySize; j++) {
+        for (let j = 0; j < array.length; j++) {
             for (let k = 0; k < Math.floor(array[j]); k++) {
                 abacus[j][max - k - 1] = 1;
             }
         }
 
         for (let l = 0; l < max; l++) {
-            for (let m = 0; m < arraySize; m++) {
+            for (let m = 0; m < array.length; m++) {
                 if (abacus[m][l] === 1) {
                     let dropPos = m;
 
-                    while (dropPos + 1 < arraySize && abacus[dropPos][l] === 1) {
+                    while (dropPos + 1 < array.length && abacus[dropPos][l] === 1) {
                         dropPos++;
                     }
 
@@ -454,7 +461,7 @@ const [stages, sorts] = (() => {
                 }
             }
 
-            for (let x = 0; x < arraySize; x++) {
+            for (let x = 0; x < array.length; x++) {
                 let count = 0;
 
                 for (let y = 0; y < max; y++) {
@@ -463,7 +470,7 @@ const [stages, sorts] = (() => {
 
                 array[x] = count;
 
-                marked.push(arraySize - l - 1);
+                marked.push(array.length - l - 1);
                 marked[0] = count;
                 writeFrame();
             }
@@ -482,11 +489,11 @@ const [stages, sorts] = (() => {
             selection: selectionSort,
             bubble: bubbleSort,
             insertion: insertionSort,
-            quick: quickSort.bind(undefined, 0, arraySize - 1),
+            quick: quickSort,
             heap: heapSort,
-            merge: mergeSort.bind(undefined, 0, arraySize - 1),
-            mergeInPlace: mergeSortInPlace.bind(undefined, 0, arraySize - 1),
-            inPlaceRadixLSD: inPlaceRadixLSDSort.bind(undefined, 3),
+            merge: mergeSort,
+            mergeInPlace: mergeSortInPlace,
+            radixLsdInPlace: inPlaceRadixLSDSort.bind(undefined, 3),
             gravity: gravitySort
         }
     ];
@@ -500,10 +507,10 @@ const sortNames = Object.keys(sorts).map(Util.camelToWords),
     styleList = ["basic", "rainbow", "lines", "points", "pyramid", "circle"];
 
 const help = `Usage: \`%t ${tag.name} [--show-times] sort [style = basic]\`
-Animates the
+Creates gifs of sorting algorithms.
 
-Sorts: ${sortNames.join(", ")}
-Styles: ${styleList.join(", ")}`,
+- Sorts: **${sortNames.join("**, **")}**
+- Styles: **${styleList.join("**, **")}**`,
     usage = `See \`%t ${tag.name} help\` for usage.`;
 
 // main
@@ -513,7 +520,7 @@ const main = (() => {
         [sort, style] = (() => {
             let input = tag.args ?? "";
 
-            const split = input.split(" "),
+            let split = input.split(" "),
                 option = split[0];
 
             checkArgs: if (split.length > 0) {
@@ -539,6 +546,9 @@ const main = (() => {
             if (input.length < 1) {
                 const out = ":warning: No input provided.\n" + usage;
                 throw new ExitError(out);
+            } else {
+                input = input.toLowerCase();
+                split = input.split(" ");
             }
 
             let sort, style;
@@ -548,7 +558,7 @@ const main = (() => {
 
                 if (sortNames.includes(name)) {
                     sort = name;
-                    style = split.slice(i).join(" ") || "basic";
+                    style = split.slice(i).join(" ");
 
                     break;
                 }
@@ -557,14 +567,17 @@ const main = (() => {
             if (typeof sort === "undefined") {
                 const out = ":warning: Invalid sort.\n" + usage;
                 throw new ExitError(out);
+            } else {
+                sort = Util.wordsToCamel(sort);
             }
 
             if (!styleList.includes(style)) {
                 const out = ":warning: Invalid style.\n" + usage;
                 throw new ExitError(out);
+            } else {
+                style ||= "basic";
             }
 
-            sort = Util.wordsToCamel(sort);
             return [sort, style];
         })();
     }
@@ -870,14 +883,42 @@ const main = (() => {
 
         gif.writeFrame(index, width, height, {
             palette,
-            delay
+            delay: Math.floor(delay)
         });
 
         setVars(refresh);
+        frameCount++;
     }
 
     // array
+    function bindSorts() {
+        for (const [key, func] of Object.entries(sorts)) {
+            const pos = LoaderUtils.getArgumentPositions(func, ["low", "high"]);
+
+            if (pos[0] === 0 && pos[1] === 1) {
+                sorts[key] = func.bind(null, 0, arraySize - 1);
+            }
+        }
+    }
+
     function createArray() {
+        switch (sort) {
+            case "insertion":
+                sortDelayMult = 4 / 3;
+                nthMult = 2;
+                break;
+            case "bubble":
+                nthMult = 2.5;
+                break;
+            case "quick":
+                nthMult = 0.5;
+        }
+
+        if (style === "circle") {
+            arraySize /= 2;
+            delayMult = 1.5;
+        }
+
         array = Array.from(
             {
                 length: arraySize
@@ -890,20 +931,24 @@ const main = (() => {
         stretchX = width / arraySize;
         stretchY = height / arraySize;
         angle = (2 * Math.PI) / arraySize;
+
+        bindSorts();
     }
 
     // sort
     function sortMain() {
-        Benchmark.startTiming("sort_total");
+        Benchmark.startTiming("draw_total");
 
         delay = 500;
         nth = 1;
         writeFrame();
         stage++;
 
-        delay = 50;
+        delay = 50 * delayMult;
         nth = 1;
+        Benchmark.startTiming("shuffle");
         stages.shuffle();
+        Benchmark.stopTiming("shuffle");
         stage++;
 
         delay = 500;
@@ -911,9 +956,11 @@ const main = (() => {
         writeFrame();
         stage++;
 
-        delay = 30;
-        nth = 2;
+        delay = 30 * delayMult * sortDelayMult;
+        nth = 2 * nthMult;
+        Benchmark.startTiming("sort");
         sorts[sort]();
+        Benchmark.stopTiming("sort");
         stage++;
 
         nth = 1;
@@ -921,13 +968,15 @@ const main = (() => {
         writeFrame();
         stage++;
 
-        delay = 35;
+        delay = 35 * delayMult;
         nth = 2;
+        Benchmark.startTiming("sweep");
         stages.sweep();
+        Benchmark.stopTiming("sweep");
         stage++;
 
         gif.finish();
-        Benchmark.stopTiming("sort_total");
+        Benchmark.stopTiming("draw_total");
     }
 
     function sendOutput() {
@@ -939,7 +988,9 @@ const main = (() => {
         if (showTimes) {
             loadTableGen();
 
-            const table = Benchmark.getTable("heavy", 1, "load_total", "load_libraries", "sort_total", "encode_image");
+            let table = Benchmark.getTable("heavy", 1, "load_total", "load_libraries", "draw_total", "encode_image");
+            table += `\nFrame count: ${frameCount}`;
+
             out = LoaderUtils.codeBlock(table);
         }
 
