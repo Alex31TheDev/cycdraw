@@ -54,9 +54,9 @@ const fonts = {
 
 // help
 const helpOptions = ["help", "-help", "--help", "-h", "usage", "-usage", "-u"],
-    showTimesOption = "-show_times";
+    showTimesOption = "--show-times";
 
-const help = `Usage: \`%t ${tag.name} [-show_time] [url] <caption>\`
+const help = `Usage: \`%t ${tag.name} [--show-times] [url] <caption>\`
 Captions the given image (from the message you answered or the URL)`,
     usage = `See \`%t ${tag.name} help\` for usage.`;
 
@@ -801,13 +801,15 @@ const main = (() => {
 
     return _ => {
         parseArgs();
+
         loadCanvasKit();
 
         if (enableDebugger) debugger;
 
-        loadCustomEmojis();
         loadImage();
+
         loadRanges();
+        loadCustomEmojis();
 
         //Benchmark.clearExcept("load_total", "load_image", "load_custom_emojis");
         captionMain();
