@@ -531,6 +531,11 @@ const main = (() => {
                 break;
             case "quick":
                 nthMult = 0.5;
+                break;
+            case "merge":
+                sortDelayMult = 4 / 3;
+                nthMult = 1.5;
+                break;
         }
 
         if (style === "circle") {
