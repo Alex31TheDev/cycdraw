@@ -17,6 +17,7 @@
         "build-min-canvaskitloader": "terser ./canvaskit/canvaskitloader.js -o ./canvaskit/build/loader/canvaskitloader.js -c passes=2",
         "build-min-base2nwasm": "terser ./canvaskit/lib/custom/Base2nWasmDec.js -o ./canvaskit/build/base2n/Base2nWasmDec.min.js -c passes=2 -m \"reserved=['Base2nError']\" --mangle-props \"regex=/^#|_$/\" --toplevel",
         "build-min-canvaskit-cycdraw": "terser ./canvaskit/cycdraw.js -o ./canvaskit/build/cycdraw/cycdraw.min.js -c passes=2",
+        "build-min-caption": "terser ./canvaskit/caption.js -o ./canvaskit/build/caption/caption.min.js -c passes=2",
         "build-min-sort": "terser ./canvaskit/build/sort/sort.js -o ./canvaskit/build/sort/sort.min.js -c passes=2",
         "split-cycdraw": "node ../base2n/scripts/splitter.cjs \"./new/cycdraw - new.js\" ./new/split",
         "split-cycdraw-min": "node ../base2n/scripts/splitter.cjs \"./new/build/cycdraw - new.js\" ./new/split",

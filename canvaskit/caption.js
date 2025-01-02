@@ -60,13 +60,8 @@ const help = `Usage: \`%t ${tag.name} [--show-times] [url] <caption>\`
 Captions the given image (from the message you answered or the URL)`,
     usage = `See \`%t ${tag.name} help\` for usage.`;
 
-// errors
-globalThis.ExitError = class extends Error {};
-
 // misc
-const urlRegex = /(\S*?):\/\/(?:([^/.]+)\.)?([^/.]+)\.([^/\s]+)\/?(\S*)?/,
-    attachRegex = /^(https:\/\/(?:cdn|media).discordapp.(?:com|net)\/attachments\/\d+?\/\d+?\/[^?]+?)(?:\?|$)/,
-    tenorRegex = /^https:\/\/tenor\.com\/view\/.+-(\d+)$/;
+const tenorRegex = /^(?:(https?:)\/\/)?tenor\.com\/view\/(?<vk>(?<name>\S+?)(?:-gif)?-(?<id>\d+))$/;
 
 const customEmojiRegex = /<:(.+?):(\d+?)>/g,
     customEmojiReplacement = "\ue000";
@@ -98,6 +93,24 @@ let output;
 // main
 const main = (() => {
     // parse args and attachment
+    function parseTenorUrl(url) {
+        const match = url.match(tenorRegex);
+
+        if (!match) {
+            return;
+        }
+
+        const groups = match.groups;
+
+        return {
+            protocol: match[1] ?? "",
+
+            viewKey: groups.vk,
+            name: groups.name,
+            id: groups.id
+        };
+    }
+
     function parseArgs() {
         [targetMsg, input] = (() => {
             const oldContent = msg.content;
@@ -121,19 +134,18 @@ const main = (() => {
                 targetMsg.file = attach;
                 targetMsg.fileUrl = attach.url;
             } else {
-                const urlMatch = targetMsg.content.match(urlRegex);
+                const urlMatch = targetMsg.content.match(LoaderUtils.urlRegex);
 
                 if (urlMatch) {
                     const fileUrl = urlMatch[0];
 
-                    let attachMatch, tenorMatch;
+                    let attachInfo, tenorInfo;
 
-                    if ((attachMatch = fileUrl.match(attachRegex))) {
-                        const attachPrefix = attachMatch[1],
-                            embed = targetMsg.embeds.find(embed => {
-                                const thumbnail = embed.thumbnail ?? embed.data?.thumbnail;
-                                return thumbnail && thumbnail.url.startsWith(attachPrefix);
-                            });
+                    if ((attachInfo = LoaderUtils.parseAttachmentUrl(fileUrl))) {
+                        const embed = targetMsg.embeds.find(embed => {
+                            const thumbnail = embed.thumbnail ?? embed.data?.thumbnail;
+                            return thumbnail && thumbnail.url.startsWith(attachInfo.prefix);
+                        });
 
                         if (typeof embed === "undefined") {
                             const out = ":warning: Attachment embed not found. (it's needed because discord is dumb)";
@@ -142,21 +154,19 @@ const main = (() => {
 
                         const thumbnail = embed.thumbnail ?? embed.data.thumbnail;
                         targetMsg.fileUrl = thumbnail.url;
-                    } else if ((tenorMatch = fileUrl.match(tenorRegex))) {
-                        targetMsg.tenorGif = {
-                            id: tenorMatch[1]
-                        };
-
+                    } else if ((tenorInfo = parseTenorUrl(fileUrl))) {
+                        delete tenorInfo.protocol;
+                        targetMsg.tenorGif = tenorInfo;
                         targetMsg.fileUrl = "placeholder";
                     } else {
                         targetMsg.fileUrl = fileUrl;
                     }
 
-                    let leftoverStr = targetMsg.content;
-                    leftoverStr =
-                        leftoverStr.slice(0, urlMatch.index) + leftoverStr.slice(urlMatch.index + fileUrl.length);
-
-                    targetMsg.content = leftoverStr.trim();
+                    targetMsg.content = LoaderUtils.removeStringRange(
+                        targetMsg.content,
+                        urlMatch.index,
+                        fileUrl.length
+                    ).trim();
                 }
             }
 
@@ -207,8 +217,8 @@ const main = (() => {
     }
 
     // load libraries
-    function loadCanvasKit() {
-        delete globalThis.ExitError;
+    function initLoader() {
+        util.loadLibrary = "none";
 
         if (util.env) {
             eval(util.fetchTag("canvaskitloader").body);
@@ -218,6 +228,10 @@ const main = (() => {
 
         ModuleLoader.useDefault("tagOwner");
         ModuleLoader.enableCache = false;
+    }
+
+    function loadCanvasKit() {
+        loadLibrary("canvaskit");
 
         const CanvasKitUtil = ModuleLoader.loadModuleFromTag("canvaskitutil");
         Patches.patchGlobalContext({ CanvasKitUtil });
@@ -237,6 +251,10 @@ const main = (() => {
     }
 
     function loadDiscordClient() {
+        if (typeof globalThis.DiscordHttpClient !== "undefined") {
+            return;
+        }
+
         const DiscordHttpClient = ModuleLoader.loadModuleFromTag(tags.DiscordHttpClient);
 
         Patches.patchGlobalContext({
@@ -246,6 +264,10 @@ const main = (() => {
     }
 
     function loadTenorClient() {
+        if (typeof globalThis.TenorHttpClient !== "undefined") {
+            return;
+        }
+
         const TenorHttpClient = ModuleLoader.loadModuleFromTag(tags.TenorHttpClient);
 
         Patches.patchGlobalContext({
@@ -422,7 +444,7 @@ const main = (() => {
 
                 customEmojis.push({ name, id, ind });
 
-                text = LoaderUtils.replaceRangeStr(text, customEmojiReplacement, ind, match[0].length);
+                text = LoaderUtils.replaceStringRange(text, customEmojiReplacement, ind, match[0].length);
                 customEmojiRegex.lastIndex = ind + 1;
             }
 
@@ -800,8 +822,8 @@ const main = (() => {
     }
 
     return _ => {
+        initLoader();
         parseArgs();
-
         loadCanvasKit();
 
         if (enableDebugger) debugger;
@@ -811,7 +833,6 @@ const main = (() => {
         loadRanges();
         loadCustomEmojis();
 
-        //Benchmark.clearExcept("load_total", "load_image", "load_custom_emojis");
         captionMain();
         sendOutput();
     };
@@ -823,8 +844,7 @@ try {
 } catch (err) {
     // output
     if (err instanceof ExitError) {
-        const out = err.message;
-        out;
+        err.message;
     } else {
         throw err;
     }

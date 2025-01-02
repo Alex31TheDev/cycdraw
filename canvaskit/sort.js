@@ -650,8 +650,7 @@ try {
 } catch (err) {
     // output
     if (err instanceof ExitError) {
-        const out = err.message;
-        out;
+        err.message;
     } else {
         throw err;
     }

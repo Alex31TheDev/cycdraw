@@ -80,8 +80,11 @@ const tags = {
 const usage = `Leveret: \`util.executeTag("canvaskitloader");\`
 El Levert: \`eval(util.fetchTag("canvaskitloader").body);\``;
 
-const scripts = `%t canvaskitexample
-%t caption`;
+const scripts = `- %t canvaskitexample
+- %t caption
+- %t qalc
+- %t qrcode
+- %t sort`;
 
 const docs = `CanvasKit GitHub: https://github.com/google/skia/tree/main/modules/canvaskit
 CanvasKit API docs: https://github.com/google/skia/blob/a004a27085d7dcc4efc3766c9abe92df03654c7c/modules/canvaskit/npm_build/types/index.d.ts
@@ -577,11 +580,11 @@ const LoaderUtils = {
         return LoaderUtils.stripSpaces(camel);
     },
 
-    removeRangeStr: (str, i, length = 1) => {
+    removeStringRange: (str, i, length = 1) => {
         return str.slice(0, i) + str.slice(i + length);
     },
 
-    replaceRangeStr: (str, replacement, i, length = 1) => {
+    replaceStringRange: (str, replacement, i, length = 1) => {
         return str.slice(0, i) + replacement + str.slice(i + length);
     },
 
@@ -657,6 +660,61 @@ const LoaderUtils = {
 
         const lang = match[1]?.trim() ?? "";
         return [true, body, lang];
+    },
+
+    _messageRegex:
+        /(?:(https?:)\/\/)?(?:(www|ptb)\.)?discord\.com\/channels\/(?<sv_id>\d{18,19}|@me)\/(?<ch_id>\d{18,19})(?:\/(?<msg_id>\d{18,19}))/,
+    parseMessageUrl: url => {
+        const match = url.match(LoaderUtils._messageRegex);
+
+        if (!match) {
+            return;
+        }
+
+        const groups = match.groups;
+
+        return {
+            protocol: match[1] ?? "",
+            subdomain: match[2] ?? "",
+
+            serverId: groups.sv_id,
+            channelId: groups.ch_id,
+            messageId: groups.msg_id
+        };
+    },
+
+    _attachRegex:
+        /^(?<prefix>(?:(https?:)\/\/)?(cdn|media).discordapp.(com|net)\/attachments\/(?<sv_id>\d+)\/(?<ch_id>\d+)\/(?<filename>[^.?]+)(?:(?<ext>\.[^?]+))?)\??(?:ex=(?<ex>[0-9a-f]+)&is=(?<is>[0-9a-f]+)&hm=(?<hm>[0-9a-f]+)&)?$/,
+    parseAttachmentUrl: url => {
+        const match = url.match(LoaderUtils._attachRegex);
+
+        if (!match) {
+            return;
+        }
+
+        const groups = match.groups;
+
+        const filename = groups.filename,
+            ext = groups.ext ?? "";
+
+        return {
+            prefix: groups.prefix,
+            protocol: match[2] ?? "",
+            subdomain: match[3],
+            tld: match[4],
+
+            serverId: groups.sv_id,
+            channelId: groups.ch_id,
+
+            filename,
+            ext,
+            file: filename + ext,
+
+            search: groups.search ? "?" + groups.search : "",
+            ex: groups.ex,
+            is: groups.is,
+            hm: groups.hm
+        };
     },
 
     randomString: n => {
@@ -3423,8 +3481,7 @@ try {
 } catch (err) {
     // output
     if (err instanceof ExitError) {
-        const out = err.message;
-        out;
+        err.message;
     } else {
         throw err;
     }
