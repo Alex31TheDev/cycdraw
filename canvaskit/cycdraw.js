@@ -153,7 +153,7 @@ class Color {
     }
 
     blend(clr) {
-        if (this.a === 0 || (this.a === 255 && clr.a === 255)) {
+        if (this.a === 0 || clr.a === 255) {
             return new Color(clr);
         }
 
@@ -741,7 +741,7 @@ class Image {
         const a = this.pixels[pos + 3],
             clr_a = color.a;
 
-        if (a === 0 || (a === 255 && clr_a === 255)) {
+        if (a === 0 || clr_a === 255) {
             this.pixels[pos++] = color.r;
             this.pixels[pos++] = color.g;
             this.pixels[pos++] = color.b;
@@ -957,7 +957,7 @@ class Image {
             while (pos1 <= pos2) {
                 const a = this.pixels[pos1 + 3];
 
-                if (a === 0 || (a === 255 && clr_a === 255)) {
+                if (a === 0 || clr_a === 255) {
                     this.pixels[pos1++] = color.r;
                     this.pixels[pos1++] = color.g;
                     this.pixels[pos1++] = color.b;
@@ -981,7 +981,7 @@ class Image {
             while (pos1 <= pos2) {
                 const a = this.pixels[pos1 + 3];
 
-                if (a === 0 || (a === 255 && clr_a === 255)) {
+                if (a === 0 || clr_a === 255) {
                     this.pixels[pos1++] = color.r;
                     this.pixels[pos1++] = color.g;
                     this.pixels[pos1++] = color.b;
@@ -1016,7 +1016,7 @@ class Image {
                 for (j = 0; j < w; j++) {
                     const a = this.pixels[pos + 3];
 
-                    if (a === 0 || (a === 255 && clr_a === 255)) {
+                    if (a === 0 || clr_a === 255) {
                         this.pixels[pos++] = color.r;
                         this.pixels[pos++] = color.g;
                         this.pixels[pos++] = color.b;
@@ -1086,7 +1086,7 @@ class Image {
                 const a = this.pixels[pos1 + 3],
                     clr_a = src.pixels[pos2 + 3];
 
-                if (a === 0 || (a === 255 && clr_a === 255)) {
+                if (a === 0 || clr_a === 255) {
                     this.pixels[pos1] = src.pixels[pos2];
                     this.pixels[pos1 + 1] = src.pixels[pos2 + 1];
                     this.pixels[pos1 + 2] = src.pixels[pos2 + 2];
@@ -1368,7 +1368,7 @@ class Image {
             while (pos1 <= pos2) {
                 const a = this.pixels[pos1 + 3];
 
-                if (a === 0 || (a === 255 && clr_a === 255)) {
+                if (a === 0 || clr_a === 255) {
                     this.pixels[pos1++] = color.r;
                     this.pixels[pos1++] = color.g;
                     this.pixels[pos1++] = color.b;
@@ -1392,7 +1392,7 @@ class Image {
             while (pos1 <= pos2) {
                 const a = this.pixels[pos1 + 3];
 
-                if (a === 0 || (a === 255 && clr_a === 255)) {
+                if (a === 0 || clr_a === 255) {
                     this.pixels[pos1++] = color.r;
                     this.pixels[pos1++] = color.g;
                     this.pixels[pos1++] = color.b;
@@ -1433,7 +1433,7 @@ class Image {
             for (; x1 <= x2; x1++) {
                 const a = this.pixels[pos + 3];
 
-                if (a === 0 || (a === 255 && clr_a === 255)) {
+                if (a === 0 || clr_a === 255) {
                     this.pixels[pos++] = color.r;
                     this.pixels[pos++] = color.g;
                     this.pixels[pos++] = color.b;
@@ -1480,7 +1480,7 @@ class Image {
             for (; y1 <= y2; y1++) {
                 const a = this.pixels[pos + 3];
 
-                if (a === 0 || (a === 255 && clr_a === 255)) {
+                if (a === 0 || clr_a === 255) {
                     this.pixels[pos++] = color.r;
                     this.pixels[pos++] = color.g;
                     this.pixels[pos++] = color.b;
