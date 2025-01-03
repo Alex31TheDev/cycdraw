@@ -1,3 +1,5 @@
+"use strict";
+
 // errors
 class DrawingError extends CustomError {}
 
@@ -580,7 +582,7 @@ const f_1 = {
 // image
 class Image {
     constructor(w, h) {
-        if (w <= 0 || h <= 0 || w > 1920 || h > 1080) {
+        if (w <= 0 || h <= 0) {
             throw new DrawingError("Invalid image size");
         }
 
