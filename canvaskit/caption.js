@@ -17,10 +17,11 @@ const TENOR_API = {
 const urls = {};
 
 const tags = {
-    DiscordHttpClient: "ck_discordhttpclient",
-    TenorHttpClient: "ck_tenorhttpclient",
-
+    ImageLoader: "ck_imageloader",
+    CanvasKitUtil: "canvaskitutil",
     Table: "ck_table",
+
+    DiscordHttpClient: "ck_discordhttpclient",
 
     Cycdraw: "ck_cycdraw",
     GifEncoder: "ck_gifenc"
@@ -53,16 +54,12 @@ const fonts = {
 };
 
 // help
-const helpOptions = ["help", "-help", "--help", "-h", "usage", "-usage", "-u"],
-    showTimesOption = "--show-times";
+const showTimesOption = "--show-times";
 
 const help = `Usage: \`%t ${tag.name} [--show-times] [url] <caption>\`
-Captions the given image (from the message you answered or the URL)`,
-    usage = `See \`%t ${tag.name} help\` for usage.`;
+Captions the given image (from the message you answered or the URL)`;
 
 // misc
-const tenorRegex = /^(?:(https?:)\/\/)?tenor\.com\/view\/(?<vk>(?<name>\S+?)(?:-gif)?-(?<id>\d+))$/;
-
 const customEmojiRegex = /<:(.+?):(\d+?)>/g,
     customEmojiReplacement = "\ue000";
 
@@ -74,7 +71,7 @@ const DiscordEndpoints = {
 // globals
 
 // input
-let targetMsg, input, text;
+let text;
 
 // image
 let image, width, height, isGif;
@@ -93,127 +90,19 @@ let output;
 // main
 const main = (() => {
     // parse args and attachment
-    function parseTenorUrl(url) {
-        const match = url.match(tenorRegex);
-
-        if (!match) {
-            return;
-        }
-
-        const groups = match.groups;
-
-        return {
-            protocol: match[1] ?? "",
-
-            viewKey: groups.vk,
-            name: groups.name,
-            id: groups.id
-        };
-    }
+    let _parseArgs, _loadImage;
 
     function parseArgs() {
-        [targetMsg, input] = (() => {
-            const oldContent = msg.content;
-            msg.content = tag.args ?? "";
+        initImageLoader();
 
-            let targetMsg = msg;
+        ({ text } = _parseArgs());
+    }
 
-            if (msg.reference) {
-                const msgs = util.fetchMessages();
-                targetMsg = msgs.findLast(x => x.id === msg.reference.messageId);
+    function loadImage() {
+        ({ image, width, height, isGif } = _loadImage());
 
-                if (typeof targetMsg === "undefined") {
-                    const out = ":warning: Reply message not found.";
-                    throw new ExitError(out);
-                }
-            }
-
-            if (targetMsg.attachments.length > 0) {
-                const attach = targetMsg.attachments[0];
-
-                targetMsg.file = attach;
-                targetMsg.fileUrl = attach.url;
-            } else {
-                const urlMatch = targetMsg.content.match(LoaderUtils.urlRegex);
-
-                if (urlMatch) {
-                    const fileUrl = urlMatch[0];
-
-                    let attachInfo, tenorInfo;
-
-                    if ((attachInfo = LoaderUtils.parseAttachmentUrl(fileUrl))) {
-                        const embed = targetMsg.embeds.find(embed => {
-                            const thumbnail = embed.thumbnail ?? embed.data?.thumbnail;
-                            return thumbnail && thumbnail.url.startsWith(attachInfo.prefix);
-                        });
-
-                        if (typeof embed === "undefined") {
-                            const out = ":warning: Attachment embed not found. (it's needed because discord is dumb)";
-                            throw new ExitError(out);
-                        }
-
-                        const thumbnail = embed.thumbnail ?? embed.data.thumbnail;
-                        targetMsg.fileUrl = thumbnail.url;
-                    } else if ((tenorInfo = parseTenorUrl(fileUrl))) {
-                        delete tenorInfo.protocol;
-                        targetMsg.tenorGif = tenorInfo;
-                        targetMsg.fileUrl = "placeholder";
-                    } else {
-                        targetMsg.fileUrl = fileUrl;
-                    }
-
-                    targetMsg.content = LoaderUtils.removeStringRange(
-                        targetMsg.content,
-                        urlMatch.index,
-                        fileUrl.length
-                    ).trim();
-                }
-            }
-
-            const args = msg.content;
-            msg.content = oldContent;
-
-            return [targetMsg, args];
-        })();
-
-        text = (() => {
-            let text = input;
-
-            const split = text.split(" "),
-                option = split[0];
-
-            checkArgs: if (split.length > 0) {
-                if (helpOptions.includes(option)) {
-                    const out = `:information_source: ${help}`;
-                    throw new ExitError(out);
-                }
-
-                let removed = 1;
-
-                switch (option) {
-                    case showTimesOption:
-                        showTimes = true;
-                        break;
-                    default:
-                        break checkArgs;
-                }
-
-                for (let i = 0; i < removed; i++) split.shift();
-                text = split.join(" ");
-            }
-
-            if (text.length < 1) {
-                const out = `:warning: No caption text provided.\n${usage}`;
-                throw new ExitError(out);
-            }
-
-            if (typeof targetMsg.fileUrl === "undefined") {
-                const out = `:warning: Message doesn't have any attachments.\n${usage}`;
-                throw new ExitError(out);
-            }
-
-            return text;
-        })();
+        originalWidth = width;
+        originalHeight = height;
     }
 
     // load libraries
@@ -230,10 +119,28 @@ const main = (() => {
         ModuleLoader.enableCache = false;
     }
 
+    function initImageLoader() {
+        ({ parseArgs: _parseArgs, loadImage: _loadImage } = ModuleLoader.loadModuleFromTag(tags.ImageLoader, {
+            scope: {
+                help,
+
+                options: {
+                    showTimesOption: _ => (showTimes = true)
+                },
+                textName: "caption",
+                requireImage: true,
+
+                loadGifEncoder
+            },
+
+            isolateGlobals: false
+        }));
+    }
+
     function loadCanvasKit() {
         loadLibrary("canvaskit");
 
-        const CanvasKitUtil = ModuleLoader.loadModuleFromTag("canvaskitutil");
+        const CanvasKitUtil = ModuleLoader.loadModuleFromTag(tags.CanvasKitUtil);
         Patches.patchGlobalContext({ CanvasKitUtil });
 
         drawImageOpts = [CanvasKit.FilterMode.Linear, CanvasKit.MipmapMode.None];
@@ -244,10 +151,19 @@ const main = (() => {
             return;
         }
 
-        const gifenc = ModuleLoader.loadModuleFromTag(tags.GifEncoder),
-            cycdraw = ModuleLoader.loadModuleFromTag(tags.Cycdraw);
+        Benchmark.restartTiming("load_libraries");
+
+        Benchmark.startTiming("load_gifenc");
+        const gifenc = ModuleLoader.loadModuleFromTag(tags.GifEncoder);
+        Benchmark.stopTiming("load_gifenc");
+
+        Benchmark.startTiming("load_cycdraw");
+        const cycdraw = ModuleLoader.loadModuleFromTag(tags.Cycdraw);
+        Benchmark.stopTiming("load_cycdraw");
 
         Patches.patchGlobalContext({ ...cycdraw, gifenc });
+
+        Benchmark.stopTiming("load_libraries");
     }
 
     function loadDiscordClient() {
@@ -255,25 +171,18 @@ const main = (() => {
             return;
         }
 
+        Benchmark.restartTiming("load_libraries");
+
+        Benchmark.startTiming("load_discord_client");
         const DiscordHttpClient = ModuleLoader.loadModuleFromTag(tags.DiscordHttpClient);
+        Benchmark.stopTiming("load_discord_client");
 
         Patches.patchGlobalContext({
             DiscordHttpClient,
             DiscordConstants: DiscordHttpClient.Constants
         });
-    }
 
-    function loadTenorClient() {
-        if (typeof globalThis.TenorHttpClient !== "undefined") {
-            return;
-        }
-
-        const TenorHttpClient = ModuleLoader.loadModuleFromTag(tags.TenorHttpClient);
-
-        Patches.patchGlobalContext({
-            TenorHttpClient,
-            TenorConstants: TenorHttpClient.Constants
-        });
+        Benchmark.stopTiming("load_libraries");
     }
 
     function loadTableGen() {
@@ -283,7 +192,7 @@ const main = (() => {
         Benchmark.deleteLastCountTime("module_load");
     }
 
-    // load ranges
+    // load fonts
     function loadRanges() {
         Benchmark.startTiming("load_font_ranges");
 
@@ -296,7 +205,6 @@ const main = (() => {
         Benchmark.stopTiming("load_font_ranges");
     }
 
-    // load misc
     const defaultFonts = ["futura"],
         loadedFonts = {};
 
@@ -332,58 +240,6 @@ const main = (() => {
 
         Benchmark.stopTiming("load_font");
         return fontMgr;
-    }
-
-    function downloadImage(msg) {
-        Benchmark.startTiming("download_image");
-        const { data } = LoaderUtils.fetchAttachment(msg, FileDataTypes.binary);
-        Benchmark.stopTiming("download_image");
-
-        Benchmark.startTiming("decode_image");
-        const image = CanvasKitUtil.makeImageOrGifFromEncoded(data);
-        Benchmark.stopTiming("decode_image");
-
-        const isGif = image instanceof CanvasKit.AnimatedImage,
-            width = image.width(),
-            height = image.height();
-
-        return [image, width, height, isGif];
-    }
-
-    function loadImage() {
-        if (typeof targetMsg.tenorGif === "object") {
-            loadTenorClient();
-            const client = new TenorHttpClient(TENOR_API);
-
-            targetMsg.fileUrl = client.getGifUrl(targetMsg.tenorGif.id);
-            delete targetMsg.tenorGif;
-        }
-
-        [image, width, height, isGif] = (() => {
-            let image;
-            Benchmark.startTiming("load_image");
-
-            try {
-                image = downloadImage(targetMsg);
-            } catch (err) {
-                if (["UtilError", "CanvasUtilError"].includes(err.name)) {
-                    const out = `:warning: ${err.message}.\n${usage}`;
-                    throw new ExitError(out);
-                }
-
-                throw err;
-            }
-
-            Benchmark.stopTiming("load_image");
-            return image;
-        })();
-
-        originalWidth = width;
-        originalHeight = height;
-
-        if (isGif) {
-            loadGifEncoder();
-        }
     }
 
     // calc dimensions

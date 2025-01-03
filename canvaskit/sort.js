@@ -218,8 +218,13 @@ const main = (() => {
     function loadGifEncoder() {
         Benchmark.startTiming("load_libraries");
 
-        const gifenc = ModuleLoader.loadModuleFromTag(tags.GifEncoder),
-            cycdraw = ModuleLoader.loadModuleFromTag(tags.Cycdraw);
+        Benchmark.startTiming("load_gifenc");
+        const gifenc = ModuleLoader.loadModuleFromTag(tags.GifEncoder);
+        Benchmark.stopTiming("load_gifenc");
+
+        Benchmark.startTiming("load_cycdraw");
+        const cycdraw = ModuleLoader.loadModuleFromTag(tags.Cycdraw);
+        Benchmark.stopTiming("load_cycdraw");
 
         Patches.patchGlobalContext({ ...cycdraw, gifenc });
 
