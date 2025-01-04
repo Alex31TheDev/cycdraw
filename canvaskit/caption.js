@@ -1,5 +1,5 @@
 "use strict";
-/* global CanvasKitUtil:readonly, gifenc:readonly, Image:readonly TenorHttpClient:readonly, DiscordHttpClient:readonly, DiscordConstants:readonly */
+/* global CanvasKitUtil:readonly, gifenc:readonly, Image:readonly, DiscordHttpClient:readonly, DiscordConstants:readonly */
 
 // config
 const maxWidth = 1000,
@@ -120,19 +120,21 @@ const main = (() => {
     }
 
     function initImageLoader() {
-        ({ parseArgs: _parseArgs, loadImage: _loadImage } = ModuleLoader.loadModuleFromTag(tags.ImageLoader, {
-            scope: {
-                help,
+        const imageLoaderConfig = {
+            help,
 
-                options: {
-                    showTimesOption: _ => (showTimes = true)
-                },
-                textName: "caption",
-                requireImage: true,
-
-                loadGifEncoder
+            options: {
+                showTimesOption: _ => (showTimes = true)
             },
+            textName: "caption",
+            requireImage: true,
 
+            tenorClientConfig: TENOR_API,
+            loadGifEncoder
+        };
+
+        ({ parseArgs: _parseArgs, loadImage: _loadImage } = ModuleLoader.loadModuleFromTag(tags.ImageLoader, {
+            scope: imageLoaderConfig,
             isolateGlobals: false
         }));
     }

@@ -1,4 +1,5 @@
 "use strict";
+/* global help:readonly, usage:readonly, helpOptions:readonly, options:readonly, requireText:readonly, requireImage:readonly, textName:readonly, loadGifEncoder:readonly, tenorClientConfig:readonly, CanvasKitUtil:readonly, TenorHttpClient:readonly */
 
 // config
 const defaultHelpOptions = ["help", "-help", "--help", "-h", "usage", "-usage", "-u"];
@@ -16,12 +17,15 @@ const config = {
     requireImage: typeof requireImage === "undefined" ? false : requireImage,
     textName: typeof textName === "undefined" ? "" : textName,
 
+    tenorClientConfig: typeof tenorClientConfig === "undefined" ? {} : tenorClientConfig,
     loadGifEncoder: typeof loadGifEncoder === "undefined" ? () => {} : loadGifEncoder
 };
 
-const _requireText = config.requireText || Boolean(config.textName),
-    _textName = config.textName ? config.textName + " " : config.textName,
-    _helpOptions = config.helpOptions.length > 0 ? config.helpOptions : defaultHelpOptions;
+const _helpOptions = config.helpOptions.length > 0 ? config.helpOptions : defaultHelpOptions,
+    _requireText = config.requireText || Boolean(config.textName),
+    _textName = config.textName ? config.textName + " " : config.textName;
+
+const useTenorApi = typeof tenorClientConfig === "object";
 
 // sources
 const urls = {};
@@ -102,8 +106,9 @@ function parseArgs() {
 
                     const thumbnail = embed.thumbnail ?? embed.data.thumbnail;
                     targetMsg.fileUrl = thumbnail.url;
-                } else if ((tenorInfo = parseTenorUrl(fileUrl))) {
+                } else if (useTenorApi && (tenorInfo = parseTenorUrl(fileUrl))) {
                     delete tenorInfo.protocol;
+
                     targetMsg.tenorGif = tenorInfo;
                     targetMsg.fileUrl = "placeholder";
                 } else {
@@ -202,14 +207,13 @@ function downloadImage(msg) {
 }
 
 function loadImage() {
-    if (typeof targetMsg.fileUrl === "undefined")
-        if (typeof targetMsg.tenorGif === "object") {
-            loadTenorClient();
-            const client = new TenorHttpClient(TENOR_API);
+    if (typeof targetMsg.tenorGif === "object") {
+        loadTenorClient();
+        const client = new TenorHttpClient(config.tenorClientConfig);
 
-            targetMsg.fileUrl = client.getGifUrl(targetMsg.tenorGif.id);
-            delete targetMsg.tenorGif;
-        }
+        targetMsg.fileUrl = client.getGifUrl(targetMsg.tenorGif.id);
+        delete targetMsg.tenorGif;
+    }
 
     Benchmark.startTiming("load_image");
 
