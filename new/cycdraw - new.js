@@ -1436,7 +1436,7 @@ class Image {
             throw new DrawingError("Pixel array is too large");
         }
 
-        let img = new Image(w, h);
+        const img = new Image(w, h);
 
         let i = 0;
 
@@ -1507,19 +1507,19 @@ class Image {
     }
 
     setPixel_u(x, y, color) {
-        let pos = 3 * (y * this.w + x);
+        const pos = 3 * (y * this.w + x);
 
-        this.pixels[pos++] = color.r;
-        this.pixels[pos++] = color.g;
-        this.pixels[pos] = color.b;
+        this.pixels[pos] = color.r;
+        this.pixels[pos + 1] = color.g;
+        this.pixels[pos + 2] = color.b;
     }
 
     setPixel_u_rgb(x, y, r, g, b) {
-        let pos = 3 * (y * this.w + x);
+        const pos = 3 * (y * this.w + x);
 
-        this.pixels[pos++] = r;
-        this.pixels[pos++] = g;
-        this.pixels[pos] = b;
+        this.pixels[pos] = r;
+        this.pixels[pos + 1] = g;
+        this.pixels[pos + 2] = b;
     }
 
     clear(color) {
@@ -1757,7 +1757,7 @@ class Image {
         }
     }
 
-    blit(x, y, src, w, h) {
+    blit(x1, y1, src, x2 = 0, y2 = 0, w, h) {
         [x1, y1] = this.clamp(x1, y1);
         [x2, y2] = src.clamp(x2, y2);
 
@@ -1767,11 +1767,11 @@ class Image {
         let sw = Math.min(w, src.w) || src.w,
             sh = Math.min(h, src.h) || src.h;
 
-        if (sw + x1 >= this.w) sw = this.w - x1;
-        if (sw + x2 >= src.w) sw = src.w - x2;
+        if (sw + x1 > this.w) sw = this.w - x1;
+        if (sw + x2 > src.w) sw = src.w - x2;
 
-        if (sh + y1 >= this.h) sh = this.h - y1;
-        if (sh + y2 >= src.h) sh = src.h - y2;
+        if (sh + y1 > this.h) sh = this.h - y1;
+        if (sh + y2 > src.h) sh = src.h - y2;
 
         const yi1 = 3 * (this.w - sw),
             yi2 = 3 * (src.w - sw);
@@ -1834,16 +1834,16 @@ class Image {
     }
 
     clip(x, y, w, h) {
-        [x, y] = this.clamp(x1, y1);
+        [x, y] = this.clamp(x, y);
 
         w = Math.floor(w);
         h = Math.floor(h);
 
-        if (w + x >= this.w) {
+        if (w + x > this.w) {
             w = this.w - x;
         }
 
-        if (h + y >= this.h) {
+        if (h + y > this.h) {
             h = this.h - y;
         }
 

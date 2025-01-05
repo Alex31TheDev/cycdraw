@@ -614,7 +614,7 @@ class Image {
             throw new DrawingError("Pixel array is too large");
         }
 
-        let img = new Image(w, h);
+        const img = new Image(w, h);
 
         let i1 = 0,
             i2 = 0;
@@ -637,6 +637,10 @@ class Image {
         }
 
         return img;
+    }
+
+    static fromImageData(imgData) {
+        return Image.fromPixels(imgData.data, imgData.width, imgData.height);
     }
 
     get width() {
@@ -689,6 +693,10 @@ class Image {
             return Colors.black;
         }
 
+        return this.getPixel_u(x, y);
+    }
+
+    getPixel_u(x, y) {
         const pos = 4 * (y * this.w + x);
 
         const r = this.pixels[pos],
@@ -697,6 +705,17 @@ class Image {
             a = this.pixels[pos + 3];
 
         return new Color(r, g, b, a);
+    }
+
+    getPixel_u_rgb(x, y) {
+        const pos = 4 * (y * this.w + x);
+
+        const r = this.pixels[pos],
+            g = this.pixels[pos + 1],
+            b = this.pixels[pos + 2],
+            a = this.pixels[pos + 3];
+
+        return [r, g, b, a];
     }
 
     _blendPixel_rgb(pos, a, clr_r, clr_g, clr_b, clr_a) {
@@ -745,30 +764,30 @@ class Image {
     }
 
     setPixel_u(x, y, color) {
-        let pos = 4 * (y * this.w + x);
+        const pos = 4 * (y * this.w + x);
 
         const a = this.pixels[pos + 3],
             clr_a = color.a;
 
         if (a === 0 || clr_a === 255) {
-            this.pixels[pos++] = color.r;
-            this.pixels[pos++] = color.g;
-            this.pixels[pos++] = color.b;
-            this.pixels[pos++] = clr_a;
+            this.pixels[pos] = color.r;
+            this.pixels[pos + 1] = color.g;
+            this.pixels[pos + 2] = color.b;
+            this.pixels[pos + 3] = clr_a;
         } else {
             this._blendPixel(pos, color, a, clr_a);
         }
     }
 
     setPixel_u_rgb(x, y, r, g, b, a) {
-        let pos = 4 * (y * this.w + x);
+        const pos = 4 * (y * this.w + x);
 
-        this.pixels[pos++] = r;
-        this.pixels[pos++] = g;
-        this.pixels[pos++] = b;
+        this.pixels[pos] = r;
+        this.pixels[pos + 1] = g;
+        this.pixels[pos + 2] = b;
 
         if (typeof a === "number") {
-            this.pixels[pos] = a;
+            this.pixels[pos + 3] = a;
         }
     }
 
@@ -1050,11 +1069,11 @@ class Image {
         let sw = Math.min(w, src.w) || src.w,
             sh = Math.min(h, src.h) || src.h;
 
-        if (sw + x1 >= this.w) sw = this.w - x1;
-        if (sw + x2 >= src.w) sw = src.w - x2;
+        if (sw + x1 > this.w) sw = this.w - x1;
+        if (sw + x2 > src.w) sw = src.w - x2;
 
-        if (sh + y1 >= this.h) sh = this.h - y1;
-        if (sh + y2 >= src.h) sh = src.h - y2;
+        if (sh + y1 > this.h) sh = this.h - y1;
+        if (sh + y2 > src.h) sh = src.h - y2;
 
         const yi1 = 4 * (this.w - sw),
             yi2 = 4 * (src.w - sw);
@@ -1078,7 +1097,7 @@ class Image {
         }
     }
 
-    overlap(x, y, src, w, h) {
+    overlap(x1, y1, src, x2 = 0, y2 = 0, w, h) {
         [x1, y1] = this.clamp(x1, y1);
         [x2, y2] = src.clamp(x2, y2);
 
@@ -1088,11 +1107,11 @@ class Image {
         let sw = Math.min(w, src.w) || src.w,
             sh = Math.min(h, src.h) || src.h;
 
-        if (sw + x1 >= this.w) sw = this.w - x1;
-        if (sw + x2 >= src.w) sw = src.w - x2;
+        if (sw + x1 > this.w) sw = this.w - x1;
+        if (sw + x2 > src.w) sw = src.w - x2;
 
-        if (sh + y1 >= this.h) sh = this.h - y1;
-        if (sh + y2 >= src.h) sh = src.h - y2;
+        if (sh + y1 > this.h) sh = this.h - y1;
+        if (sh + y2 > src.h) sh = src.h - y2;
 
         const yi1 = 4 * (this.w - sw),
             yi2 = 4 * (src.w - sw);
@@ -1172,16 +1191,16 @@ class Image {
     }
 
     clip(x, y, w, h) {
-        [x, y] = this.clamp(x1, y1);
+        [x, y] = this.clamp(x, y);
 
         w = Math.floor(w);
         h = Math.floor(h);
 
-        if (w + x >= this.w) {
+        if (w + x > this.w) {
             w = this.w - x;
         }
 
-        if (h + y >= this.h) {
+        if (h + y > this.h) {
             h = this.h - y;
         }
 
@@ -1648,7 +1667,7 @@ class Image {
         this.setPixel(xc + x, yc - y, color);
         this.setPixel(xc - x, yc - y, color);
 
-        if (Math.abs(x - y) > 2) {
+        if (!LoaderUtils.approxEquals(x, y, 2)) {
             this.setPixel(xc + y, yc + x, color);
             this.setPixel(xc - y, yc + x, color);
             this.setPixel(xc + y, yc - x, color);
@@ -1703,7 +1722,7 @@ class Image {
         this.fill(xc + x, yc + y, xc - x, yc + y, color);
         this.fill(xc + x, yc - y, xc - x, yc - y, color);
 
-        if (Math.abs(x - y) > 2 && dx) {
+        if (!LoaderUtils.approxEquals(x, y, 2) && dx) {
             this.fill(xc + y, yc + x, xc - y, yc + x, color);
             this.fill(xc + y, yc - x, xc - y, yc - x, color);
         }

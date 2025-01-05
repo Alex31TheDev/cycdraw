@@ -597,6 +597,10 @@ const LoaderUtils = {
         return Math.round((num + Number.EPSILON) * exp) / exp;
     },
 
+    approxEquals: (a, b, epsilon = Number.EPSILON) => {
+        return Math.abs(a - b) < epsilon;
+    },
+
     deviate: (x, y) => {
         return x + (Math.random() * (2 * y) - y);
     },

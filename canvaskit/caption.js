@@ -123,7 +123,7 @@ const main = (() => {
             help,
 
             options: {
-                showTimesOption: _ => (showTimes = true)
+                [showTimesOption]: _ => (showTimes = true)
             },
             textName: "caption",
             requireImage: true,
@@ -546,16 +546,20 @@ const main = (() => {
         blankPaint.delete();
     }
 
+    function readCurrentFrame() {
+        let frame = image.makeImageAtCurrentFrame();
+
+        const framePixels = CanvasKitUtil.readImagePixels(frame);
+        frame.delete();
+        frame = Image.fromPixels(framePixels, originalWidth, originalHeight);
+
+        return [frame, image.currentFrameDuration()];
+    }
+
     function drawImageGif(gif, outImage, headerHeight, totalHeight, options = {}) {
         const frameInd = options.frame ?? 0;
 
-        let delay = image.currentFrameDuration(),
-            frame = image.makeImageAtCurrentFrame();
-
-        let framePixels = CanvasKitUtil.readImagePixels(frame);
-        frame.delete();
-        frame = Image.fromPixels(framePixels, originalWidth, originalHeight);
-        framePixels = undefined;
+        const [frame, delay] = readCurrentFrame();
 
         if (imageOversized) {
             frame.scale(width, height);
