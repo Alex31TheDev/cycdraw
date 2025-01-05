@@ -684,7 +684,7 @@ const LoaderUtils = {
     },
 
     _attachRegex:
-        /^(?<prefix>(?:(https?:)\/\/)?(cdn|media).discordapp.(com|net)\/attachments\/(?<sv_id>\d+)\/(?<ch_id>\d+)\/(?<filename>[^.?]+)(?:(?<ext>\.[^?]+))?)\??(?:ex=(?<ex>[0-9a-f]+)&is=(?<is>[0-9a-f]+)&hm=(?<hm>[0-9a-f]+)&)?$/,
+        /^(?<prefix>(?:(https?:)\/\/)?(cdn|media).discordapp.(com|net)\/attachments\/(?<sv_id>\d+)\/(?<ch_id>\d+)\/(?<filename>[^.?]+)(?:(?<ext>\.[^?]+))?)\??(?:ex=(?<ex>[0-9a-f]+)&is=(?<is>[0-9a-f]+)&hm=(?<hm>[0-9a-f]+))?.*$/,
     parseAttachmentUrl: url => {
         const match = url.match(LoaderUtils._attachRegex);
 
@@ -740,6 +740,94 @@ const LoaderUtils = {
         }
 
         return str;
+    },
+
+    createShiftedAlphabet: (alphabet, shift) => {
+        const length = alphabet.length;
+        shift = ((shift % length) + length) % length;
+
+        return alphabet.slice(shift) + alphabet.slice(0, shift);
+    },
+
+    caesarCipher: (str, shift, mode = 0) => {
+        const A = "A".charCodeAt(0),
+            a = "a".charCodeAt(0),
+            zero = "0".charCodeAt(0);
+
+        let upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            lower,
+            digit = "0123456789";
+
+        let alphabet;
+
+        let split = str.split(""),
+            out;
+
+        switch (mode) {
+            case 0:
+                alphabet = LoaderUtils.createShiftedAlphabet(upper, shift);
+
+                out = split.map(char => {
+                    const code = char.charCodeAt(0);
+
+                    if ("A" <= char && char <= "Z") {
+                        return alphabet[code - A];
+                    } else if ("a" <= char && char <= "z") {
+                        return alphabet[code - a];
+                    }
+
+                    return char;
+                });
+
+                break;
+            case 1:
+                upper = LoaderUtils.createShiftedAlphabet(upper, shift);
+                lower = upper.toLowerCase();
+                digit = LoaderUtils.createShiftedAlphabet(digit, shift);
+
+                out = split.map(char => {
+                    const code = char.charCodeAt(0);
+
+                    if ("A" <= char && char <= "Z") {
+                        return upper[code - A];
+                    } else if ("a" <= char && char <= "z") {
+                        return lower[code - a];
+                    } else if ("0" <= char && char <= "9") {
+                        return digit[code - zero];
+                    }
+
+                    return char;
+                });
+
+                break;
+            case 2:
+                const upper_off = 0,
+                    lower_off = upper_off + upper.length,
+                    digit_off = lower_off + upper.length;
+
+                lower = upper.toLowerCase();
+                alphabet = LoaderUtils.createShiftedAlphabet(upper + lower + digit, shift);
+
+                out = split.map(char => {
+                    const code = char.charCodeAt(0);
+
+                    if ("A" <= char && char <= "Z") {
+                        return alphabet[code - A + upper_off];
+                    } else if ("a" <= char && char <= "z") {
+                        return alphabet[code - a + lower_off];
+                    } else if ("0" <= char && char <= "9") {
+                        return alphabet[code - zero + digit_off];
+                    }
+
+                    return char;
+                });
+
+                break;
+            default:
+                throw new UtilError("Invalid mode: " + mode, mode);
+        }
+
+        return out.join("");
     },
 
     assign: (target, source, options, props) => {

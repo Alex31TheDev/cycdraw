@@ -18,6 +18,10 @@ const TenorConstants = {
 };
 
 const TenorUtil = {
+    queryEncodeObject: obj => {
+        return Object.fromEntries(Object.entries(obj).map(([key, value]) => [key, HttpUtil.getQueryString(value)]));
+    },
+
     getGifOpts: options => {
         const media_filter = options.type ?? TenorConstants.media_filter.gif[0],
             contentfilter = options.filter ?? TenorConstants.contentfilter[0];
@@ -86,7 +90,7 @@ class TenorHttpClient {
 
         const params = { key };
 
-        return Object.fromEntries(Object.entries(params).map(([key, value]) => [key, HttpUtil.getQueryString(value)]));
+        return TenorUtil.queryEncodeObject(params);
     }
 
     reqBase(options) {

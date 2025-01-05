@@ -1,11 +1,16 @@
 "use strict";
-/* global help:readonly, usage:readonly, helpOptions:readonly, options:readonly, requireText:readonly, requireImage:readonly, textName:readonly, loadGifEncoder:readonly, tenorClientConfig:readonly, CanvasKitUtil:readonly, TenorHttpClient:readonly */
+/* global help:readonly, usage:readonly, helpOptions:readonly, options:readonly, requireText:readonly, requireImage:readonly, textName:readonly, loadGifEncoder:readonly, useTenorApi:readonly, tenorClientConfig:readonly, CanvasKitUtil:readonly, TenorHttpClient:readonly */
 
 // config
 const defaultHelpOptions = ["help", "-help", "--help", "-h", "usage", "-usage", "-u"];
 
 const defaultHelp = "No help text configured.",
     defaultUsage = `See \`%t ${tag.name} help\` for usage.`;
+
+const defaultTenorClientConfig = {
+    key: LoaderUtils.caesarCipher("QYFqiEQRMdEE2wNFMmTYetr8wO9KX5JHLj6dyAU", -16, 2),
+    client_key: "caption"
+};
 
 const config = {
     help: typeof help === "undefined" ? defaultHelp : help,
@@ -17,15 +22,15 @@ const config = {
     requireImage: typeof requireImage === "undefined" ? false : requireImage,
     textName: typeof textName === "undefined" ? "" : textName,
 
-    tenorClientConfig: typeof tenorClientConfig === "undefined" ? {} : tenorClientConfig,
+    useTenorApi: typeof useTenorApi === "undefined" ? true : useTenorApi,
+    tenorClientConfig: typeof tenorClientConfig === "undefined" ? defaultHelpOptions : tenorClientConfig,
+
     loadGifEncoder: typeof loadGifEncoder === "undefined" ? () => {} : loadGifEncoder
 };
 
 const _helpOptions = config.helpOptions.length > 0 ? config.helpOptions : defaultHelpOptions,
     _requireText = config.requireText || Boolean(config.textName),
     _textName = config.textName ? config.textName + " " : config.textName;
-
-const useTenorApi = typeof tenorClientConfig === "object";
 
 // sources
 const urls = {};
@@ -106,7 +111,7 @@ function parseArgs() {
 
                     const thumbnail = embed.thumbnail ?? embed.data.thumbnail;
                     targetMsg.fileUrl = thumbnail.url;
-                } else if (useTenorApi && (tenorInfo = parseTenorUrl(fileUrl))) {
+                } else if (config.useTenorApi && (tenorInfo = parseTenorUrl(fileUrl))) {
                     delete tenorInfo.protocol;
 
                     targetMsg.tenorGif = tenorInfo;

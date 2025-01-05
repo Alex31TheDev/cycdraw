@@ -8,11 +8,6 @@ const maxWidth = 1000,
 
 let showTimes = false;
 
-const TENOR_API = {
-    key: "AIzaSyAB6Nyymg7z6WDIOdbsg8t4Hp315TqNiuE",
-    client_key: "caption"
-};
-
 // sources
 const urls = {};
 
@@ -129,7 +124,6 @@ const main = (() => {
             textName: "caption",
             requireImage: true,
 
-            tenorClientConfig: TENOR_API,
             loadGifEncoder
         };
 
