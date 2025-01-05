@@ -663,6 +663,13 @@ class Image {
         this.pixels = x;
     }
 
+    copy() {
+        const img = new Image(this.w, this.h);
+        img.pixels.set(this.pixels);
+
+        return img;
+    }
+
     inBounds(x, y) {
         return x >= 0 && x < this.w && y >= 0 && y < this.h;
     }
@@ -995,8 +1002,6 @@ class Image {
                 pos1 += yi;
             }
         } else {
-            const yi = -4 * (w - this.w);
-
             if (x1 > x2) {
                 tmp = x1;
                 x1 = x2;
@@ -1008,6 +1013,8 @@ class Image {
                 y1 = y2;
                 y2 = tmp;
             }
+
+            const yi = 4 * (this.w - w);
 
             let i = 0,
                 j;
@@ -1033,70 +1040,94 @@ class Image {
         }
     }
 
-    blit(x, y, src, w, h) {
+    blit(x1, y1, src, x2 = 0, y2 = 0, w, h) {
+        [x1, y1] = this.clamp(x1, y1);
+        [x2, y2] = src.clamp(x2, y2);
+
         w = Math.floor(w);
         h = Math.floor(h);
 
         let sw = Math.min(w, src.w) || src.w,
             sh = Math.min(h, src.h) || src.h;
 
-        if (sw + x >= this.w) {
-            sw = this.w - x;
-        }
-        if (sh + y >= this.h) {
-            sh = this.h - y;
-        }
+        if (sw + x1 >= this.w) sw = this.w - x1;
+        if (sw + x2 >= src.w) sw = src.w - x2;
+
+        if (sh + y1 >= this.h) sh = this.h - y1;
+        if (sh + y2 >= src.h) sh = src.h - y2;
+
+        const yi1 = 4 * (this.w - sw),
+            yi2 = 4 * (src.w - sw);
 
         let i = 0,
             j;
 
+        let pos1 = 4 * (y1 * this.w + x1),
+            pos2 = 4 * (y2 * src.w + x2);
+
         for (; i < sh; i++) {
             for (j = 0; j < sw; j++) {
-                const pos1 = 4 * ((i + y) * this.w + j + x),
-                    pos2 = 4 * (i * src.w + j);
-
-                this.pixels[pos1] = src.pixels[pos2];
-                this.pixels[pos1 + 1] = src.pixels[pos2 + 1];
-                this.pixels[pos1 + 2] = src.pixels[pos2 + 2];
-                this.pixels[pos1 + 3] = src.pixels[pos2 + 3];
+                this.pixels[pos1++] = src.pixels[pos2++];
+                this.pixels[pos1++] = src.pixels[pos2++];
+                this.pixels[pos1++] = src.pixels[pos2++];
+                this.pixels[pos1++] = src.pixels[pos2++];
             }
+
+            pos1 += yi1;
+            pos2 += yi2;
         }
     }
 
     overlap(x, y, src, w, h) {
+        [x1, y1] = this.clamp(x1, y1);
+        [x2, y2] = src.clamp(x2, y2);
+
         w = Math.floor(w);
         h = Math.floor(h);
 
         let sw = Math.min(w, src.w) || src.w,
             sh = Math.min(h, src.h) || src.h;
 
-        if (sw + x >= this.w) {
-            sw = this.w - x;
-        }
-        if (sh + y >= this.h) {
-            sh = this.h - y;
-        }
+        if (sw + x1 >= this.w) sw = this.w - x1;
+        if (sw + x2 >= src.w) sw = src.w - x2;
+
+        if (sh + y1 >= this.h) sh = this.h - y1;
+        if (sh + y2 >= src.h) sh = src.h - y2;
+
+        const yi1 = 4 * (this.w - sw),
+            yi2 = 4 * (src.w - sw);
 
         let i = 0,
             j;
 
+        let pos1 = 4 * (y1 * this.w + x1),
+            pos2 = 4 * (y2 * src.w + x2);
+
         for (; i < sh; i++) {
             for (j = 0; j < sw; j++) {
-                const pos1 = 4 * ((i + y) * this.w + j + x),
-                    pos2 = 4 * (i * src.w + j);
-
                 const a = this.pixels[pos1 + 3],
                     clr_a = src.pixels[pos2 + 3];
 
                 if (a === 0 || clr_a === 255) {
-                    this.pixels[pos1] = src.pixels[pos2];
-                    this.pixels[pos1 + 1] = src.pixels[pos2 + 1];
-                    this.pixels[pos1 + 2] = src.pixels[pos2 + 2];
-                    this.pixels[pos1 + 3] = src.pixels[pos2 + 3];
+                    this.pixels[pos1++] = src.pixels[pos2++];
+                    this.pixels[pos1++] = src.pixels[pos2++];
+                    this.pixels[pos1++] = src.pixels[pos2++];
+                    this.pixels[pos1++] = src.pixels[pos2++];
                 } else {
-                    this._blendPixel_rgb(pos1, a, src.pixels[pos2], src.pixels[pos2 + 1], src.pixels[pos2 + 2], clr_a);
+                    pos1 = this._blendPixel_rgb(
+                        pos1,
+                        a,
+                        src.pixels[pos2++],
+                        src.pixels[pos2++],
+                        src.pixels[pos2++],
+                        clr_a
+                    );
+                    pos2++;
                 }
             }
+
+            pos1 += yi1;
+            pos2 += yi2;
         }
     }
 
@@ -1133,6 +1164,46 @@ class Image {
                 pixels2[pos1 + 2] = this.pixels[pos2 + 2];
                 pixels2[pos1 + 3] = this.pixels[pos2 + 3];
             }
+        }
+
+        this.pixels = pixels2;
+        this.w = w;
+        this.h = h;
+    }
+
+    clip(x, y, w, h) {
+        [x, y] = this.clamp(x1, y1);
+
+        w = Math.floor(w);
+        h = Math.floor(h);
+
+        if (w + x >= this.w) {
+            w = this.w - x;
+        }
+
+        if (h + y >= this.h) {
+            h = this.h - y;
+        }
+
+        const pixels2 = new Uint8Array(Image.getBufSize(w, h));
+
+        const yi = 4 * (this.w - w);
+
+        let i = 0,
+            j;
+
+        let pos1 = 0,
+            pos2 = 4 * (y * this.w + x);
+
+        for (; i < h; i++) {
+            for (j = 0; j < w; j++) {
+                pixels2[pos1++] = this.pixels[pos2++];
+                pixels2[pos1++] = this.pixels[pos2++];
+                pixels2[pos1++] = this.pixels[pos2++];
+                pixels2[pos1++] = this.pixels[pos2++];
+            }
+
+            pos2 += yi;
         }
 
         this.pixels = pixels2;
