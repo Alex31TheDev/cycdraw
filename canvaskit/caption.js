@@ -98,6 +98,10 @@ const main = (() => {
 
         originalWidth = width;
         originalHeight = height;
+
+        if (isGif) {
+            loadGifEncoder();
+        }
     }
 
     // load libraries
@@ -124,7 +128,7 @@ const main = (() => {
             textName: "caption",
             requireImage: true,
 
-            loadGifEncoder
+            decodeLibrary: "canvaskit"
         };
 
         ({ parseArgs: _parseArgs, loadImage: _loadImage } = ModuleLoader.loadModuleFromTag(tags.ImageLoader, {
@@ -136,8 +140,12 @@ const main = (() => {
     function loadCanvasKit() {
         loadLibrary("canvaskit");
 
+        Benchmark.restartTiming("load_libraries");
+
         const CanvasKitUtil = ModuleLoader.loadModuleFromTag(tags.CanvasKitUtil);
         Patches.patchGlobalContext({ CanvasKitUtil });
+
+        Benchmark.stopTiming("load_libraries");
 
         drawImageOpts = [CanvasKit.FilterMode.Linear, CanvasKit.MipmapMode.None];
     }
@@ -629,6 +637,10 @@ const main = (() => {
     }
 
     function sendOutput() {
+        if (output === null || typeof output === "undefined") {
+            throw new CustomError("No output");
+        }
+
         let imgBytes;
 
         if (isGif) {
@@ -639,10 +651,6 @@ const main = (() => {
             Benchmark.stopTiming("encode_image");
         } else {
             const surface = output;
-
-            if (surface === null || typeof surface === "undefined") {
-                throw new CustomError("No surface");
-            }
 
             Benchmark.startTiming("encode_image");
             imgBytes = CanvasKitUtil.encodeSurface(surface);

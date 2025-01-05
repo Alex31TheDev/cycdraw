@@ -1,5 +1,6 @@
 "use strict";
-/* global help:readonly, usage:readonly, helpOptions:readonly, options:readonly, requireText:readonly, requireImage:readonly, textName:readonly, loadGifEncoder:readonly, useTenorApi:readonly, tenorClientConfig:readonly, CanvasKitUtil:readonly, TenorHttpClient:readonly */
+
+/* global help:readonly, usage:readonly, helpOptions:readonly, options:readonly, requireText:readonly, requireImage:readonly, textName:readonly, useTenorApi:readonly, tenorClientConfig:readonly, CanvasKitUtil:readonly, TenorHttpClient:readonly, decodeImage:readonly, loadDecodeLibrary */
 
 // config
 const defaultHelpOptions = ["help", "-help", "--help", "-h", "usage", "-usage", "-u"];
@@ -25,7 +26,8 @@ const config = {
     useTenorApi: typeof useTenorApi === "undefined" ? true : useTenorApi,
     tenorClientConfig: typeof tenorClientConfig === "undefined" ? defaultHelpOptions : tenorClientConfig,
 
-    loadGifEncoder: typeof loadGifEncoder === "undefined" ? () => {} : loadGifEncoder
+    decodeLibrary: typeof decodeLibrary === "undefined" ? "none" : decodeLibrary,
+    loadDecodeLibrary: typeof loadDecodeLibrary === "undefined" ? () => {} : loadDecodeLibrary
 };
 
 const _helpOptions = config.helpOptions.length > 0 ? config.helpOptions : defaultHelpOptions,
@@ -38,6 +40,9 @@ const urls = {};
 const tags = {
     TenorHttpClient: "ck_tenorhttpclient"
 };
+
+// errors
+class LoaderError extends CustomError {}
 
 // globals
 
@@ -195,20 +200,67 @@ function loadTenorClient() {
 }
 
 // load image
+function decodeImage(data) {
+    let image, width, height, isGif;
+
+    switch (config.decodeLibrary) {
+        case "none":
+            image = data;
+            isGif = LoaderUtils.bufferIsGif(data);
+
+            break;
+        case "canvaskit":
+            loadDecodeLibrary(config.decodeLibrary);
+
+            Benchmark.startTiming("decode_image");
+            image = CanvasKitUtil.makeImageOrGifFromEncoded(data);
+            Benchmark.stopTiming("decode_image");
+
+            width = image.width();
+            height = image.height();
+            isGif = image instanceof CanvasKit.AnimatedImage;
+
+            break;
+        case "lodepng":
+            isGif = LoaderUtils.bufferIsGif(data);
+
+            if (isGif) {
+                loadDecodeLibrary("canvaskit");
+
+                if (typeof globalThis.CanvasKit === "undefined") {
+                    throw new LoaderError("Can't decode GIFs with lodepng");
+                }
+
+                Benchmark.startTiming("decode_image");
+                image = CanvasKitUtil.makeGifFromEncoded(data);
+                Benchmark.stopTiming("decode_image");
+
+                width = image.width();
+                height = image.height();
+            } else {
+                loadDecodeLibrary(config.decodeLibrary);
+
+                Benchmark.startTiming("decode_image");
+                image = lodepng.decode(data);
+                Benchmark.stopTiming("decode_image");
+
+                ({ width, height } = image);
+            }
+
+            break;
+        default:
+            throw new LoaderError("Unknown library: " + config.decodeLibrary);
+    }
+
+    return [image, width, height, isGif];
+}
+
 function downloadImage(msg) {
     Benchmark.startTiming("download_image");
     const { data } = LoaderUtils.fetchAttachment(msg, FileDataTypes.binary);
     Benchmark.stopTiming("download_image");
 
-    Benchmark.startTiming("decode_image");
-    const image = CanvasKitUtil.makeImageOrGifFromEncoded(data);
-    Benchmark.stopTiming("decode_image");
-
-    const isGif = image instanceof CanvasKit.AnimatedImage,
-        width = image.width(),
-        height = image.height();
-
-    return [image, width, height, isGif];
+    return decodeImage(data);
 }
 
 function loadImage() {
@@ -240,11 +292,6 @@ function loadImage() {
     })();
 
     Benchmark.stopTiming("load_image");
-
-    if (isGif) {
-        config.loadGifEncoder();
-    }
-
     return { image, width, height, isGif };
 }
 

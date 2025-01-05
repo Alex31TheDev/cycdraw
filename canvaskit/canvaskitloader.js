@@ -1210,6 +1210,11 @@ const LoaderUtils = {
         return new Proxy(mirrorObj, handler);
     },
 
+    bufferIsGif: buf => {
+        const header = String.fromCharCode(...buf.slice(0, 6));
+        return ["GIF87a", "GIF89a"].includes(header);
+    },
+
     parseRanges: (str, base = 16) => {
         return str.split(" ").map(range => {
             const split = range.split("-");

@@ -3,11 +3,6 @@
 class CanvasUtilError extends CustomError {}
 
 const CanvasKitUtil = {
-    bufferIsGif: buf => {
-        const header = String.fromCharCode(...buf.slice(0, 6));
-        return ["GIF87a", "GIF89a"].includes(header);
-    },
-
     makeImageFromEncoded: imgData => {
         const image = CanvasKit.MakeImageFromEncoded(imgData);
 
@@ -29,7 +24,7 @@ const CanvasKitUtil = {
     },
 
     makeImageOrGifFromEncoded: data => {
-        const isGif = CanvasKitUtil.bufferIsGif(data);
+        const isGif = LoaderUtils.bufferIsGif(data);
         return CanvasKitUtil[`make${isGif ? "Gif" : "Image"}FromEncoded`](data);
     },
 
