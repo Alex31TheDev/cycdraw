@@ -598,7 +598,7 @@ const LoaderUtils = {
     },
 
     approxEquals: (a, b, epsilon = Number.EPSILON) => {
-        return Math.abs(a - b) < epsilon;
+        return Math.abs(a - b) <= epsilon;
     },
 
     deviate: (x, y) => {

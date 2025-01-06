@@ -961,14 +961,16 @@ class Image {
             return;
         }
 
+        let tmp;
+
         [x1, y1] = this.clamp(x1, y1);
         [x2, y2] = this.clamp(x2, y2);
 
         const w = Math.abs(x2 - x1) + 1,
             h = Math.abs(y2 - y1) + 1;
 
-        let tmp;
-        const clr_a = color.a;
+        let a,
+            clr_a = color.a;
 
         if (w === 1 && h === 1) {
             this.setPixel_u(x1, y1, color);
@@ -983,7 +985,7 @@ class Image {
             }
 
             while (pos1 <= pos2) {
-                const a = this.pixels[pos1 + 3];
+                a = this.pixels[pos1 + 3];
 
                 if (a === 0 || clr_a === 255) {
                     this.pixels[pos1++] = color.r;
@@ -1007,7 +1009,7 @@ class Image {
             }
 
             while (pos1 <= pos2) {
-                const a = this.pixels[pos1 + 3];
+                a = this.pixels[pos1 + 3];
 
                 if (a === 0 || clr_a === 255) {
                     this.pixels[pos1++] = color.r;
@@ -1042,7 +1044,7 @@ class Image {
 
             for (; i < h; i++) {
                 for (j = 0; j < w; j++) {
-                    const a = this.pixels[pos + 3];
+                    a = this.pixels[pos + 3];
 
                     if (a === 0 || clr_a === 255) {
                         this.pixels[pos++] = color.r;
@@ -1122,10 +1124,12 @@ class Image {
         let pos1 = 4 * (y1 * this.w + x1),
             pos2 = 4 * (y2 * src.w + x2);
 
+        let a, clr_a;
+
         for (; i < sh; i++) {
             for (j = 0; j < sw; j++) {
-                const a = this.pixels[pos1 + 3],
-                    clr_a = src.pixels[pos2 + 3];
+                a = this.pixels[pos1 + 3];
+                clr_a = src.pixels[pos2 + 3];
 
                 if (a === 0 || clr_a === 255) {
                     this.pixels[pos1++] = src.pixels[pos2++];
@@ -1170,13 +1174,16 @@ class Image {
         let i = 0,
             j;
 
+        let x, y;
+        let pos1, pos2;
+
         for (; i < h; i++) {
             for (j = 0; j < w; j++) {
-                const x = Math.floor((j / w) * this.w),
-                    y = Math.floor((i / h) * this.h);
+                x = Math.floor((j / w) * this.w);
+                y = Math.floor((i / h) * this.h);
 
-                let pos1 = 4 * (i * w + j),
-                    pos2 = 4 * (y * this.w + x);
+                pos1 = 4 * (i * w + j);
+                pos2 = 4 * (y * this.w + x);
 
                 pixels2[pos1] = this.pixels[pos2];
                 pixels2[pos1 + 1] = this.pixels[pos2 + 1];
@@ -1437,13 +1444,15 @@ class Image {
             return;
         }
 
+        let tmp;
+
         [x1, y1, x2, y2] = coords;
 
         let dx = x2 - x1,
             dy = y2 - y1;
 
-        let tmp;
-        const clr_a = color.a;
+        let a,
+            clr_a = color.a;
 
         if (dx === 0 && dy === 0) {
             this.setPixel_u(x1, y1, color);
@@ -1458,7 +1467,7 @@ class Image {
             }
 
             while (pos1 <= pos2) {
-                const a = this.pixels[pos1 + 3];
+                a = this.pixels[pos1 + 3];
 
                 if (a === 0 || clr_a === 255) {
                     this.pixels[pos1++] = color.r;
@@ -1482,7 +1491,7 @@ class Image {
             }
 
             while (pos1 <= pos2) {
-                const a = this.pixels[pos1 + 3];
+                a = this.pixels[pos1 + 3];
 
                 if (a === 0 || clr_a === 255) {
                     this.pixels[pos1++] = color.r;
@@ -1523,7 +1532,7 @@ class Image {
             let pos = 4 * (y1 * this.w + x1);
 
             for (; x1 <= x2; x1++) {
-                const a = this.pixels[pos + 3];
+                a = this.pixels[pos + 3];
 
                 if (a === 0 || clr_a === 255) {
                     this.pixels[pos++] = color.r;
@@ -1570,7 +1579,7 @@ class Image {
             let pos = 4 * (y1 * this.w + x1);
 
             for (; y1 <= y2; y1++) {
-                const a = this.pixels[pos + 3];
+                a = this.pixels[pos + 3];
 
                 if (a === 0 || clr_a === 255) {
                     this.pixels[pos++] = color.r;
@@ -1833,6 +1842,92 @@ class Image {
 
         const w = x_of - font.spacing;
         return [w, h];
+    }
+
+    _findEdge(sums) {
+        let start = 0,
+            end = sums.length - 1;
+
+        while (start < sums.length && sums[start] === 0) start++;
+        while (end > start && sums[end] === 0) end--;
+
+        return [start, end];
+    }
+
+    findTrim(options = {}) {
+        const threshold = options.threshold ?? 10,
+            bg = options.background ?? Colors.white,
+            filter = options.filter ?? false;
+
+        let binaryMap = Array(this.h);
+        let i, j;
+
+        for (i = 0; i < this.h; i++) {
+            binaryMap[i] = new Uint8Array(this.w);
+
+            for (j = 0; j < this.w; j++) {
+                const [r, g, b] = this.getPixel_u_rgb(j, i),
+                    diff = Math.abs(r - bg.r) + Math.abs(g - bg.g) + Math.abs(b - bg.b);
+
+                binaryMap[i][j] = diff > threshold ? 1 : 0;
+            }
+        }
+
+        if (filter) {
+            if (this.w < 3 || this.h < 3) {
+                throw new DrawingError("Image must be at least 3x3 pixels in size");
+            }
+
+            const filteredMap = Array(this.h);
+
+            let dx, dy, x, y;
+            let neighbors = new Uint8Array(9),
+                count;
+
+            for (i = 0; i < this.h; i++) {
+                filteredMap[i] = new Uint8Array(this.w);
+
+                for (j = 0; j < this.w; j++) {
+                    count = 0;
+
+                    for (dy = -1; dy <= 1; dy++) {
+                        y = i + dy;
+
+                        if (y >= 0 && y < this.h) {
+                            for (dx = -1; dx <= 1; dx++) {
+                                x = j + dx;
+
+                                if (x >= 0 && x < this.w) {
+                                    neighbors[count++] = binaryMap[y][x];
+                                }
+                            }
+                        }
+                    }
+
+                    neighbors.subarray(0, count).sort((a, b) => a - b);
+                    filteredMap[i][j] = neighbors[Math.floor(count / 2)];
+                }
+            }
+
+            binaryMap = filteredMap;
+        }
+
+        const rowSums = binaryMap.map(row => row.reduce((a, b) => a + b, 0)),
+            colSums = Array.from({ length: this.w }, (_, x) => binaryMap.reduce((sum, row) => sum + row[x], 0));
+
+        const [top, bottom] = this._findEdge(rowSums),
+            [left, right] = this._findEdge(colSums);
+
+        if (top > bottom || left > right) {
+            return { top: 0, left: 0, bottom: 0, right: 0 };
+        }
+
+        return {
+            top,
+            left,
+            bottom,
+            right
+        };
     }
 }
 

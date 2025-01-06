@@ -1681,13 +1681,13 @@ class Image {
             return;
         }
 
+        let tmp;
+
         [x1, y1] = this.clamp(x1, y1);
         [x2, y2] = this.clamp(x2, y2);
 
         const w = Math.abs(x2 - x1) + 1,
             h = Math.abs(y2 - y1) + 1;
-
-        let tmp;
 
         if (w === 1 && h === 1) {
             this.setPixel_u(x1, y1, color);
@@ -1814,13 +1814,16 @@ class Image {
         let i = 0,
             j;
 
+        let x, y;
+        let pos1, pos2;
+
         for (; i < h; i++) {
             for (j = 0; j < w; j++) {
-                const x = Math.floor((j / w) * this.w),
-                    y = Math.floor((i / h) * this.h);
+                x = Math.floor((j / w) * this.w);
+                y = Math.floor((i / h) * this.h);
 
-                let pos1 = 3 * (i * w + j),
-                    pos2 = 3 * (y * this.w + x);
+                pos1 = 3 * (i * w + j);
+                pos2 = 3 * (y * this.w + x);
 
                 pixels2[pos1] = this.pixels[pos2];
                 pixels2[pos1 + 1] = this.pixels[pos2 + 1];
@@ -2060,12 +2063,12 @@ class Image {
             return;
         }
 
+        let tmp;
+
         [x1, y1, x2, y2] = coords;
 
         let dx = x2 - x1,
             dy = y2 - y1;
-
-        let tmp;
 
         if (dx === 0 && dy === 0) {
             this.setPixel_u(x1, y1, color);

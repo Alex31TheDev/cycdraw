@@ -3,7 +3,7 @@
 
 // config
 const sliceWidth = 10,
-    backgroundTolerance = 50,
+    backgroundTreshold = 10,
     identicalTreshold = 3;
 
 let showTimes = false;
@@ -153,30 +153,11 @@ const main = (() => {
     function calcHeaderHeight(frame) {
         frame.clip(0, 0, sliceWidth, height);
 
-        const lines = Array(height);
+        const { top } = frame.findTrim({
+            treshold: backgroundTreshold
+        });
 
-        for (let y = 0; y < height; y++) {
-            let sum = 0;
-
-            for (let x = 0; x < frame.width; x++) {
-                const color = frame.getPixel_u(x, y);
-
-                sum += color.r - bgColor.r;
-                sum += color.g - bgColor.g;
-                sum += color.b - bgColor.b;
-            }
-
-            lines[y] = sum;
-        }
-
-        const max = Math.max(...lines),
-            max_y = lines.lastIndexOf(max);
-
-        if (Math.abs(max) > backgroundTolerance) {
-            return 0;
-        }
-
-        return max_y + 1;
+        return top + 1;
     }
 
     // uncaption
