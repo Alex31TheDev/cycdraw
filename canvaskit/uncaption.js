@@ -204,7 +204,7 @@ const main = (() => {
             return headerHeight;
         })();
 
-        const newHeight = height - headerHeight + 1;
+        const newHeight = height - headerHeight;
 
         if (LoaderUtils.approxEquals(newHeight, height, identicalTreshold)) {
             Benchmark.stopTiming("uncaption_total");

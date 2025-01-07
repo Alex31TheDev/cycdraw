@@ -23,7 +23,7 @@ const config = {
     textName: typeof textName === "undefined" ? "" : textName,
 
     useTenorApi: typeof useTenorApi === "undefined" ? true : useTenorApi,
-    tenorClientConfig: typeof tenorClientConfig === "undefined" ? defaultHelpOptions : tenorClientConfig,
+    tenorClientConfig: typeof tenorClientConfig === "undefined" ? defaultTenorClientConfig : tenorClientConfig,
 
     decodeLibrary: typeof decodeLibrary === "undefined" ? "none" : decodeLibrary,
     loadDecodeLibrary: typeof loadDecodeLibrary === "undefined" ? () => {} : loadDecodeLibrary

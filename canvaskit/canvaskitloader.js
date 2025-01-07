@@ -2453,7 +2453,7 @@ class ModuleLoader {
                 .filter(tag => tag !== null && typeof tag !== "undefined");
 
             if (tags.length < 1) {
-                throw new LoaderError("No matching tag(s) found", tagName);
+                throw new LoaderError(`No matching tag(s) found: ${tagName}`, tagName);
             }
 
             body = tags.map(tag => LoaderUtils.getTagBody(tag)).join("");

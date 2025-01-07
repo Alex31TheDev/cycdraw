@@ -5,10 +5,17 @@
 const plotWidth = 1280,
     plotHeight = 720;
 
+const fontName = "Roboto",
+    fontSize = 75;
+
+const customUnits = ["rf", "eu", "tick"];
+
 // sources
 const urls = {
-    QalculatorInit: "https://files.catbox.moe/ovp1mx.js",
-    QalculatorWasm: "https://files.catbox.moe/484lx1.wasm",
+    QalculatorInit: "https://files.catbox.moe/5wc7jh.js",
+    QalculatorWasm: "https://files.catbox.moe/8zo7eo.wasm",
+
+    UnitDefinitions: "https://files.catbox.moe/7424p9.xml",
 
     GnuplotInit: "https://files.catbox.moe/jln0df.js",
     GnuplotWasm: "https://files.catbox.moe/xmkrch.wasm",
@@ -17,8 +24,10 @@ const urls = {
 };
 
 const tags = {
-    QalculatorInit: "ck_qalc_init",
+    QalculatorInit: /^ck_qalc_init\d+$/,
     QalculatorWasm: /^ck_qalc_wasm\d+$/,
+
+    UnitDefinitions: "ck_qalc_units",
 
     GnuplotInit: /^ck_gnuplot_init\d+$/,
     GnuplotWasm: /^ck_gnuplot_wasm\d+$/,
@@ -27,21 +36,19 @@ const tags = {
 };
 
 // globals
-let font;
+let input, font;
 
 // main
 const main = (() => {
     // parse args
     function getInput() {
-        let input = tag.args ?? "";
+        input = tag.args ?? "";
         [, input] = LoaderUtils.parseScript(input);
 
         if (input.length < 1) {
             const out = ":warning: No expression provided.";
             throw new ExitError(out);
         }
-
-        return input;
     }
 
     // load libraries
@@ -62,7 +69,7 @@ const main = (() => {
         Patches.apply("polyfillPromise", "polyfillTextEncoderDecoder");
     }
 
-    function loadMisc() {
+    function loadLibraries() {
         if (loadSource === "tag") {
             loadBase2nDecoder();
             loadZstdDecompressor();
@@ -77,6 +84,7 @@ const main = (() => {
                 performance: {
                     now: _ => Benchmark.getCurrentTime()
                 },
+
                 runGnuplot: {
                     global: true,
                     value: plotAndReply
@@ -153,13 +161,35 @@ const main = (() => {
 
     // init libraries
     function initQalculator() {
-        const calc = new Qalc.Calculator();
-        calc.loadGlobalDefinitions();
+        Benchmark.startTiming("init_qalculator");
+
+        const FS = Qalc.FS,
+            calc = new Qalc.Calculator();
+
+        const lower = input.toLowerCase();
+
+        if (customUnits.some(unit => lower.includes(unit))) {
+            Benchmark.startTiming("load_units");
+
+            const units = ModuleLoader.getModuleCode(urls.UnitDefinitions, tags.UnitDefinitions, FileDataTypes.text);
+
+            FS.writeFile("units.xml", units);
+            calc.loadDefinitions("units.xml");
+
+            Benchmark.stopTiming("load_units");
+        }
 
         Patches.patchGlobalContext({ calc });
+
+        Benchmark.stopTiming("init_qalculator");
     }
 
     // qalculate main
+    function getTerminalString() {
+        return `set terminal svg size ${plotWidth},${plotHeight} font "${fontName},${fontSize}"
+set output '/output'`;
+    }
+
     function runGnuplot(data_files, commands, extra_commandline, persist) {
         const FS = Gnuplot.FS;
 
@@ -169,11 +199,7 @@ const main = (() => {
             FS.writeFile(file, data);
         }
 
-        const cmds = commands.replace(
-            "set terminal pop",
-            `set terminal svg size ${plotWidth},${plotHeight} font "Roboto,25"
-set output '/output'`
-        );
+        const cmds = commands.replace("set terminal pop", getTerminalString());
         FS.writeFile("/commands", cmds);
 
         Gnuplot.callMain(["/commands"]);
@@ -223,10 +249,12 @@ set output '/output'`
     return _ => {
         initLoader();
 
-        const input = getInput();
+        getInput();
 
         patch();
-        loadMisc();
+        loadLibraries();
+
+        if (enableDebugger) debugger;
 
         loadQalculator();
         initQalculator();
