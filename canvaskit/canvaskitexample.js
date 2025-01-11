@@ -113,9 +113,8 @@ Benchmark.stopTiming("draw_total");
 
 // Encode image
 Benchmark.startTiming("encode_png");
-const pngBytes = CanvasKitUtil.encodeSurface(surface);
+const pngBytes = CanvasKitUtil.encodeSurface(surface, null, null, true);
 Benchmark.stopTiming("encode_png");
-surface.delete();
 
 // Send image & benchmark times
 msg.reply(Benchmark.getAll(true), {

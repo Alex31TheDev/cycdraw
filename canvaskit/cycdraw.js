@@ -643,6 +643,16 @@ class Image {
         return Image.fromPixels(imgData.data, imgData.width, imgData.height);
     }
 
+    static fromCanvaskitImage(image, del, alphaType) {
+        const width = image.width(),
+            height = image.height();
+
+        // eslint-disable-next-line
+        const pixels = CanvasKitUtil.readImagePixels(image, del, alphaType);
+
+        return Image.fromPixels(pixels, width, height);
+    }
+
     get width() {
         return this.w;
     }

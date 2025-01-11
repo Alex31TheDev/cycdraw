@@ -549,8 +549,7 @@ const main = (() => {
     function readCurrentFrame() {
         let frame = image.makeImageAtCurrentFrame();
 
-        const framePixels = CanvasKitUtil.readImagePixels(frame);
-        frame.delete();
+        const framePixels = CanvasKitUtil.readImagePixels(frame, true);
         frame = Image.fromPixels(framePixels, originalWidth, originalHeight);
 
         return [frame, image.currentFrameDuration()];
@@ -591,8 +590,7 @@ const main = (() => {
 
                 drawCaption(canvas, paragraph, textX, textY);
 
-                let headerPixels = CanvasKitUtil.readSurfacePixels(surface, CanvasKit.AlphaType.Opaque);
-                surface.delete();
+                let headerPixels = CanvasKitUtil.readSurfacePixels(surface, true, CanvasKit.AlphaType.Opaque);
                 const header = Image.fromPixels(headerPixels, width, headerHeight);
                 surface = canvas = headerPixels = undefined;
 
@@ -657,10 +655,8 @@ const main = (() => {
             const surface = output;
 
             Benchmark.startTiming("encode_image");
-            imgBytes = CanvasKitUtil.encodeSurface(surface);
+            imgBytes = CanvasKitUtil.encodeSurface(surface, null, null, true);
             Benchmark.stopTiming("encode_image");
-
-            surface.delete();
         }
 
         output = undefined;

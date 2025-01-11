@@ -93,6 +93,7 @@ function parseArgs() {
 
             targetMsg.file = attach;
             targetMsg.fileUrl = attach.url;
+            targetMsg.attachInfo = LoaderUtils.parseAttachmentUrl(attach.url);
         } else {
             const urlMatch = targetMsg.content.match(LoaderUtils.urlRegex);
 
@@ -113,13 +114,15 @@ function parseArgs() {
 
                     const thumbnail = embed.thumbnail ?? embed.data.thumbnail;
                     targetMsg.fileUrl = thumbnail.url;
+                    targetMsg.attachInfo = attachInfo;
                 } else if (config.useTenorApi && (tenorInfo = parseTenorUrl(fileUrl))) {
-                    delete tenorInfo.protocol;
-
                     targetMsg.tenorGif = tenorInfo;
+
                     targetMsg.fileUrl = "placeholder";
+                    targetMsg.attachInfo = { ext: ".gif" };
                 } else {
                     targetMsg.fileUrl = fileUrl;
+                    targetMsg.attachInfo = { ext: ".unknown" };
                 }
 
                 targetMsg.content = LoaderUtils.removeStringRange(
@@ -197,6 +200,8 @@ function loadTenorClient() {
 function decodeImage(data) {
     let image, width, height, isGif;
 
+    const ext = targetMsg.attachInfo.ext;
+
     switch (config.decodeLibrary) {
         case "none":
             image = data;
@@ -210,10 +215,7 @@ function decodeImage(data) {
             image = CanvasKitUtil.makeImageOrGifFromEncoded(data);
             Benchmark.stopTiming("decode_image");
 
-            width = image.width();
-            height = image.height();
             isGif = image instanceof CanvasKit.AnimatedImage;
-
             break;
         case "lodepng":
             isGif = LoaderUtils.bufferIsGif(data);
@@ -228,17 +230,23 @@ function decodeImage(data) {
                 Benchmark.startTiming("decode_image");
                 image = CanvasKitUtil.makeGifFromEncoded(data);
                 Benchmark.stopTiming("decode_image");
+            } else if (ext !== ".png") {
+                config.loadDecodeLibrary("canvaskit");
 
-                width = image.width();
-                height = image.height();
+                if (typeof globalThis.CanvasKit === "undefined") {
+                    const imgName = ext.slice(1).toUpperCase();
+                    throw new LoaderError(`Can't decode ${imgName}s with lodepng`);
+                }
+
+                Benchmark.startTiming("decode_image");
+                image = CanvasKitUtil.makeImageFromEncoded(data);
+                Benchmark.stopTiming("decode_image");
             } else {
                 config.loadDecodeLibrary(config.decodeLibrary);
 
                 Benchmark.startTiming("decode_image");
                 image = lodepng.decode(data);
                 Benchmark.stopTiming("decode_image");
-
-                ({ width, height } = image);
             }
 
             break;
@@ -246,7 +254,10 @@ function decodeImage(data) {
             throw new LoaderError("Unknown library: " + config.decodeLibrary);
     }
 
-    return [image, width, height, isGif];
+    width = typeof image.width === "function" ? image.width() : image.width;
+    height = typeof image.height === "function" ? image.height() : image.height;
+
+    return { image, width, height, isGif };
 }
 
 function downloadImage(msg) {
@@ -268,7 +279,7 @@ function loadImage() {
 
     Benchmark.startTiming("load_image");
 
-    [image, width, height, isGif] = (() => {
+    const imgInfo = (() => {
         let image;
 
         try {
@@ -285,7 +296,7 @@ function loadImage() {
     })();
 
     Benchmark.stopTiming("load_image");
-    return { image, width, height, isGif };
+    return imgInfo;
 }
 
 // exports

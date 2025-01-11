@@ -68,7 +68,7 @@ const CanvasKitUtil = {
         return families;
     },
 
-    readImagePixels: (image, alphaType = CanvasKit.AlphaType.Unpremul) => {
+    readImagePixels: (image, del = false, alphaType = CanvasKit.AlphaType.Unpremul) => {
         const pixels = image.readPixels(0, 0, {
             width: image.width(),
             height: image.height(),
@@ -77,39 +77,44 @@ const CanvasKitUtil = {
             alphaType
         });
 
+        if (del) image.delete();
         return pixels;
     },
 
-    encodeImage: (image, format, quality) => {
+    encodeImage: (image, format, quality, del = false) => {
         const encodedBytes = image.encodeToBytes(format, quality);
 
         if (encodedBytes === null) {
             throw new CanvasUtilError("Unkown format or invalid quality");
         }
 
+        if (del) image.delete();
         return encodedBytes;
     },
 
-    snapshotSurface: surface => {
+    snapshotSurface: (surface, del = false) => {
         surface.flush();
-        return surface.makeImageSnapshot();
+        const snapshot = surface.makeImageSnapshot();
+
+        if (del) surface.delete();
+        return snapshot;
     },
 
-    readSurfacePixels: (surface, alphaType) => {
-        const snapshot = CanvasKitUtil.snapshotSurface(surface);
+    readSurfacePixels: (surface, del, alphaType) => {
+        const snapshot = CanvasKitUtil.snapshotSurface(surface, del);
 
         try {
-            return CanvasKitUtil.readImagePixels(snapshot, alphaType);
+            return CanvasKitUtil.readImagePixels(snapshot, false, alphaType);
         } finally {
             snapshot.delete();
         }
     },
 
-    encodeSurface: (surface, format, quality) => {
-        const snapshot = CanvasKitUtil.snapshotSurface(surface);
+    encodeSurface: (surface, format, quality, del) => {
+        const snapshot = CanvasKitUtil.snapshotSurface(surface, del);
 
         try {
-            return CanvasKitUtil.encodeImage(snapshot, format, quality);
+            return CanvasKitUtil.encodeImage(snapshot, format, quality, false);
         } finally {
             snapshot.delete();
         }

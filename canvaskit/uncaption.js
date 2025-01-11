@@ -54,6 +54,9 @@ const main = (() => {
 
         if (isGif) {
             loadGifEncoder();
+        } else if (targetMsg.attachInfo.ext !== ".png") {
+            image = Image.fromCanvaskitImage(image, true);
+            loadLibrary("lodepng");
         } else {
             image = Image.fromImageData(image);
         }
@@ -163,10 +166,7 @@ const main = (() => {
     // uncaption
     function readCurrentFrame() {
         let frame = image.makeImageAtCurrentFrame();
-
-        const framePixels = CanvasKitUtil.readImagePixels(frame);
-        frame.delete();
-        frame = Image.fromPixels(framePixels, width, height);
+        frame = Image.fromCanvaskitImage(frame, true);
 
         return [frame, image.currentFrameDuration()];
     }

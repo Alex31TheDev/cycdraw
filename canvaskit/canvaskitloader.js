@@ -894,11 +894,12 @@ const LoaderUtils = {
     },
 
     fetchAttachment: (msg, returnType = FileDataTypes.text, allowedContentTypes) => {
-        let attach, url, contentType;
+        let attach, url;
+        let attachInfo, contentType;
 
         if (typeof msg.file !== "undefined") {
             attach = msg.file;
-        } else if (msg.attachments.length > 0) {
+        } else if (msg.attachments?.length > 0) {
             attach = msg.attachments[0];
         } else if (typeof msg.fileUrl !== "undefined") {
             url = msg.fileUrl;
@@ -914,15 +915,49 @@ const LoaderUtils = {
         }
 
         if (typeof allowedContentTypes !== "undefined") {
-            if (typeof contentType === "undefined") {
-                throw new UtilError("Attachment doesn't have a content type");
-            }
-
             if (typeof allowedContentTypes === "string") {
                 allowedContentTypes = [allowedContentTypes];
             }
 
-            if (!allowedContentTypes.some(type => contentType.includes(type))) {
+            attachInfo = msg.attachInfo ?? LoaderUtils.parseAttachmentUrl(url);
+
+            let extChecked = false,
+                ctChecked = false;
+
+            let extAllowed = false,
+                ctAllowed = false;
+
+            for (const type of allowedContentTypes) {
+                if (type.startsWith(".")) {
+                    if (!extChecked) {
+                        if (typeof attachInfo === "undefined")
+                            throw new UtilError("Extension can only be validated for attachment URLs");
+                        extChecked = true;
+                    }
+
+                    if (attachInfo.ext === type) {
+                        extAllowed = true;
+                        break;
+                    }
+                } else {
+                    if (!ctChecked) {
+                        if (typeof contentType === "undefined")
+                            throw new UtilError("Attachment doesn't have a content type");
+                        ctChecked = true;
+                    }
+
+                    if (contentType.includes(type)) {
+                        ctAllowed = true;
+                        break;
+                    }
+                }
+            }
+
+            if (extChecked && !extAllowed) {
+                throw new UtilError("Invalid file extension: " + attachInfo.ext, attachInfo.ext);
+            }
+
+            if (ctChecked && !ctAllowed) {
                 throw new UtilError("Invalid content type: " + contentType, contentType);
             }
         }
