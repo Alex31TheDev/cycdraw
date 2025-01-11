@@ -46,8 +46,7 @@ const main = (() => {
         [, input] = LoaderUtils.parseScript(input);
 
         if (input.length < 1) {
-            const out = ":warning: No expression provided.";
-            throw new ExitError(out);
+            exit(":warning: No expression provided.");
         }
     }
 
@@ -236,14 +235,14 @@ set output '/output'`;
         loadResvg();
         const pngBytes = renderSvg(svg);
 
-        msg.reply({
-            file: {
-                name: "plot.png",
-                data: pngBytes
-            }
-        });
-
-        throw new ExitError();
+        exit(
+            msg.reply({
+                file: {
+                    name: "plot.png",
+                    data: pngBytes
+                }
+            })
+        );
     }
 
     return _ => {

@@ -84,8 +84,7 @@ function parseArgs() {
             targetMsg = msgs.findLast(x => x.id === msg.reference.messageId);
 
             if (typeof targetMsg === "undefined") {
-                const out = ":warning: Reply message not found.";
-                throw new ExitError(out);
+                exit(":warning: Reply message not found.");
             }
         }
 
@@ -109,8 +108,7 @@ function parseArgs() {
                     });
 
                     if (typeof embed === "undefined") {
-                        const out = ":warning: Attachment embed not found. (it's needed because discord is dumb)";
-                        throw new ExitError(out);
+                        exit(":warning: Attachment embed not found. (it's needed because discord is dumb)");
                     }
 
                     const thumbnail = embed.thumbnail ?? embed.data.thumbnail;
@@ -146,8 +144,7 @@ function parseArgs() {
 
         checkArgs: if (split.length > 0) {
             if (_helpOptions.includes(option)) {
-                const out = `:information_source: ${config.help}`;
-                throw new ExitError(out);
+                exit(`:information_source: ${config.help}`);
             }
 
             const func = config.options[option];
@@ -163,13 +160,11 @@ function parseArgs() {
         }
 
         if (_requireText && text.length < 1) {
-            const out = `:warning: No ${_textName}text provided.\n${config.usage}`;
-            throw new ExitError(out);
+            exit(`:warning: No ${_textName}text provided.\n${config.usage}`);
         }
 
         if (config.requireImage && typeof targetMsg.fileUrl === "undefined") {
-            const out = `:warning: Message doesn't have any attachments.\n${config.usage}`;
-            throw new ExitError(out);
+            exit(`:warning: Message doesn't have any attachments.\n${config.usage}`);
         }
 
         return text;
@@ -280,8 +275,7 @@ function loadImage() {
             image = downloadImage(targetMsg);
         } catch (err) {
             if (["UtilError", "CanvasUtilError"].includes(err.name)) {
-                const out = `:warning: ${err.message}.\n${config.usage}`;
-                throw new ExitError(out);
+                exit(`:warning: ${err.message}.\n${config.usage}`);
             }
 
             throw err;

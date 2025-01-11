@@ -145,8 +145,7 @@ const main = (() => {
 
             checkArgs: if (split.length > 0) {
                 if (helpOptions.includes(option)) {
-                    const out = `:information_source: ${help}`;
-                    throw new ExitError(out);
+                    exit(`:information_source: ${help}`);
                 }
 
                 let removed = 1;
@@ -164,8 +163,7 @@ const main = (() => {
             }
 
             if (input.length < 1) {
-                const out = ":warning: No input provided.\n" + usage;
-                throw new ExitError(out);
+                exit(":warning: No input provided.\n" + usage);
             } else {
                 input = input.toLowerCase();
                 split = input.split(" ");
@@ -185,16 +183,14 @@ const main = (() => {
             }
 
             if (typeof sort === "undefined") {
-                const out = ":warning: Invalid sort.\n" + usage;
-                throw new ExitError(out);
+                exit(":warning: Invalid sort.\n" + usage);
             } else {
                 sort = Util.wordsToCamel(sort);
             }
 
             style ||= "basic";
             if (!styleList.includes(style)) {
-                const out = ":warning: Invalid style.\n" + usage;
-                throw new ExitError(out);
+                exit(":warning: Invalid style.\n" + usage);
             }
 
             return [sort, style];
@@ -625,14 +621,14 @@ const main = (() => {
             out = LoaderUtils.codeBlock(table);
         }
 
-        msg.reply(out, {
-            file: {
-                name: "sort.gif",
-                data: gifBytes
-            }
-        });
-
-        throw new ExitError();
+        exit(
+            msg.reply(out, {
+                file: {
+                    name: "sort.gif",
+                    data: gifBytes
+                }
+            })
+        );
     }
 
     return _ => {

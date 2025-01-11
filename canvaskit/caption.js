@@ -675,14 +675,14 @@ const main = (() => {
             out = LoaderUtils.codeBlock(table);
         }
 
-        msg.reply(out, {
-            file: {
-                name: `caption.${isGif ? "gif" : "png"}`,
-                data: imgBytes
-            }
-        });
-
-        throw new ExitError();
+        exit(
+            msg.reply(out, {
+                file: {
+                    name: `caption.${isGif ? "gif" : "png"}`,
+                    data: imgBytes
+                }
+            })
+        );
     }
 
     return _ => {

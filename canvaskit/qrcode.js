@@ -91,16 +91,14 @@ const main = (() => {
             ({ data: input } = LoaderUtils.fetchAttachment(msg, undefined, "text/plain"));
         } catch (err) {
             if (err.name === "UtilError") {
-                const out = ":warning: Invalid file type. Only text files are allowed.";
-                throw new ExitError(out);
+                exit(":warning: Invalid file type. Only text files are allowed.");
             }
 
             throw err;
         }
 
         if (input.length < 1) {
-            const out = ":warning: No text provided.\n" + usage;
-            throw new ExitError(out);
+            exit(":warning: No text provided.\n" + usage);
         }
 
         return input;
@@ -137,8 +135,7 @@ const main = (() => {
         } catch (err) {
             switch (err.message) {
                 case "The amount of data is too big to be stored in a QR Code":
-                    const out = ":warning: The data is too large to fit into a QR code.";
-                    throw new ExitError(out);
+                    exit(":warning: The data is too large to fit into a QR code.");
             }
 
             throw err;
@@ -182,14 +179,14 @@ const main = (() => {
             data: pixels
         });
 
-        msg.reply({
-            file: {
-                name: "qrcode.png",
-                data: pngBytes
-            }
-        });
-
-        throw new ExitError();
+        exit(
+            msg.reply({
+                file: {
+                    name: "qrcode.png",
+                    data: pngBytes
+                }
+            })
+        );
     }
 
     return _ => {

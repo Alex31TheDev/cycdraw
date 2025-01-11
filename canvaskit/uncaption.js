@@ -248,8 +248,7 @@ const main = (() => {
 
     function sendOutput() {
         if (output === null || typeof output === "undefined") {
-            msg.reply(targetMsg.fileUrl);
-            throw new ExitError();
+            exit(msg.reply(targetMsg.fileUrl));
         }
 
         let imgBytes;
@@ -280,14 +279,14 @@ const main = (() => {
             out = LoaderUtils.codeBlock(table);
         }
 
-        msg.reply(out, {
-            file: {
-                name: `image.${isGif ? "gif" : "png"}`,
-                data: imgBytes
-            }
-        });
-
-        throw new ExitError();
+        exit(
+            msg.reply(out, {
+                file: {
+                    name: `image.${isGif ? "gif" : "png"}`,
+                    data: imgBytes
+                }
+            })
+        );
     }
 
     return _ => {

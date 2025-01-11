@@ -248,8 +248,7 @@ class Logger {
 
         const codeBlock = LoaderUtils.codeBlock(log_str);
 
-        msg.reply(codeBlock);
-        throw new ExitError();
+        exit(msg.reply(codeBlock));
     }
 
     static _getLevelIndex(level) {
@@ -336,6 +335,10 @@ class Logger {
 }
 
 // util
+function exit(out) {
+    throw new ExitError(out);
+}
+
 const FileDataTypes = {
     text: "text",
     json: "json",
@@ -1388,6 +1391,11 @@ class Benchmark {
         } else {
             return time;
         }
+    }
+
+    static delay(ms) {
+        const t2 = this.getCurrentTime() + ms;
+        while (this.getCurrentTime() < t2) {}
     }
 
     static startTiming(key) {
@@ -2800,11 +2808,20 @@ const Patches = {
         globalObjs.ExitError ??= ExitError;
 
         globalObjs.Benchmark ??= Benchmark;
-        globalObjs.FileDataTypes ??= FileDataTypes;
-        globalObjs.LoaderUtils ??= LoaderUtils;
         globalObjs.HttpUtil ??= HttpUtil;
+        globalObjs.LoaderUtils ??= LoaderUtils;
+        globalObjs.exit ??= exit;
 
+        globalObjs.FileDataTypes ??= FileDataTypes;
         globalObjs.ModuleLoader ??= ModuleLoader;
+
+        globalObjs.Patches ??= {
+            globals,
+            clearLoadedPatches: Patches.clearLoadedPatches,
+            apply: Patches.apply,
+            patchGlobalContext: Patches.patchGlobalContext,
+            addContextGlobals: Patches.addContextGlobals
+        };
 
         if (!("loadSource" in globalObjs)) {
             Object.defineProperty(globalObjs, "loadSource", {
@@ -2816,14 +2833,6 @@ const Patches = {
         }
 
         globalObjs.enableDebugger ??= config.enableDebugger;
-
-        globalObjs.Patches ??= {
-            globals,
-            clearLoadedPatches: Patches.clearLoadedPatches,
-            apply: Patches.apply,
-            patchGlobalContext: Patches.patchGlobalContext,
-            addContextGlobals: Patches.addContextGlobals
-        };
 
         switch (library) {
             case "none":
@@ -3548,33 +3557,33 @@ try {
 
     // eval check
     if (!insideEval()) {
-        msg.reply(":information_source: This is meant to be used inside eval, not as a standalone tag.", {
-            embed: {
-                fields: [
-                    {
-                        name: "Usage examples",
-                        value: usage
-                    },
-                    {
-                        name: "Script examples",
-                        value: scripts
-                    },
-                    {
-                        name: "Docs",
-                        value: docs
-                    }
-                ]
-            }
-        });
-
-        throw new ExitError();
+        exit(
+            msg.reply(":information_source: This is meant to be used inside eval, not as a standalone tag.", {
+                embed: {
+                    fields: [
+                        {
+                            name: "Usage examples",
+                            value: usage
+                        },
+                        {
+                            name: "Script examples",
+                            value: scripts
+                        },
+                        {
+                            name: "Docs",
+                            value: docs
+                        }
+                    ]
+                }
+            })
+        );
     }
 
     // run main
     main();
 
     if (config.enableDebugger) debugger;
-    else throw new ExitError(".");
+    else exit(".");
 } catch (err) {
     // output
     if (err instanceof ExitError) {
