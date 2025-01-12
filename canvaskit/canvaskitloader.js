@@ -2036,6 +2036,7 @@ class ModuleStackTraceUtil {
 
         let stackFrames = err.stack.split("\n"),
             msgLine;
+
         [msgLine, ...stackFrames] = stackFrames;
         stackFrames = stackFrames.map(frame => frame.trim());
 
@@ -2050,8 +2051,8 @@ class ModuleStackTraceUtil {
         stackFrames[innerFnLine] = this.getNewStackFrame(stackFrames[innerFnLine], moduleName);
         stackFrames.splice(innerFnLine + 1);
 
-        stackFrames = stackFrames.map(frame => this.indent + frame);
-        return msgLine + "\n" + stackFrames.join("\n");
+        const formattedFrames = stackFrames.map(frame => this.indent + frame);
+        return msgLine + "\n" + formattedFrames.join("\n");
     }
 }
 

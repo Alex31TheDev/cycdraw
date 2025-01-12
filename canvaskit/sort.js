@@ -145,7 +145,8 @@ const main = (() => {
 
             checkArgs: if (split.length > 0) {
                 if (helpOptions.includes(option)) {
-                    exit(`:information_source: ${help}`);
+                    const out = `:information_source: ${help}`;
+                    throw new ExitError(out);
                 }
 
                 let removed = 1;
@@ -163,7 +164,8 @@ const main = (() => {
             }
 
             if (input.length < 1) {
-                exit(":warning: No input provided.\n" + usage);
+                const out = ":warning: No input provided.\n" + usage;
+                throw new ExitError(out);
             } else {
                 input = input.toLowerCase();
                 split = input.split(" ");
@@ -183,14 +185,16 @@ const main = (() => {
             }
 
             if (typeof sort === "undefined") {
-                exit(":warning: Invalid sort.\n" + usage);
+                const out = ":warning: Invalid sort.\n" + usage;
+                throw new ExitError(out);
             } else {
                 sort = Util.wordsToCamel(sort);
             }
 
             style ||= "basic";
             if (!styleList.includes(style)) {
-                exit(":warning: Invalid style.\n" + usage);
+                const out = ":warning: Invalid style.\n" + usage;
+                throw new ExitError(out);
             }
 
             return [sort, style];
