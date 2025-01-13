@@ -1,7 +1,8 @@
 "use strict";
 
 // config
-const maxMessages = 3;
+const maxMessages = 3,
+    maxTries = 3;
 
 const trim = true,
     minWidth = 500,
@@ -262,7 +263,7 @@ const main = (() => {
         messageIds = (() => {
             if (serverId !== "927050775073534012") {
                 const out = ":information_source: This tag only works in **Nomi**.";
-                throw new ExitError(out);
+                //throw new ExitError(out);
             }
 
             const replyId = msg.reference?.messageId;
@@ -330,17 +331,31 @@ const main = (() => {
         Benchmark.startTiming("capture_message");
 
         screenshot = (() => {
-            const [imgData, err] = capture(serverId, channelId, messageIds);
+            let imgData, err;
 
-            if (err !== null) {
-                const period = err.endsWith(".") ? "" : ".";
-                exit(`:warning: ${err}${period}`);
+            function reqFunc(tries) {
+                if (tries > maxTries) {
+                    exit(":warning: Screenshot failed. Max tries exceeded.");
+                }
+
+                [imgData, err] = capture(serverId, channelId, messageIds);
+
+                if (err !== null) {
+                    if (err.includes("locked")) {
+                        Benchmark.delay(500);
+                        return reqFunc(tries + 1);
+                    }
+
+                    const period = err.endsWith(".") ? "" : ".";
+                    exit(`:warning: ${err}${period}`);
+                }
+
+                if (!imgData) {
+                    exit(":warning: No image recieved.");
+                }
             }
 
-            if (!imgData) {
-                exit(":warning: No image recieved.");
-            }
-
+            reqFunc(0);
             return imgData;
         })();
 
