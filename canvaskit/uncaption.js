@@ -157,7 +157,8 @@ const main = (() => {
         frame.clip(0, 0, sliceWidth, height);
 
         const { top } = frame.findTrim({
-            treshold: backgroundTreshold
+            treshold: backgroundTreshold,
+            background: bgColor
         });
 
         return top + 1;

@@ -6,6 +6,8 @@ const defaultScale = 12,
     maxScale = 100;
 
 // sources
+const urls = {};
+
 const tags = {
     QRCode: "ck_qrcode"
 };
@@ -174,7 +176,7 @@ const main = (() => {
 
     function sendOutput(pixels, width) {
         const pngBytes = lodepng.encode({
-            width: width,
+            width,
             height: width,
             data: pixels
         });

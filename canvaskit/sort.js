@@ -614,6 +614,7 @@ const main = (() => {
         Benchmark.startTiming("encode_image");
         const gifBytes = gif.bytes();
         Benchmark.stopTiming("encode_image");
+        gif = undefined;
 
         let out;
         if (showTimes) {

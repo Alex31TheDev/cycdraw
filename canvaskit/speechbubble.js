@@ -1,0 +1,502 @@
+"use strict";
+
+// config
+const maxMessages = 3;
+
+const trim = true,
+    minWidth = 500,
+    minHeight = 0;
+
+const padding = 6,
+    pfpMargin = 10;
+
+let radiusY = 24,
+    stopFraction = 0.63;
+
+let x0 = 50,
+    y0 = 30;
+
+const thickness = 5;
+
+const mode = "angle",
+    value = Math.PI / 10;
+
+let showTimes = false;
+
+// sources
+const urls = {};
+
+const tags = {
+    Table: "ck_table",
+
+    Capture: "capture",
+
+    Cycdraw: "ck_cycdraw"
+};
+
+// help
+
+// errors
+globalThis.ExitError = class extends Error {};
+
+// util
+const Util = {
+    calculateLength: (A, B) => {
+        return Math.sqrt(Math.pow(B.x - A.x, 2) + Math.pow(B.y - A.y, 2));
+    },
+
+    calculateAngle: (A, B, C) => {
+        const AB = Math.sqrt(Math.pow(B.x - A.x, 2) + Math.pow(B.y - A.y, 2)),
+            BC = Math.sqrt(Math.pow(B.x - C.x, 2) + Math.pow(B.y - C.y, 2)),
+            AC = Math.sqrt(Math.pow(C.x - A.x, 2) + Math.pow(C.y - A.y, 2));
+
+        return Math.acos((BC * BC + AB * AB - AC * AC) / (2 * BC * AB));
+    },
+
+    getMessageBlock(id, maxMessages) {
+        const messages = util.fetchMessages(),
+            index = messages.findIndex(msg => msg.id === id);
+
+        if (index === -1) {
+            return [id];
+        }
+
+        const authorId = messages[index].authorId;
+
+        let startIndex = index;
+        while (messages[startIndex - 1]?.authorId === authorId) startIndex--;
+
+        let endIndex = index;
+        while (messages[endIndex + 1]?.authorId === authorId) endIndex++;
+
+        let block = messages.slice(startIndex, endIndex + 1);
+
+        if (block.length === 0) {
+            return [id];
+        }
+
+        block.reverse();
+        block = block.map(msg => msg.id);
+
+        if (maxMessages > -1) {
+            return block.slice(0, maxMessages);
+        } else {
+            return block;
+        }
+    }
+};
+
+// classes
+const SpeechBubble = {
+    step: 0.001,
+    eps1: 0.02,
+    eps2: 2,
+
+    ellipsePoint: (radiusX, radiusY, center, angle) => ({
+        x: center.x + radiusX * Math.cos(angle),
+        y: center.y + radiusY * Math.sin(angle)
+    }),
+
+    calcPoints: (radiusX, radiusY, f, x0, y0, thickness, mode, value) => {
+        const center = {
+            x: radiusX,
+            y: 0
+        };
+
+        radiusX = Math.floor(radiusX - thickness / 2);
+        const ellipsePoint = SpeechBubble.ellipsePoint.bind(null, radiusX, radiusY, center);
+
+        const p0 = { x: x0, y: y0 },
+            p1 = ellipsePoint(0),
+            p4 = ellipsePoint(Math.PI);
+
+        let stopAngle = f * Math.PI,
+            t;
+
+        let p2, p3;
+
+        const maxVal = Math.PI - stopAngle;
+
+        switch (mode) {
+            case "fixed":
+                t = value;
+
+                if (stopAngle + t >= Math.PI) {
+                    stopAngle = Math.PI - t;
+                }
+
+                p2 = ellipsePoint(stopAngle);
+                p3 = ellipsePoint(stopAngle + t);
+
+                break;
+            case "length":
+                const gapLength = value;
+                p2 = ellipsePoint(stopAngle);
+
+                for (t = 0; t <= maxVal; t += SpeechBubble.step) {
+                    p3 = ellipsePoint(stopAngle + t);
+                    const len = Util.calculateLength(p2, p3);
+
+                    if (Math.abs(len - gapLength) < SpeechBubble.eps2) break;
+                }
+
+                if (Math.abs(stopAngle + t - Math.PI) < SpeechBubble.eps1) {
+                    for (; stopAngle > 0; stopAngle -= SpeechBubble.step) {
+                        p2 = ellipsePoint(stopAngle);
+                        const len = Util.calculateLength(p2, p3);
+
+                        if (Math.abs(len - gapLength) < SpeechBubble.eps2) break;
+                    }
+
+                    t = Math.PI - stopAngle;
+                }
+
+                break;
+            case "angle":
+                const tipAngle = value;
+                p2 = ellipsePoint(stopAngle);
+
+                for (t = 0; t <= maxVal; t += SpeechBubble.step) {
+                    p3 = ellipsePoint(stopAngle + t);
+                    const ang = Util.calculateAngle(p2, p0, p3);
+
+                    if (Math.abs(ang - tipAngle) < SpeechBubble.eps1) break;
+                }
+
+                if (Math.abs(stopAngle + t - Math.PI) < SpeechBubble.eps1) {
+                    for (; stopAngle > 0; stopAngle -= SpeechBubble.step) {
+                        p2 = ellipsePoint(stopAngle);
+                        const ang = Util.calculateAngle(p2, p0, p3);
+
+                        if (Math.abs(ang - tipAngle) < SpeechBubble.eps1) break;
+                    }
+
+                    t = Math.PI - stopAngle;
+                }
+
+                break;
+        }
+
+        const info = { radiusX, radiusY, thickness },
+            angles = { stopAngle, t },
+            points = { center, p0, p1, p2, p3, p4 };
+
+        return {
+            info,
+            angles,
+            points
+        };
+    },
+
+    drawCanvas: (ctx, data, options = {}) => {
+        const { info, angles, points } = data;
+
+        const { radiusX, radiusY, thickness } = info,
+            { stopAngle, t } = angles,
+            { center, p0, p1 } = points;
+
+        const fillColor = options.fillColor ?? "white",
+            strokeColor = options.strokeColor ?? "black";
+
+        ctx.beginPath();
+
+        ctx.moveTo(p1.x, p1.y);
+        ctx.ellipse(center.x, center.y, radiusX, radiusY, 0, 0, stopAngle);
+
+        ctx.lineTo(p0.x, p0.y);
+
+        ctx.ellipse(center.x, center.y, radiusX, radiusY, 0, stopAngle + t, Math.PI);
+
+        ctx.fillStyle = fillColor;
+        ctx.fill();
+
+        ctx.fillStyle = strokeColor;
+        ctx.lineWidth = thickness;
+        ctx.lineJoin = "round";
+        ctx.stroke();
+    },
+
+    generateSVG: (data, options = {}) => {
+        const { info, points } = data;
+
+        const { radiusX, radiusY, thickness } = info,
+            { p0, p1, p2, p3, p4 } = points;
+
+        const width = Math.round(radiusX * 2 + thickness),
+            height = Math.round(Math.max(p0.y, radiusY) + thickness / 2);
+
+        const fillColor = options.fillColor ?? "white",
+            strokeColor = options.strokeColor ?? "black";
+
+        const ellipse1 = `M ${p1.x} ${p1.y} A ${radiusX} ${radiusY} 0 0 1 ${p2.x} ${p2.y}`,
+            triangle = `L ${p0.x} ${p0.y} L ${p3.x} ${p3.y}`,
+            ellipse2 = `A ${radiusX} ${radiusY} 0 0 1 ${p4.x} ${p4.y}`,
+            pathData = `${ellipse1} ${triangle} ${ellipse2}`;
+
+        return `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">
+    <path d="${pathData}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${thickness}" stroke-linejoin="round" />
+</svg>
+        `.trim();
+    }
+};
+
+// globals
+
+// input
+const serverId = msg.guildId,
+    channelId = msg.channelId;
+
+let messageIds;
+
+// speech bubble
+let bgColor = [49, 51, 56];
+
+let height, pfpRect, speechBubbleY;
+let screenshot, speechBubble, image;
+
+// main
+const main = (() => {
+    // parse args
+    function getInput() {
+        messageIds = (() => {
+            if (serverId !== "927050775073534012") {
+                const out = ":information_source: This tag only works in **Nomi**.";
+                throw new ExitError(out);
+            }
+
+            const replyId = msg.reference?.messageId;
+
+            if (!replyId) {
+                const out = ":information_source: You need to **reply** to a message in order to screenshot it.";
+                throw new ExitError(out);
+            }
+
+            return Util.getMessageBlock(replyId, maxMessages);
+        })();
+    }
+
+    // load libraries
+    function initLoader() {
+        delete globalThis.ExitError;
+
+        util.loadLibrary = "none";
+
+        if (util.env) {
+            eval(util.fetchTag("canvaskitloader").body);
+        } else {
+            util.executeTag("canvaskitloader");
+        }
+
+        ModuleLoader.useDefault("tagOwner");
+        ModuleLoader.enableCache = false;
+    }
+
+    function loadCapture() {
+        Benchmark.startTiming("load_libraries");
+
+        Benchmark.startTiming("load_screenshot");
+        const capture = ModuleLoader.loadModuleFromTag(tags.Capture);
+        Benchmark.stopTiming("load_screenshot");
+
+        Patches.patchGlobalContext({ capture });
+
+        Benchmark.stopTiming("load_libraries");
+    }
+
+    function loadLodepng() {
+        loadLibrary("lodepng");
+
+        Benchmark.startTiming("load_libraries");
+
+        Benchmark.startTiming("load_cycdraw");
+        const cycdraw = ModuleLoader.loadModuleFromTag(tags.Cycdraw);
+        Benchmark.stopTiming("load_cycdraw");
+
+        Patches.patchGlobalContext(cycdraw);
+
+        Benchmark.stopTiming("load_libraries");
+    }
+
+    function loadTableGen() {
+        ModuleLoader.loadModuleFromTag(tags.Table);
+
+        Benchmark.deleteLastCountTime("tag_fetch");
+        Benchmark.deleteLastCountTime("module_load");
+    }
+
+    // capture
+    function captureMessage() {
+        Benchmark.startTiming("capture_message");
+
+        screenshot = (() => {
+            const [imgData, err] = capture(serverId, channelId, messageIds);
+
+            if (err !== null) {
+                const period = err.endsWith(".") ? "" : ".";
+                exit(`:warning: ${err}${period}`);
+            }
+
+            if (!imgData) {
+                exit(":warning: No image recieved.");
+            }
+
+            return imgData;
+        })();
+
+        Benchmark.stopTiming("capture_message");
+        loadLodepng();
+        Patches.apply("polyfillBuffer");
+        Benchmark.restartTiming("capture_message");
+
+        pfpRect = (() => {
+            const keys = ["x", "y", "width", "height"];
+
+            const byteCount = keys.length * 2,
+                buffer = Buffer.from(screenshot.subarray(-byteCount));
+
+            const values = [];
+
+            for (let i = 0; i < keys.length; i++) {
+                values.push(buffer.readInt16BE(i * 2));
+            }
+
+            screenshot = screenshot.subarray(0, -byteCount);
+            return Object.fromEntries(keys.map((key, i) => [key, values[i]]));
+        })();
+
+        screenshot = Image.fromImageData(lodepng.decode(screenshot));
+
+        if (trim) {
+            trimScreenshot();
+        } else {
+            height = screenshot.height;
+        }
+
+        Benchmark.stopTiming("capture_message");
+    }
+
+    function trimScreenshot() {
+        Benchmark.startTiming("trim_screenshot");
+
+        bgColor = new Color(...bgColor);
+
+        const { left, right } = screenshot.findTrim({
+            treshold: 3,
+            background: bgColor
+        });
+
+        const newWidth = Math.max(left + right + 2, minWidth);
+        height = Math.max(screenshot.height, minHeight);
+
+        screenshot.clip(0, 0, newWidth, screenshot.height);
+        Benchmark.stopTiming("trim_screenshot");
+    }
+
+    // speech bubble
+    function findProfilePicture() {
+        const hasProfilePicture = pfpRect.x !== 0;
+
+        if (hasProfilePicture) {
+            x0 = pfpRect.x + pfpRect.width / 2;
+            y0 = pfpRect.y + pfpRect.height / 2;
+
+            x0 += pfpMargin;
+            y0 -= pfpMargin;
+        } else {
+            radiusY /= 2;
+            padding *= 2;
+        }
+
+        speechBubbleY = radiusY + padding;
+        y0 += speechBubbleY;
+    }
+
+    function drawSpeechBubble() {
+        Benchmark.startTiming("draw_speechbubble");
+
+        const radiusX = screenshot.width / 2;
+
+        const data = SpeechBubble.calcPoints(radiusX, radiusY, stopFraction, x0, y0, thickness, mode, value),
+            svg = SpeechBubble.generateSVG(data);
+
+        const imgData = new Resvg(svg).render();
+        speechBubble = Image.fromPixels(imgData.pixels, imgData.width, imgData.height);
+
+        Benchmark.stopTiming("draw_speechbubble");
+    }
+
+    function speechBubble() {
+        Benchmark.startTiming("draw_total");
+
+        findProfilePicture();
+        drawSpeechBubble();
+
+        image = new Image(screenshot.width, height + speechBubbleY + padding);
+        image.clear(bgColor);
+
+        image.blit(0, speechBubbleY, screenshot);
+        image.overlap(0, 0, speechBubble);
+
+        speechBubble = screenshot = undefined;
+        Benchmark.stopTiming("draw_total");
+    }
+
+    function sendOutput() {
+        Benchmark.startTiming("encode_image");
+        const pngBytes = lodepng.encode(image);
+        Benchmark.stopTiming("encode_image");
+        image = undefined;
+
+        let out;
+        if (showTimes) {
+            loadTableGen();
+
+            const table = Benchmark.getTable(
+                "heavy",
+                1,
+                "load_total",
+                "load_libraries",
+                "capture_message",
+                "draw_total",
+                "encode_image"
+            );
+
+            out = LoaderUtils.codeBlock(table);
+        }
+
+        exit(
+            msg.reply(out, {
+                file: {
+                    name: "speechbubble.png",
+                    data: pngBytes
+                }
+            })
+        );
+    }
+
+    return _ => {
+        getInput();
+
+        initLoader();
+        loadCapture();
+
+        captureMessage();
+        loadLibrary("resvg");
+
+        speechBubble();
+        sendOutput();
+    };
+})();
+
+try {
+    // run main
+    main();
+} catch (err) {
+    // output
+    if (err instanceof ExitError) {
+        err.message;
+    } else {
+        throw err;
+    }
+}
