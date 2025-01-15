@@ -2,7 +2,7 @@
 /* global help:readonly, usage:readonly, helpOptions:readonly, options:readonly, requireText:readonly, requireImage:readonly, textName:readonly, useTenorApi:readonly, tenorClientConfig:readonly, CanvasKitUtil:readonly, TenorHttpClient:readonly, decodeLibrary:readonly, loadDecodeLibrary */
 
 // config
-const defaultHelpOptions = ["help", "-help", "--help", "-h", "usage", "-usage", "-u"];
+const defaultHelpOptions = ["help", "-help", "--help", "-h", "usage", "-usage", "--usage", "-u"];
 
 const defaultHelp = "No help text configured.",
     defaultUsage = `See \`%t ${tag.name} help\` for usage.`;

@@ -120,7 +120,7 @@ const stages = (() => {
 const sorts = initSorts();
 
 // help
-const helpOptions = ["help", "-help", "--help", "-h", "usage", "-usage", "-u"],
+const helpOptions = ["help", "-help", "--help", "-h", "usage", "-usage", "--usage", "-u"],
     showTimesOption = "--show-times";
 
 const sortNames = Object.keys(sorts).map(Util.camelToWords),

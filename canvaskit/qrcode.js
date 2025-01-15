@@ -13,7 +13,7 @@ const tags = {
 };
 
 // help
-const helpOptions = ["help", "-help", "--help", "-h", "usage", "-usage", "-u"],
+const helpOptions = ["help", "-help", "--help", "-h", "usage", "-usage", "--usage", "-u"],
     scaleOption = "-scale";
 
 const help = `Usage: \`%t ${tag.name} [-scale 1-100] text\`

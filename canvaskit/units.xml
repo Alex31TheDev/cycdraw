@@ -1,0 +1,158 @@
+<?xml version="1.0"?>
+<QALCULATE version="5.4.0">
+  <unit type="base">
+    <title>GregTech Energy Unit</title>
+    <names>r:EU</names>
+  </unit>
+  <unit type="alias">
+    <title>Redstone Flux</title>
+    <names>r:rf</names>
+    <description>1/4th of an EU</description>
+    <base>
+      <unit>EU</unit>
+      <relation>1/4</relation>
+      <exponent>1</exponent>
+    </base>
+  </unit>
+  <unit type="alias">
+    <title>MC Tick</title>
+    <names>r:tick</names>
+    <description>1/20th of a second</description>
+    <base>
+      <unit>s</unit>
+      <relation>1/20</relation>
+      <exponent>1</exponent>
+    </base>
+  </unit>
+  <unit type="composite">
+    <names>r:EUperTick</names>
+    <part>
+      <unit>EU</unit>
+      <exponent>1</exponent>
+    </part>
+    <part>
+      <unit>tick</unit>
+      <exponent>-1</exponent>
+    </part>
+  </unit>
+  <unit type="alias">
+    <names>r:ULV</names>
+    <base>
+      <unit>EUperTick</unit>
+      <relation>8</relation>
+      <exponent>1</exponent>
+    </base>
+  </unit>
+  <unit type="alias">
+    <names>r:LV</names>
+    <base>
+      <unit>EUperTick</unit>
+      <relation>32</relation>
+      <exponent>1</exponent>
+    </base>
+  </unit>
+  <unit type="alias">
+    <names>r:MV</names>
+    <base>
+      <unit>EUperTick</unit>
+      <relation>128</relation>
+      <exponent>1</exponent>
+    </base>
+  </unit>
+  <unit type="alias">
+    <names>r:HV</names>
+    <base>
+      <unit>EUperTick</unit>
+      <relation>512</relation>
+      <exponent>1</exponent>
+    </base>
+  </unit>
+  <unit type="alias">
+    <names>r:EV</names>
+    <base>
+      <unit>EUperTick</unit>
+      <relation>2048</relation>
+      <exponent>1</exponent>
+    </base>
+  </unit>
+  <unit type="alias">
+    <names>r:IV</names>
+    <base>
+      <unit>EUperTick</unit>
+      <relation>8192</relation>
+      <exponent>1</exponent>
+    </base>
+  </unit>
+  <unit type="alias">
+    <names>r:LuV</names>
+    <base>
+      <unit>EUperTick</unit>
+      <relation>32768</relation>
+      <exponent>1</exponent>
+    </base>
+  </unit>
+  <unit type="alias">
+    <names>r:ZPM</names>
+    <base>
+      <unit>EUperTick</unit>
+      <relation>131072</relation>
+      <exponent>1</exponent>
+    </base>
+  </unit>
+  <unit type="alias">
+    <names>r:UV</names>
+    <base>
+      <unit>EUperTick</unit>
+      <relation>524288</relation>
+      <exponent>1</exponent>
+    </base>
+  </unit>
+  <unit type="alias">
+    <names>r:UHV</names>
+    <base>
+      <unit>EUperTick</unit>
+      <relation>2097152</relation>
+      <exponent>1</exponent>
+    </base>
+  </unit>
+  <unit type="alias">
+    <names>r:UEV</names>
+    <base>
+      <unit>EUperTick</unit>
+      <relation>8388608</relation>
+      <exponent>1</exponent>
+    </base>
+  </unit>
+  <unit type="alias">
+    <names>r:UIV</names>
+    <base>
+      <unit>EUperTick</unit>
+      <relation>33554432</relation>
+      <exponent>1</exponent>
+    </base>
+  </unit>
+  <unit type="alias">
+    <names>r:UMV</names>
+    <base>
+      <unit>EUperTick</unit>
+      <relation>134217728</relation>
+      <exponent>1</exponent>
+    </base>
+  </unit>
+  <unit type="alias">
+    <names>r:UXV</names>
+    <base>
+      <unit>EUperTick</unit>
+      <relation>536872912</relation>
+      <exponent>1</exponent>
+    </base>
+  </unit>
+  <unit type="alias">
+    <names>r:MAX</names>
+    <base>
+      <unit>EUperTick</unit>
+      <relation>2147483647</relation>
+      <exponent>1</exponent>
+    </base>
+  </unit>
+</QALCULATE>

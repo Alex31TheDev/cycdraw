@@ -36,9 +36,17 @@ const tags = {
 };
 
 // help
+const helpOptions = ["help", "-help", "--help", "-h", "usage", "-usage", "--usage", "-u"],
+    showTimesOption = "--show-times";
+
+const help = `Usage: \`%t ${tag.name} [--show-times]\`
+Adds a speech bubble to the message you replied to.`;
 
 // errors
 globalThis.ExitError = class extends Error {};
+
+// misc
+const pfpRectKeys = ["x", "y", "width", "height"];
 
 // util
 const Util = {
@@ -84,6 +92,21 @@ const Util = {
         } else {
             return block;
         }
+    },
+
+    decodeObject: (data, keys) => {
+        const byteCount = keys.length * 2,
+            buffer = Buffer.from(data.subarray(-byteCount));
+
+        const values = [];
+
+        for (let i = 0; i < keys.length; i++) {
+            values.push(buffer.readInt16BE(i * 2));
+        }
+
+        const obj = Object.fromEntries(keys.map((key, i) => [key, values[i]]));
+
+        return [obj, data.subarray(0, -byteCount)];
     }
 };
 
@@ -260,10 +283,30 @@ let screenshot, speechBubble, image;
 const main = (() => {
     // parse args
     function getInput() {
+        (() => {
+            let input = tag.args ?? "";
+
+            let split = input.split(" "),
+                option = split[0];
+
+            if (split.length > 0) {
+                if (helpOptions.includes(option)) {
+                    const out = `:information_source: ${help}`;
+                    throw new ExitError(out);
+                }
+
+                switch (option) {
+                    case showTimesOption:
+                        showTimes = true;
+                        break;
+                }
+            }
+        })();
+
         messageIds = (() => {
             if (serverId !== "927050775073534012") {
                 const out = ":information_source: This tag only works in **Nomi**.";
-                //throw new ExitError(out);
+                throw new ExitError(out);
             }
 
             const replyId = msg.reference?.messageId;
@@ -338,7 +381,9 @@ const main = (() => {
                     exit(":warning: Screenshot failed. Max tries exceeded.");
                 }
 
+                Benchmark.startTiming("screenshot_req");
                 [imgData, err] = capture(serverId, channelId, messageIds);
+                Benchmark.stopTiming("screenshot_req");
 
                 if (err !== null) {
                     if (err.includes("locked")) {
@@ -364,21 +409,7 @@ const main = (() => {
         Patches.apply("polyfillBuffer");
         Benchmark.restartTiming("capture_message");
 
-        pfpRect = (() => {
-            const keys = ["x", "y", "width", "height"];
-
-            const byteCount = keys.length * 2,
-                buffer = Buffer.from(screenshot.subarray(-byteCount));
-
-            const values = [];
-
-            for (let i = 0; i < keys.length; i++) {
-                values.push(buffer.readInt16BE(i * 2));
-            }
-
-            screenshot = screenshot.subarray(0, -byteCount);
-            return Object.fromEntries(keys.map((key, i) => [key, values[i]]));
-        })();
+        [pfpRect, screenshot] = Util.decodeObject(screenshot, pfpRectKeys);
 
         screenshot = Image.fromImageData(lodepng.decode(screenshot));
 

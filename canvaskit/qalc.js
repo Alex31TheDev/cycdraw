@@ -6,9 +6,10 @@ const plotWidth = 1280,
     plotHeight = 720;
 
 const fontName = "Roboto",
-    fontSize = 75;
+    fontSize = 25;
 
-const customUnits = ["rf", "eu", "tick"];
+const voltages = ["ULV", "LV", "MV", "HV", "EV", "IV", "LuV", "ZPM", "UV", "UHV", "UEV", "UIV", "UMV", "UXV", "MAX"],
+    customUnits = ["rf", "eu", "tick", ...voltages];
 
 // sources
 const urls = {
@@ -34,6 +35,9 @@ const tags = {
 
     RobotoRegular: /^ck_font_roboto\d+$/
 };
+
+// misc
+const intervalRegex = /interval\((.+?),.+?\)/g;
 
 // globals
 let input, font;
@@ -245,6 +249,12 @@ set output '/output'`;
         );
     }
 
+    function fixOutput(out) {
+        out = out.replace(intervalRegex, (_, g1) => g1);
+
+        return out;
+    }
+
     return _ => {
         initLoader();
 
@@ -258,7 +268,8 @@ set output '/output'`;
         loadQalculator();
         initQalculator();
 
-        return calc.calculateAndPrint(input, 3000);
+        const out = calc.calculateAndPrint(input, 3000);
+        return fixOutput(out);
     };
 })();
 
