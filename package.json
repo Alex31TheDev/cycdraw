@@ -35,7 +35,6 @@
         "build-canvaskit-split-loader": "node ./split-loader/build-split-loader.js ./canvaskit/split ./canvaskit/split/split_loader.js default ck_loader canvaskitloader \"https://github.com/Alex31TheDev/cycdraw/blob/main/canvaskit/canvaskitloader.js\""
     },
     "dependencies": {
-        "@babel/eslint-parser": "^7.25.9",
         "pngjs": "^7.0.0"
     },
     "devDependencies": {

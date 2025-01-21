@@ -1,5 +1,4 @@
 {
-    "parser": "@babel/eslint-parser",
     "env": {
         "node": true,
         "es2023": true
@@ -7,10 +6,8 @@
     "extends": "eslint:recommended",
     "overrides": [],
     "parserOptions": {
-        "requireConfigFile": false,
-        "babelOptions": {},
         "ecmaVersion": "latest",
-        "sourceType": "module"
+        "sourceType": "script"
     },
     "rules": {
         "no-unused-vars": "off",
