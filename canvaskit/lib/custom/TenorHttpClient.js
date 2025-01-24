@@ -14,12 +14,13 @@ const TenorConstants = {
         mp4: ["mp4", "loopedmp4", "tinymp4", "nanomp4"],
         webm: ["webm", "tinywebm", "nanowebm"]
     },
+
     contentfilter: ["off", "low", "medium", "high"]
 };
 
 const TenorUtil = {
     queryEncodeObject: obj => {
-        return Object.fromEntries(Object.entries(obj).map(([key, value]) => [key, HttpUtil.getQueryString(value)]));
+        return LoaderUtils.rewriteObject(obj, null, HttpUtil.getQueryString);
     },
 
     getGifOpts: options => {

@@ -171,7 +171,7 @@ const main = (() => {
 
         const lower = input.toLowerCase();
 
-        if (customUnits.some(unit => lower.includes(unit))) {
+        if (customUnits.some(unit => lower.includes(unit.toLowerCase()))) {
             Benchmark.startTiming("load_units");
 
             const units = ModuleLoader.getModuleCode(urls.UnitDefinitions, tags.UnitDefinitions, FileDataTypes.text);

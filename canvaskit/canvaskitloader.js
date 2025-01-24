@@ -1132,8 +1132,19 @@ const LoaderUtils = {
         return positions.filter(pos => pos !== -1);
     },
 
+    rewriteObject: (obj, f1, f2) => {
+        f1 ??= value => value;
+        f2 ??= value => value;
+
+        return Object.fromEntries(Object.entries(obj).map(([key, value], i) => [f1(key, i), f2(value, i)]));
+    },
+
     removeUndefinedValues: obj => {
         return Object.fromEntries(Object.entries(obj).filter(([, value]) => typeof value !== "undefined"));
+    },
+
+    reverseObject: obj => {
+        return Object.fromEntriesObject.fromEntries(Object.entries(obj).map(([key, value]) => [value, key]));
     },
 
     _infiniteProxyHandler: {

@@ -105,7 +105,6 @@ const Util = {
         }
 
         const obj = Object.fromEntries(keys.map((key, i) => [key, values[i]]));
-
         return [obj, data.subarray(0, -byteCount)];
     }
 };
