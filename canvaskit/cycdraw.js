@@ -581,16 +581,7 @@ const f_1 = {
 
 // image
 class Image {
-    constructor(w, h) {
-        if (w <= 0 || h <= 0) {
-            throw new DrawingError("Invalid image size");
-        }
-
-        this.w = Math.floor(w);
-        this.h = Math.floor(h);
-
-        this.pixels = new Uint8Array(Image.getBufSize(this)).fill(0);
-    }
+    static stride = 4;
 
     static getBufSize(w, h) {
         if (typeof w === "object") {
@@ -600,7 +591,18 @@ class Image {
             h = img.h;
         }
 
-        return 4 * w * h;
+        return this.stride * w * h;
+    }
+
+    constructor(w, h) {
+        if (w <= 0 || h <= 0) {
+            throw new DrawingError("Invalid image size");
+        }
+
+        this.w = Math.floor(w);
+        this.h = Math.floor(h);
+
+        this.pixels = new Uint8Array(Image.getBufSize(this)).fill(0);
     }
 
     static fromPixels(pixels, w, h) {
