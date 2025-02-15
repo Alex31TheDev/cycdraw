@@ -602,6 +602,8 @@ class Image {
         this.w = Math.floor(w);
         this.h = Math.floor(h);
 
+        this.aspect = this.w / this.h;
+
         this.pixels = new Uint8Array(Image.getBufSize(this)).fill(0);
     }
 

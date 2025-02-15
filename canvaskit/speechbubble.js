@@ -8,7 +8,7 @@ const trim = true,
     minWidth = 500,
     minHeight = 0;
 
-const padding = 6,
+let padding = 6,
     pfpMargin = 10;
 
 let radiusY = 24,
