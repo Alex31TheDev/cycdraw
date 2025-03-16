@@ -625,9 +625,9 @@ const LoaderUtils = {
     },
 
     urlRegex: /(\S*?):\/\/(?:([^/.]+)\.)?([^/.]+)\.([^/\s]+)\/?(\S*)?/,
+
     validUrl: url => {
-        const exp = new RegExp(`^${LoaderUtils.urlRegex.toString()}$`);
-        return exp.test(url);
+        return Util._validUrlRegex.test(url);
     },
 
     _tagNameRegex: /^[A-Za-z0-9\-_]+$/,
@@ -651,7 +651,8 @@ const LoaderUtils = {
         return [first, second];
     },
 
-    _parseScriptRegex: /^(?:`{3}([\S]+\n)?([\s\S]+)`{3}|`([^`]+)`)$/,
+    codeblockRegex: /(?<!\\)(?:`{3}([\S]+\n)?([\s\S]*?)`{3}|`([^`\n]+)`)/g,
+
     parseScript: script => {
         const match = script.match(LoaderUtils._parseScriptRegex);
 
@@ -669,10 +670,10 @@ const LoaderUtils = {
         return [true, body, lang];
     },
 
-    _messageRegex:
-        /(?:(https?:)\/\/)?(?:(www|ptb)\.)?discord\.com\/channels\/(?<sv_id>\d{18,19}|@me)\/(?<ch_id>\d{18,19})(?:\/(?<msg_id>\d{18,19}))/,
+    _msgUrlRegex:
+        /^(?:(https?:)\/\/)?(?:(www|ptb)\.)?discord\.com\/channels\/(?<sv_id>\d{18,19}|@me)\/(?<ch_id>\d{18,19})(?:\/(?<msg_id>\d{18,19}))$/,
     parseMessageUrl: url => {
-        const match = url.match(LoaderUtils._messageRegex);
+        const match = url.match(LoaderUtils._msgUrlRegex);
 
         if (!match) {
             return;
@@ -690,10 +691,10 @@ const LoaderUtils = {
         };
     },
 
-    _attachRegex:
-        /^(?<prefix>(?:(https?:)\/\/)?(cdn|media).discordapp.(com|net)\/attachments\/(?<sv_id>\d+)\/(?<ch_id>\d+)\/(?<filename>[^.?]+)(?:(?<ext>\.[^?]+))?)\??(?:ex=(?<ex>[0-9a-f]+)&is=(?<is>[0-9a-f]+)&hm=(?<hm>[0-9a-f]+))?.*$/,
+    _attachUrlRegex:
+        /^(?<prefix>(?:(https?:)\/\/)?(cdn|media)\.discordapp\.(com|net)\/attachments\/(?<sv_id>\d+)\/(?<ch_id>\d+)\/(?<filename>.+?)(?<ext>\.[^.?]+)?(?=\?|$))\??(?:ex=(?<ex>[0-9a-f]+)&is=(?<is>[0-9a-f]+)&hm=(?<hm>[0-9a-f]+))?.*$/,
     parseAttachmentUrl: url => {
-        const match = url.match(LoaderUtils._attachRegex);
+        const match = url.match(LoaderUtils._attachUrlRegex);
 
         if (!match) {
             return;
@@ -1287,6 +1288,9 @@ const LoaderUtils = {
         return false;
     }
 };
+
+LoaderUtils._validUrlRegex = new RegExp(`^${Util.urlRegex.source}$`);
+LoaderUtils._parseScriptRegex = new RegExp(`^${Util.codeblockRegex.source}$`);
 
 const HttpUtil = {
     protocolRegex: /^[^/:]+:\/*$/,
