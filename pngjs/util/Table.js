@@ -1,5 +1,5 @@
-// prettier-ignore
 const Table = {
+    // prettier-ignore
     charSets: {
         "light": {
             corner: {
@@ -152,7 +152,6 @@ const Table = {
                 lineMax = Math.max(...lineLengths);
 
             const width = Math.max(Table.Util.length(heading), lineMax);
-
             return Table.Util.clamp(width, minWidth, maxWidth);
         }
     },
@@ -160,7 +159,6 @@ const Table = {
     Lines: {
         line: (horizontalChar, leftChar, rightChar, crossChar) => widths => {
             const segment = widths.map(w => horizontalChar.repeat(w)).join(crossChar);
-
             return Table.Util.concat(leftChar, segment, rightChar);
         },
 
@@ -208,8 +206,11 @@ const Table = {
             return Table.Util.columnWidth(colName, colRows);
         });
 
-        if (extraSpaces > 0) return maxWidths.map(width => width + 2 * extraSpaces);
-        return maxWidths;
+        if (extraSpaces > 0) {
+            return maxWidths.map(width => width + 2 * extraSpaces);
+        } else {
+            return maxWidths;
+        }
     },
 
     maxRowHeight: (columns, rows) => {
@@ -259,7 +260,7 @@ const Table = {
 
             for (const id of colIds) {
                 const row = rows[id],
-                    str = row[i]?.toString() ?? "";
+                    str = row?.[i]?.toString() ?? "";
 
                 line.push(str);
             }
@@ -271,8 +272,8 @@ const Table = {
     },
 
     drawTable: (columns, rows, style = "light", extraSpaces = 0) => {
-        columns = columns ?? {};
-        rows = rows ?? {};
+        columns ??= {};
+        rows ??= {};
 
         const charSet = Table.charSets[style];
 
@@ -292,8 +293,8 @@ const Table = {
 
         const separate = Table.Lines.insertSeparator(charSet),
             topSeparatorLine = Table.Lines.topSeparatorLine(charSet),
-            bottomSeparatorLine = Table.Lines.bottomSeparatorLine(charSet),
-            middleSeparatorLine = Table.Lines.middleSeparatorLine(charSet);
+            middleSeparatorLine = Table.Lines.middleSeparatorLine(charSet),
+            bottomSeparatorLine = Table.Lines.bottomSeparatorLine(charSet);
 
         const lines = Table.getLines(columns, rows),
             paddedLines = lines.map(line => Table.padLine(line, widths, extraSpaces)),
