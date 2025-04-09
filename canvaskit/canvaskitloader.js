@@ -174,7 +174,7 @@ class Logger {
 
         this._objIndentation = options.objIndentation ?? 4;
 
-        if (typeof options.formatLog !== "undefined") {
+        if (typeof options.formatLog === "function") {
             this._formatLog = options.formatLog.bind(this);
         }
 
@@ -212,11 +212,11 @@ class Logger {
     }
 
     getLogs(level, last) {
-        if (this.logs.length < 1) {
+        if (LoaderUtils.empty(this.logs)) {
             return "";
         }
 
-        if (typeof level === "undefined" && typeof last === "undefined") {
+        if (level == null && last == null) {
             return this.log_str.slice(0, -1);
         }
 
@@ -231,7 +231,7 @@ class Logger {
             logs = logs.slice(-last);
         }
 
-        if (logs.length < 1) {
+        if (LoaderUtils.empty(logs.length)) {
             return "";
         }
 
@@ -242,12 +242,11 @@ class Logger {
     replyWithLogs(level, last) {
         const log_str = this.getLogs(level, last);
 
-        if (log_str.length < 1) {
+        if (LoaderUtils.empty(log_str)) {
             return;
         }
 
         const codeBlock = LoaderUtils.codeBlock(log_str);
-
         exit(msg.reply(codeBlock));
     }
 
@@ -339,12 +338,12 @@ function exit(out) {
     throw new ExitError(out);
 }
 
-const FileDataTypes = {
+const FileDataTypes = Object.freeze({
     text: "text",
     json: "json",
     binary: "binary",
     module: "module"
-};
+});
 
 // source: http://www.myersdaily.org/joseph/javascript/md5.js
 const md5 = (() => {
@@ -532,38 +531,111 @@ const md5 = (() => {
     };
 })();
 
-const LoaderUtils = {
+let LoaderUtils = {
     md5,
 
     outCharLimit: util.outCharLimit ?? 1000,
     outLineLimit: util.outLineLimit ?? 6,
 
+    numbers: "0123456789",
+    alphabet: "abcdefghijklmnopqrstuvwxyz",
+
+    parseInt: (str, radix = 10, defaultValue) => {
+        if (typeof str !== "string" || typeof radix !== "number") {
+            return defaultValue ?? NaN;
+        }
+
+        if (radix < 2 || radix > 36) {
+            return defaultValue ?? NaN;
+        }
+
+        str = str.trim();
+        const exp = LoaderUtils._validNumberRegexes.get(radix);
+
+        if (!exp.test(str)) {
+            return defaultValue ?? NaN;
+        }
+
+        str = str.replaceAll(",", "");
+        return Number.parseInt(str, radix);
+    },
+
+    truthyStrings: new Set(["true", "yes", "y", "t"]),
+    falsyStrings: new Set(["false", "no", "n", "f"]),
+
+    parseBool: (str, defaultValue) => {
+        if (typeof str !== "string") {
+            return defaultValue ?? null;
+        }
+
+        str = str.trim().toLowerCase();
+
+        if (LoaderUtils.truthyStrings.has(str)) {
+            return true;
+        } else if (LoaderUtils.falsyStrings.has(str)) {
+            return false;
+        } else {
+            return defaultValue ?? null;
+        }
+    },
+
+    formatNumber: (num, digits) => {
+        const options = {
+            maximumFractionDigits: digits
+        };
+
+        if ((num !== 0 && Math.abs(num) < 1e-6) || Math.abs(num) >= 1e21) {
+            const str = num.toLocaleString("en-US", {
+                notation: "scientific",
+                useGrouping: false,
+                ...options
+            });
+
+            return str.toLowerCase();
+        }
+
+        return num.toLocaleString("en-US", options);
+    },
+
     stripSpaces: str => {
         return str.replace(/\s+/g, "");
     },
 
-    parseInt: (str, radix = 10) => {
-        if (typeof str !== "string" || typeof radix !== "number") {
-            return NaN;
+    getCharType: char => {
+        if (char?.length !== 1) {
+            return "invalid";
         }
 
-        if (radix < 2 || radix > 36) {
-            return NaN;
+        const code = char.charCodeAt(0);
+
+        if (code === 32) {
+            return "space";
+        } else if (code >= 48 && code <= 57) {
+            return "number";
+        } else if (code >= 65 && code <= 90) {
+            return "uppercase";
+        } else if (code >= 97 && code <= 122) {
+            return "lowercase";
+        } else {
+            return "other";
         }
-
-        const validChars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ".slice(0, radix),
-            exp = new RegExp(`^[+-]?[${validChars}]+$`, "i");
-
-        if (!exp.test(str)) {
-            return NaN;
-        }
-
-        return Number.parseInt(str, radix);
     },
 
+    _leadingSpacesRegex: /^\s*/,
+    _trailingSpacesRegex: /\s*$/,
     capitalize: str => {
-        str = String(str).toLowerCase();
-        return str[0].toUpperCase() + str.substring(1);
+        str = String(str);
+
+        const leading = str.match(LoaderUtils._leadingSpacesRegex)[0],
+            trailing = str.match(LoaderUtils._trailingSpacesRegex)[0];
+
+        const content = str.slice(leading.length, str.length - trailing.length);
+
+        if (content.length < 1) {
+            return str;
+        } else {
+            return leading + content[0].toUpperCase() + content.slice(1) + trailing;
+        }
     },
 
     _camelToWordsRegex: /([a-z])([A-Z])/g,
@@ -591,48 +663,15 @@ const LoaderUtils = {
         return str.slice(0, i) + replacement + str.slice(i + length);
     },
 
-    clamp: (x, a, b) => {
-        return Math.max(Math.min(x, b), a);
-    },
+    randomString: n => {
+        const alphabet = LoaderUtils.alphanumeric,
+            result = Array(n);
 
-    round: (num, digits) => {
-        const exp = 10 ** digits;
-        return Math.round((num + Number.EPSILON) * exp) / exp;
-    },
+        for (let i = 0; i < n; i++) {
+            result[i] = alphabet[~~(Math.random() * alphabet.length)];
+        }
 
-    approxEquals: (a, b, epsilon = Number.EPSILON) => {
-        return Math.abs(a - b) <= epsilon;
-    },
-
-    deviate: (x, y) => {
-        return x + (Math.random() * (2 * y) - y);
-    },
-
-    firstElement: (arr, start = 0) => {
-        return arr[start];
-    },
-
-    lastElement: (arr, start = 0) => {
-        return arr[arr.length + start - 1];
-    },
-
-    randomElement: (arr, a = 0, b = arr.length) => {
-        return arr[a + ~~(Math.random() * (b - a))];
-    },
-
-    isArray: arr => {
-        return Array.isArray(arr) || ArrayBuffer.isView(arr);
-    },
-
-    urlRegex: /(\S*?):\/\/(?:([^/.]+)\.)?([^/.]+)\.([^/\s]+)\/?(\S*)?/,
-
-    validUrl: url => {
-        return Util._validUrlRegex.test(url);
-    },
-
-    _tagNameRegex: /^[A-Za-z0-9\-_]+$/,
-    validTagName: name => {
-        return name.length > 0 && name.length <= 32 && LoaderUtils._tagNameRegex.test(name);
+        return result.join("");
     },
 
     splitAt: (str, sep = " ") => {
@@ -651,93 +690,235 @@ const LoaderUtils = {
         return [first, second];
     },
 
-    codeblockRegex: /(?<!\\)(?:`{3}([\S]+\n)?([\s\S]*?)`{3}|`([^`\n]+)`)/g,
+    splitArgs: (str, lowercase = false, options = {}) => {
+        let multipleLowercase = Array.isArray(lowercase);
 
-    parseScript: script => {
-        const match = script.match(LoaderUtils._parseScriptRegex);
+        if (!multipleLowercase && typeof lowercase === "object") {
+            options = lowercase;
 
-        if (!match) {
-            return [false, script, ""];
+            lowercase = options.lowercase ?? false;
+            multipleLowercase = Array.isArray(lowercase);
         }
 
-        const body = (match[2] ?? match[3])?.trim();
+        const lowercaseFirst = multipleLowercase ? lowercase[0] ?? false : lowercase,
+            lowercaseSecond = multipleLowercase ? lowercase[1] ?? false : false;
 
-        if (typeof body === "undefined") {
-            return [false, script, ""];
+        let sep = options.sep ?? [" ", "\n"],
+            n = options.n ?? 1;
+
+        if (sep.length === 0) {
+            if (lowercaseFirst) {
+                return [str.toLowerCase(), ""];
+            }
+
+            return [str, ""];
         }
 
-        const lang = match[1]?.trim() ?? "";
-        return [true, body, lang];
+        if (!Array.isArray(sep)) {
+            sep = [sep];
+        }
+
+        let first, second;
+
+        let ind = -1,
+            sepLength;
+
+        if (sep.length === 1) {
+            sep = sep[0] ?? sep;
+
+            ind = str.indexOf(sep);
+            sepLength = sep.length;
+
+            if (n > 1) {
+                for (let i = 1; i < n; i++) {
+                    ind = str.indexOf(sep, ind + 1);
+
+                    if (ind === -1) {
+                        break;
+                    }
+                }
+            }
+        } else {
+            const escaped = sep.map(item => LoaderUtils.escapeRegex(item)),
+                exp = new RegExp(escaped.join("|"), "g");
+
+            if (n <= 1) {
+                const match = exp.exec(str);
+
+                if (match) {
+                    ind = match.index;
+                    sepLength = match[0].length;
+                }
+            } else {
+                let match;
+
+                for (let i = 1; (match = exp.exec(str)) !== null; i++) {
+                    if (i === n) {
+                        ind = match.index;
+                        sepLength = match[0].length;
+
+                        break;
+                    } else if (i > n) {
+                        ind = -1;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (ind === -1) {
+            first = str;
+            second = "";
+        } else {
+            first = str.slice(0, ind);
+            second = str.slice(ind + sepLength);
+        }
+
+        if (lowercaseFirst) {
+            first = first.toLowerCase();
+        }
+
+        if (lowercaseSecond) {
+            second = second.toLowerCase();
+        }
+
+        return [first, second];
     },
 
-    _msgUrlRegex:
-        /^(?:(https?:)\/\/)?(?:(www|ptb)\.)?discord\.com\/channels\/(?<sv_id>\d{18,19}|@me)\/(?<ch_id>\d{18,19})(?:\/(?<msg_id>\d{18,19}))$/,
-    parseMessageUrl: url => {
-        const match = url.match(LoaderUtils._msgUrlRegex);
+    utf8ByteLength: str => {
+        let i = 0,
+            len = LoaderUtils.countChars(str);
 
-        if (!match) {
-            return;
+        let codepoint,
+            length = 0;
+
+        for (; i < len; i++) {
+            codepoint = str.codePointAt(i);
+
+            if (codepoint <= 0x7f) {
+                length += 1;
+            } else if (codepoint <= 0x7ff) {
+                length += 2;
+            } else if (codepoint <= 0xffff) {
+                length += 3;
+            } else {
+                length += 4;
+                i++;
+            }
         }
 
-        const groups = match.groups;
-
-        return {
-            protocol: match[1] ?? "",
-            subdomain: match[2] ?? "",
-
-            serverId: groups.sv_id,
-            channelId: groups.ch_id,
-            messageId: groups.msg_id
-        };
+        return length;
     },
 
-    _attachUrlRegex:
-        /^(?<prefix>(?:(https?:)\/\/)?(cdn|media)\.discordapp\.(com|net)\/attachments\/(?<sv_id>\d+)\/(?<ch_id>\d+)\/(?<filename>.+?)(?<ext>\.[^.?]+)?(?=\?|$))\??(?:ex=(?<ex>[0-9a-f]+)&is=(?<is>[0-9a-f]+)&hm=(?<hm>[0-9a-f]+))?.*$/,
-    parseAttachmentUrl: url => {
-        const match = url.match(LoaderUtils._attachUrlRegex);
-
-        if (!match) {
-            return;
-        }
-
-        const groups = match.groups;
-
-        const filename = groups.filename,
-            ext = groups.ext ?? "";
-
-        return {
-            prefix: groups.prefix,
-            protocol: match[2] ?? "",
-            subdomain: match[3],
-            tld: match[4],
-
-            serverId: groups.sv_id,
-            channelId: groups.ch_id,
-
-            filename,
-            ext,
-            file: filename + ext,
-
-            search: groups.search ? "?" + groups.search : "",
-            ex: groups.ex,
-            is: groups.is,
-            hm: groups.hm
-        };
+    countChars: str => {
+        return str?.length ?? 0;
     },
 
-    randomString: n => {
-        const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-
-        let result = "";
-        while (result.length < n) {
-            result += alphabet[~~(Math.random() * alphabet.length)];
+    countLines: str => {
+        if (typeof str !== "string") {
+            return 0;
         }
 
-        return result;
+        let count = 1,
+            pos = 0;
+
+        while ((pos = str.indexOf("\n", pos)) !== -1) {
+            count++;
+            pos++;
+        }
+
+        return count;
+    },
+
+    overSizeLimits: (obj, charLimit, lineLimit) => {
+        if (obj == null) {
+            return false;
+        }
+
+        if (typeof charLimit === "number") {
+            const count = LoaderUtils.countChars(obj);
+
+            if (count > charLimit) {
+                return [count, null];
+            }
+        }
+
+        if (typeof lineLimit === "number") {
+            const count = LoaderUtils.countLines(obj);
+
+            if (count > lineLimit) {
+                return [null, count];
+            }
+        }
+
+        return false;
+    },
+
+    trimString: (str, charLimit, lineLimit, showDiff = false) => {
+        if (typeof str !== "string") {
+            return str;
+        }
+
+        const oversized = LoaderUtils.overSizeLimits(str, charLimit, lineLimit);
+
+        if (!oversized) {
+            return str;
+        }
+
+        const [chars, lines] = oversized;
+
+        if (chars !== null) {
+            const trimmed = str.slice(0, charLimit);
+
+            const diff = chars - charLimit,
+                s = diff > 1 ? "s" : "";
+
+            if (showDiff) {
+                return `${trimmed} ... (${diff} more character${s})`;
+            } else {
+                return trimmed + "...";
+            }
+        } else if (lines !== null) {
+            const split = str.split("\n"),
+                trimmed = split.slice(0, lineLimit).join("\n");
+
+            const diff = lines - lineLimit,
+                s = diff > 1 ? "s" : "";
+
+            if (showDiff) {
+                return `${trimmed} ... (${diff} more line${s})`;
+            } else {
+                return trimmed + "...";
+            }
+        }
+    },
+
+    findNthCharacter: (str, char, n) => {
+        let index = -1;
+
+        while (n > 0) {
+            index = str.indexOf(char, index + 1);
+
+            if (index === -1) {
+                return -1;
+            }
+
+            n--;
+        }
+
+        return index;
+    },
+
+    hasPrefix: (prefixes, str) => {
+        if (!Array.isArray(prefixes)) {
+            prefixes = [prefixes];
+        }
+
+        return prefixes.some(prefix => str.startsWith(prefix));
     },
 
     exceedsLimits: str => {
-        return str.length > LoaderUtils.outCharLimit || str.split("\n").length > LoaderUtils.outLineLimit;
+        return LoaderUtils.overSizeLimits(str, LoaderUtils.outCharLimit, LoaderUtils.outLineLimit);
     },
 
     codeBlock: str => {
@@ -838,60 +1019,309 @@ const LoaderUtils = {
         return out.join("");
     },
 
-    assign: (target, source, options, props) => {
-        switch (typeof options) {
-            case "undefined":
-                options = ["both"];
-                break;
-            case "string":
-                options = [options];
-                break;
-        }
+    clamp: (x, a, b) => {
+        a ??= -Infinity;
+        b ??= Infinity;
 
-        let enumerable,
-            nonEnumerable,
-            both = options.includes("both");
-
-        if (both) {
-            enumerable = nonEnumerable = true;
-        } else {
-            enumerable = options.includes("enum");
-            nonEnumerable = options.includes("nonenum");
-
-            both = enumerable && nonEnumerable;
-        }
-
-        const keys = options.includes("keys");
-
-        if ((!enumerable && !nonEnumerable && !both && !keys) || (both && keys)) {
-            throw new UtilError("Invalid options: " + options.join(", "));
-        }
-
-        if (keys) {
-            Object.assign(target, source);
-        }
-
-        const allDescriptors = Object.entries(Object.getOwnPropertyDescriptors(source));
-        let descriptors;
-
-        if (both) {
-            descriptors = allDescriptors;
-        } else if (enumerable) {
-            descriptors = allDescriptors.filter(([, desc]) => desc.enumerable);
-        } else if (nonEnumerable) {
-            descriptors = allDescriptors.filter(([, desc]) => !desc.enumerable);
-        }
-
-        if (typeof props === "object") descriptors = descriptors.map(([key, desc]) => [key, { ...desc, ...props }]);
-        descriptors = Object.fromEntries(descriptors);
-
-        Object.defineProperties(target, descriptors);
-        return target;
+        return Math.max(Math.min(x, b), a);
     },
 
-    shallowClone: (obj, options) => {
-        const clone = Object.create(Object.getPrototypeOf(obj));
-        return LoaderUtils.assign(clone, obj, options);
+    round: (num, digits) => {
+        const exp = 10 ** digits;
+        return Math.round((num + Number.EPSILON) * exp) / exp;
+    },
+
+    smallRound: (num, digits) => {
+        const tresh = 1 / 10 ** digits;
+
+        if (Math.abs(num) <= tresh) {
+            digits = -Math.floor(Math.log10(Math.abs(num)));
+        }
+
+        return LoaderUtils.round(num, digits);
+    },
+
+    approxEquals: (a, b, epsilon = Number.EPSILON) => {
+        return Math.abs(a - b) <= epsilon;
+    },
+
+    deviate: (x, y) => {
+        return x + (Math.random() * (2 * y) - y);
+    },
+
+    countDigits: (num, base = 10) => {
+        if (num === 0) {
+            return 1;
+        }
+
+        const log = Math.log(Math.abs(num)) / Math.log(base);
+        return Math.floor(log) + 1;
+    },
+
+    length: obj => {
+        return obj?.length ?? obj?.size ?? 0;
+    },
+
+    stringLength: obj => {
+        return obj == null ? 0 : String(obj).length;
+    },
+
+    maxLength: (arr, length = "string") => {
+        let lengthFunc;
+
+        switch (length) {
+            case "array":
+                lengthFunc = LoaderUtils.length;
+                break;
+            case "string":
+                lengthFunc = LoaderUtils.stringLength;
+                break;
+            default:
+                throw new UtilError("Invalid length function: " + length);
+        }
+
+        return Math.max(...arr.map(x => lengthFunc(x)));
+    },
+
+    empty: obj => {
+        return LoaderUtils.length(obj) === 0;
+    },
+
+    single: obj => {
+        return LoaderUtils.length(obj) === 1;
+    },
+
+    multiple: obj => {
+        return LoaderUtils.length(obj) > 1;
+    },
+
+    firstElement: (arr, start = 0) => {
+        return arr[start];
+    },
+
+    lastElement: (arr, start = 0) => {
+        return arr[arr.length + start - 1];
+    },
+
+    afterElement: (array, start = 0) => {
+        return array.slice(start + 1);
+    },
+
+    randomElement: (arr, a = 0, b = arr.length) => {
+        return arr[a + ~~(Math.random() * (b - a))];
+    },
+
+    concat: (a, ...args) => {
+        const concatenated = [].concat(a, ...args);
+
+        if (Array.isArray(a)) {
+            return concatenated;
+        }
+
+        return concatenated.join("");
+    },
+
+    split: (arr, callback) => {
+        return arr.reduce(
+            (acc, item, i) => {
+                if (callback(item, i)) {
+                    acc[0].push(item);
+                } else {
+                    acc[1].push(item);
+                }
+
+                return acc;
+            },
+            [[], []]
+        );
+    },
+
+    zip: (arr1, arr2) => {
+        const len = Math.min(arr1.length, arr2.length);
+        return Array.from({ length: len }, (_, i) => [arr1[i], arr2[i]]);
+    },
+
+    sort: (array, callback) => {
+        const useCallback = typeof callback === "function";
+
+        return array.sort((a, b) => {
+            const a_val = useCallback ? callback(a) : a,
+                b_val = useCallback ? callback(b) : b;
+
+            return a_val.localeCompare(b_val, "en", {
+                numeric: true,
+                sensitivity: "base"
+            });
+        });
+    },
+
+    unique: (array, propName) => {
+        const hasPropName = typeof propName === "string",
+            getProp = hasPropName ? obj => obj[propName] : obj => obj;
+
+        const seen = new Set();
+
+        return array.filter(item => {
+            const val = getProp(item);
+
+            if (seen.has(val)) {
+                return false;
+            }
+
+            seen.add(val);
+            return true;
+        });
+    },
+
+    _regexEscapeRegex: /[.*+?^${}()|[\]\\]/g,
+    escapeRegex: str => {
+        return str.replace(LoaderUtils._regexEscapeRegex, "\\$&");
+    },
+
+    _charClassExcapeRegex: /[-\\\]^]/g,
+    escapeCharClass: str => {
+        return str.replace(LoaderUtils._charClassExcapeRegex, "\\$&");
+    },
+
+    firstGroup: (match, name) => {
+        if (!match) {
+            return;
+        }
+
+        const groups = Object.keys(match.groups).filter(key => typeof match.groups[key] !== "undefined"),
+            foundName = groups.find(key => key.startsWith(name));
+
+        if (typeof foundName === "undefined") {
+            return;
+        }
+
+        return match.groups[foundName];
+    },
+
+    _templateReplaceRegex: /(?<!\\){{(.*?)}}(?!\\)/g,
+    templateReplace: (template, strings) => {
+        return template.replace(LoaderUtils._templateReplaceRegex, (match, key) => {
+            key = key.trim();
+            return strings[key] ?? match;
+        });
+    },
+
+    urlRegex: /(\S*?):\/\/(?:([^/.]+)\.)?([^/.]+)\.([^/\s]+)\/?(\S*)?/,
+
+    validUrl: url => {
+        return LoaderUtils._validUrlRegex.test(url);
+    },
+
+    _tagNameRegex: /^[A-Za-z0-9\-_]+$/,
+    validTagName: name => {
+        return name.length > 0 && name.length <= 32 && LoaderUtils._tagNameRegex.test(name);
+    },
+
+    _userIdRegex: /\d{17,20}/g,
+    findUserIds: str => {
+        const matches = Array.from(str.matchAll(LoaderUtils._userIdRegex));
+        return matches.map(match => match[0]);
+    },
+
+    _mentionRegex: /<@(\d{17,20})>/g,
+    findMentions: str => {
+        const matches = Array.from(str.matchAll(LoaderUtils._mentionRegex));
+        return matches.map(match => match[1]);
+    },
+
+    codeblockRegex: /(?<!\\)(?:`{3}([\S]+\n)?([\s\S]*?)`{3}|`([^`\n]+)`)/g,
+
+    findCodeblocks: str => {
+        const matches = str.matchAll(LoaderUtils.codeblockRegex);
+        return Array.from(matches).map(match => [match.index, match.index + match[0].length]);
+    },
+
+    parseScript: script => {
+        const match = script.match(LoaderUtils._parseScriptRegex);
+
+        if (!match) {
+            return [false, script, ""];
+        }
+
+        const body = (match[2] ?? match[3])?.trim();
+
+        if (typeof body === "undefined") {
+            return [false, script, ""];
+        }
+
+        const lang = match[1]?.trim() ?? "";
+        return [true, body, lang];
+    },
+
+    _msgUrlRegex:
+        /^(?:(https?:)\/\/)?(?:(www|ptb)\.)?discord\.com\/channels\/(?<sv_id>\d{18,19}|@me)\/(?<ch_id>\d{18,19})(?:\/(?<msg_id>\d{18,19}))$/,
+    parseMessageUrl: url => {
+        const match = url.match(LoaderUtils._msgUrlRegex);
+
+        if (!match) {
+            return;
+        }
+
+        const groups = match.groups;
+
+        return {
+            protocol: match[1] ?? "",
+            subdomain: match[2] ?? "",
+
+            serverId: groups.sv_id,
+            channelId: groups.ch_id,
+            messageId: groups.msg_id
+        };
+    },
+
+    _attachUrlRegex:
+        /^(?<prefix>(?:(https?:)\/\/)?(cdn|media)\.discordapp\.(com|net)\/attachments\/(?<sv_id>\d+)\/(?<ch_id>\d+)\/(?<filename>.+?)(?<ext>\.[^.?]+)?(?=\?|$))\??(?:ex=(?<ex>[0-9a-f]+)&is=(?<is>[0-9a-f]+)&hm=(?<hm>[0-9a-f]+))?.*$/,
+    parseAttachmentUrl: url => {
+        const match = url.match(LoaderUtils._attachUrlRegex);
+
+        if (!match) {
+            return;
+        }
+
+        const groups = match.groups;
+
+        const filename = groups.filename,
+            ext = groups.ext ?? "";
+
+        return {
+            prefix: groups.prefix,
+            protocol: match[2] ?? "",
+            subdomain: match[3],
+            tld: match[4],
+
+            serverId: groups.sv_id,
+            channelId: groups.ch_id,
+
+            filename,
+            ext,
+            file: filename + ext,
+
+            search: groups.search ? "?" + groups.search : "",
+            ex: groups.ex,
+            is: groups.is,
+            hm: groups.hm
+        };
+    },
+
+    discordEpoch: 1420070400000,
+
+    snowflakeFromDate: date => {
+        const timestamp = date.getTime() - LoaderUtils.discordEpoch,
+            snowflakeBits = BigInt(timestamp) << 22n;
+
+        return snowflakeBits.toString(10);
+    },
+
+    dateFromSnowflake: snowflake => {
+        const snowflakeBits = BigInt.asUintN(64, snowflake),
+            timestamp = Number(snowflakeBits >> 22n);
+
+        return new Date(timestamp + LoaderUtils.discordEpoch);
     },
 
     fetchAttachment: (msg, returnType = FileDataTypes.text, allowedContentTypes) => {
@@ -1011,7 +1441,7 @@ const LoaderUtils = {
                 tag = util.fetchTag(name);
             } catch (err) {}
 
-            if (tag !== null && typeof tag !== "undefined") {
+            if (tag != null) {
                 const userExcluded = enableUserBlacklist && excludedUsers.includes(tag.owner);
 
                 if (!userExcluded && tag.owner !== config.tagOwner) {
@@ -1056,7 +1486,7 @@ const LoaderUtils = {
     fetchTag: (name, owner) => {
         const tag = util.fetchTag(name);
 
-        if (tag === null || typeof tag === "undefined") {
+        if (tag == null) {
             throw new UtilError("Unknown tag: " + name, name);
         }
 
@@ -1112,32 +1542,165 @@ const LoaderUtils = {
         }
     },
 
-    _templateReplaceRegex: /(?<!\\){{(.*?)}}(?!\\)/g,
-    templateReplace: (template, strings) => {
-        return template.replace(LoaderUtils._templateReplaceRegex, (match, key) => {
-            key = key.trim();
-            return strings[key] ?? match;
-        });
+    bindArgs: (fn, boundArgs) => {
+        if (!Array.isArray(boundArgs)) {
+            boundArgs = [boundArgs];
+        }
+
+        return function (...args) {
+            return fn.apply(this, boundArgs.concat(args));
+        };
+    },
+
+    _funcArgsRegex: /(?:\()(.+)+(?:\))/,
+    functionArgumentNames: func => {
+        const code = func.toString(),
+            match = code.match(LoaderUtils._funcArgsRegex);
+
+        if (!match) {
+            return [];
+        }
+
+        const args = match[1];
+        return args.split(", ").map(arg => arg.trim());
     },
 
     getArgumentPositions: (func, names) => {
-        const code = func.toString();
+        const argsNames = LoaderUtils.functionArgumentNames(func),
+            positions = names.map(name => argsNames.indexOf(name));
 
-        const argNames = code
-            .match(/\(([^)]*)\)/)[1]
-            .split(",")
-            .map(arg => arg.trim())
-            .filter(Boolean);
-
-        const positions = names.map(name => argNames.indexOf(name));
         return positions.filter(pos => pos !== -1);
     },
 
+    isArray: arr => {
+        return Array.isArray(arr) || ArrayBuffer.isView(arr);
+    },
+
+    isObject: obj => {
+        return obj !== null && typeof obj === "object";
+    },
+
+    isClass: obj => {
+        if (typeof obj !== "function") {
+            return false;
+        }
+
+        if (obj.toString().startsWith("class")) {
+            return true;
+        }
+
+        return Object.getOwnPropertyNames(obj.prototype).length > 1;
+    },
+
+    _validProp: (obj, expected) => {
+        if (typeof expected === "string") {
+            if (expected === "object") {
+                return LoaderUtils.isObject(obj);
+            } else {
+                return typeof obj === expected;
+            }
+        }
+
+        if (typeof expected === "function") {
+            return obj instanceof expected;
+        }
+
+        if (LoaderUtils.isObject(expected)) {
+            if (LoaderUtils.isObject(obj)) {
+                return LoaderUtils.validateProps(obj, expected);
+            } else {
+                return false;
+            }
+        }
+
+        throw new UtilError("Invalid expected type");
+    },
+    validateProps: (obj, requiredProps) => {
+        for (const [name, expected] of Object.entries(requiredProps)) {
+            const prop = obj[name];
+
+            if (!LoaderUtils._validProp(prop, expected)) {
+                return false;
+            }
+        }
+
+        return true;
+    },
+
+    assign: (target, source, options, props) => {
+        switch (typeof options) {
+            case "undefined":
+                options = ["both"];
+                break;
+            case "string":
+                options = [options];
+                break;
+        }
+
+        let enumerable,
+            nonEnumerable,
+            both = options.includes("both");
+
+        if (both) {
+            enumerable = nonEnumerable = true;
+        } else {
+            enumerable = options.includes("enum");
+            nonEnumerable = options.includes("nonenum");
+
+            both = enumerable && nonEnumerable;
+        }
+
+        const keys = options.includes("keys");
+
+        if ((!enumerable && !nonEnumerable && !both && !keys) || (both && keys)) {
+            throw new UtilError("Invalid options: " + options.join(", "));
+        }
+
+        if (keys) {
+            Object.assign(target, source);
+        }
+
+        const allDescriptors = Object.entries(Object.getOwnPropertyDescriptors(source));
+        let descriptors;
+
+        if (both) {
+            descriptors = allDescriptors;
+        } else if (enumerable) {
+            descriptors = allDescriptors.filter(([, desc]) => desc.enumerable);
+        } else if (nonEnumerable) {
+            descriptors = allDescriptors.filter(([, desc]) => !desc.enumerable);
+        }
+
+        if (typeof props === "object") descriptors = descriptors.map(([key, desc]) => [key, { ...desc, ...props }]);
+        descriptors = Object.fromEntries(descriptors);
+
+        Object.defineProperties(target, descriptors);
+        return target;
+    },
+
+    shallowClone: (obj, options) => {
+        const clone = Object.create(Object.getPrototypeOf(obj));
+        return LoaderUtils.assign(clone, obj, options);
+    },
+
+    filterObject: (obj, f1, f2) => {
+        f1 ??= key => true;
+        f2 ??= value => true;
+
+        const entries = Object.entries(obj),
+            filtered = entries.filter(([key, value], i) => f1(key, i) && f2(value, i));
+
+        return Object.fromEntries(filtered);
+    },
+
     rewriteObject: (obj, f1, f2) => {
-        f1 ??= value => value;
+        f1 ??= key => key;
         f2 ??= value => value;
 
-        return Object.fromEntries(Object.entries(obj).map(([key, value], i) => [f1(key, i), f2(value, i)]));
+        const entries = Object.entries(obj),
+            newEntries = entries.map(([key, value], i) => [f1(key, i), f2(value, i)]);
+
+        return Object.fromEntries(newEntries);
     },
 
     removeUndefinedValues: obj => {
@@ -1158,7 +1721,7 @@ const LoaderUtils = {
             return Reflect.get(target, prop, reciever);
         }
     },
-    makeInfiniteObject: _ => {
+    makeInfiniteObject: () => {
         return new Proxy({}, LoaderUtils._infiniteProxyHandler);
     },
 
@@ -1289,10 +1852,27 @@ const LoaderUtils = {
     }
 };
 
-LoaderUtils._validUrlRegex = new RegExp(`^${Util.urlRegex.source}$`);
-LoaderUtils._parseScriptRegex = new RegExp(`^${Util.codeblockRegex.source}$`);
+{
+    LoaderUtils.alphabetUpper = LoaderUtils.alphabet.toUpperCase();
+    LoaderUtils.alphanumericUpper = LoaderUtils.numbers + LoaderUtils.alphabetUpper;
+    LoaderUtils.alphanumeric = LoaderUtils.numbers + LoaderUtils.alphabet + LoaderUtils.alphabetUpper;
 
-const HttpUtil = {
+    LoaderUtils._validNumberRegexes = new Map();
+
+    for (let radix = 2; radix <= 36; radix++) {
+        const validChars = LoaderUtils.alphanumericUpper.slice(0, radix),
+            exp = new RegExp(`^[+-]?[${validChars}]+(,[${validChars}]+)*$`, "i");
+
+        LoaderUtils._validNumberRegexes.set(radix, exp);
+    }
+
+    LoaderUtils._validUrlRegex = new RegExp(`^${LoaderUtils.urlRegex.source}$`);
+    LoaderUtils._parseScriptRegex = new RegExp(`^${LoaderUtils.codeblockRegex.source}$`);
+
+    LoaderUtils = Object.freeze(LoaderUtils);
+}
+
+const HttpUtil = Object.freeze({
     protocolRegex: /^[^/:]+:\/*$/,
     leadingSlashRegex: /^[/]+/,
     trailingSlashRegex: /[/]+$/,
@@ -1356,17 +1936,17 @@ const HttpUtil = {
     },
 
     getQueryString: params => {
-        if (params === null || typeof params === "undefined") {
+        if (params == null) {
             return "";
         }
 
         const query = [];
 
-        Object.entries(params).forEach(([key, value]) => {
-            if (value !== null && typeof value !== "undefined") {
+        for (const [key, value] of Object.entries(params)) {
+            if (value != null) {
                 query.push(key + "=" + encodeURIComponent(value));
             }
-        });
+        }
 
         if (query.length < 1) {
             return "";
@@ -1392,9 +1972,9 @@ const HttpUtil = {
         const status = Number.parseInt(statusMatch[1], 10);
         return status;
     }
-};
+});
 
-const LoaderTextEncoder = {
+const LoaderTextEncoder = Object.freeze({
     stringToBytes: str => {
         const bytes = new Uint8Array(str.length);
 
@@ -1414,7 +1994,7 @@ const LoaderTextEncoder = {
 
         return str;
     }
-};
+});
 
 class Benchmark {
     static data = Object.create(null);
@@ -1724,20 +2304,16 @@ class Benchmark {
     static _performance = globalThis.performance;
     static _vm = globalThis.vm;
 
-    static timeToUse = (_ => {
+    static timeToUse = (() => {
         if (typeof this._performance !== "undefined") {
             return "performanceNow";
-        }
-
-        if (typeof this._vm !== "undefined") {
+        } else if (typeof this._vm !== "undefined") {
             return "vmTime";
-        }
-
-        if (typeof this._Date !== "undefined") {
+        } else if (typeof this._Date !== "undefined") {
             return "dateNow";
+        } else {
+            throw new UtilError("No suitable timing function detected");
         }
-
-        throw new UtilError("No suitable timing function detected");
     })();
 
     static _origCountNames = new Map();
@@ -1826,7 +2402,7 @@ class Module {
             return this;
         }
 
-        if (typeof name === "undefined") {
+        if (name == null) {
             this.name = ModuleLoader._Cache.getSeqModuleName();
         } else {
             this.name = name.toString() ?? "";
@@ -2118,7 +2694,7 @@ class ModuleLoader {
     }
 
     static getModuleCodeFromUrl(url, returnType = FileDataTypes.module, options = {}) {
-        if (url === null || typeof url === "undefined" || url.length < 1) {
+        if (LoaderUtils.empty(url)) {
             throw new LoaderError("Invalid URL");
         }
 
@@ -2152,7 +2728,7 @@ class ModuleLoader {
     }
 
     static getModuleCodeFromTag(tagName, returnType = FileDataTypes.module, options = {}) {
-        if (tagName === null || typeof tagName === "undefined") {
+        if (tagName == null) {
             throw new LoaderError("Invalid tag name");
         }
 
@@ -2216,7 +2792,7 @@ class ModuleLoader {
 
         moduleCode = moduleCode.trim();
 
-        if (typeof moduleCode !== "string" || moduleCode.length < 1) {
+        if (typeof moduleCode !== "string" || LoaderUtils.empty(moduleCode)) {
             throw new LoaderError("Invalid module code");
         }
 
@@ -2320,7 +2896,7 @@ class ModuleLoader {
         const loadParams = Object.keys(scopeObj),
             loadArgs = Object.values(scopeObj);
 
-        const cleanup = _ => {
+        const cleanup = () => {
             if (isolateGlobals) {
                 Patches.removeFromGlobalContext("nondefault");
                 Patches.patchGlobalContext(originalGlobal);
@@ -2396,13 +2972,13 @@ class ModuleLoader {
     static loadModule(url, tagName, options) {
         switch (this.loadSource) {
             case "url":
-                if (url === null || typeof url === "undefined") {
+                if (url == null) {
                     throw new LoaderError("No URL provided");
                 }
 
                 return this.loadModuleFromUrl(url, options);
             case "tag":
-                if (tagName === null || typeof tagName === "undefined") {
+                if (tagName == null) {
                     throw new LoaderError("No tag name provided");
                 }
 
@@ -2474,7 +3050,7 @@ class ModuleLoader {
         let body;
 
         if (useName) {
-            if (tagName.length < 1) {
+            if (tagName == null) {
                 throw new LoaderError("Invalid tag name");
             }
 
@@ -2509,9 +3085,9 @@ class ModuleLoader {
                         throw err;
                     }
                 })
-                .filter(tag => tag !== null && typeof tag !== "undefined");
+                .filter(tag => tag != null);
 
-            if (tags.length < 1) {
+            if (LoaderUtils.empty(tags)) {
                 throw new LoaderError(`No matching tag(s) found: ${tagName}`, tagName);
             }
 
@@ -2560,9 +3136,7 @@ class ModuleLoader {
         } else {
             if (typeof decodeBase2n === "undefined") {
                 throw new LoaderError("Base2n decoder not initialized");
-            }
-
-            if (typeof table === "undefined") {
+            } else if (typeof table === "undefined") {
                 throw new LoaderError("Base2n table not initialized");
             }
 
@@ -2608,9 +3182,11 @@ class ModuleLoader {
     }
 }
 
-ModuleLoader._fetchFromUrl = Benchmark.wrapFunction("url_fetch", ModuleLoader._fetchFromUrl);
-ModuleLoader._fetchTagBody = Benchmark.wrapFunction("tag_fetch", ModuleLoader._fetchTagBody);
-ModuleLoader.loadModuleFromSource = Benchmark.wrapFunction("module_load", ModuleLoader.loadModuleFromSource);
+{
+    ModuleLoader._fetchFromUrl = Benchmark.wrapFunction("url_fetch", ModuleLoader._fetchFromUrl);
+    ModuleLoader._fetchTagBody = Benchmark.wrapFunction("tag_fetch", ModuleLoader._fetchTagBody);
+    ModuleLoader.loadModuleFromSource = Benchmark.wrapFunction("module_load", ModuleLoader.loadModuleFromSource);
+}
 
 // globals
 const globals = ModuleGlobalsUtil.createGlobalsObject({
@@ -3003,7 +3579,7 @@ const Patches = {
         }
     },
 
-    clearLoadedPatches: _ => {
+    clearLoadedPatches: () => {
         Patches._loadedPatches.length = 0;
     },
 
@@ -3026,10 +3602,7 @@ let wasmDecoderLoaded = false;
 
 function loadBase2nDecoder() {
     function loadJsBase2nDecoder(charset = "normal") {
-        if (typeof globalThis.decodeBase2n !== "undefined") {
-            return;
-        }
-
+        if (typeof globalThis.decodeBase2n !== "undefined") return;
         Benchmark.startTiming("load_decoder");
 
         const { base2n } = ModuleLoader.loadModule(
@@ -3041,9 +3614,7 @@ function loadBase2nDecoder() {
             }
         );
 
-        if (typeof base2n === "undefined") {
-            return;
-        }
+        if (typeof base2n === "undefined") return;
 
         let charsetRanges,
             sortRanges = true;
@@ -3097,10 +3668,7 @@ function loadBase2nDecoder() {
     }
 
     function loadWasmBase2nDecoder() {
-        if (typeof globalThis.fastDecodeBase2n !== "undefined") {
-            return;
-        }
-
+        if (typeof globalThis.fastDecodeBase2n !== "undefined") return;
         Patches.checkGlobalPolyfill("Promise", "Can't load WASM Base2n decoder.");
 
         Benchmark.startTiming("load_wasm_decoder");
@@ -3119,9 +3687,7 @@ function loadBase2nDecoder() {
             }
         );
 
-        if (typeof Base2nWasmDec === "undefined") {
-            return;
-        }
+        if (typeof Base2nWasmDec === "undefined") return;
 
         const DecoderInit = ModuleLoader.loadModule(
             null,
@@ -3164,10 +3730,7 @@ function loadBase2nDecoder() {
 }
 
 function loadXzDecompressor() {
-    if (typeof globalThis.XzDecompressor !== "undefined") {
-        return;
-    }
-
+    if (typeof globalThis.XzDecompressor !== "undefined") return;
     Benchmark.startTiming("load_xz_decompressor");
 
     const XzDecompressor = ModuleLoader.loadModule(
@@ -3180,9 +3743,7 @@ function loadXzDecompressor() {
         }
     );
 
-    if (typeof XzDecompressor === "undefined") {
-        return;
-    }
+    if (typeof XzDecompressor === "undefined") return;
 
     const xzWasm = ModuleLoader.getModuleCode(null, tags.XzWasmTagName, FileDataTypes.binary, {
         encoded: true,
@@ -3202,10 +3763,7 @@ function loadXzDecompressor() {
 }
 
 function loadZstdDecompressor() {
-    if (typeof globalThis.ZstdDecompressor !== "undefined") {
-        return;
-    }
-
+    if (typeof globalThis.ZstdDecompressor !== "undefined") return;
     Benchmark.startTiming("load_zstd_decompressor");
 
     const ZstdDecompressor = ModuleLoader.loadModule(
@@ -3218,9 +3776,7 @@ function loadZstdDecompressor() {
         }
     );
 
-    if (typeof ZstdDecompressor === "undefined") {
-        return;
-    }
+    if (typeof ZstdDecompressor === "undefined") return;
 
     const zstdWasm = ModuleLoader.getModuleCode(null, tags.ZstdWasmTagName, FileDataTypes.binary, {
         encoded: true,
@@ -3241,10 +3797,7 @@ function loadZstdDecompressor() {
 
 // canvaskit loader
 function loadCanvasKit() {
-    if (typeof globalThis.CanvasKit !== "undefined") {
-        return;
-    }
-
+    if (typeof globalThis.CanvasKit !== "undefined") return;
     Benchmark.startTiming("load_canvaskit");
 
     const CanvasKitInit = ModuleLoader.loadModule(
@@ -3301,10 +3854,7 @@ function loadCanvasKit() {
 
 // resvg loader
 function loadResvg() {
-    if (typeof globalThis.Resvg !== "undefined") {
-        return;
-    }
-
+    if (typeof globalThis.Resvg !== "undefined") return;
     Benchmark.startTiming("load_resvg");
 
     const ResvgInit = ModuleLoader.loadModule(
@@ -3346,10 +3896,7 @@ function loadResvg() {
 
 // libvips loader
 function loadLibVips() {
-    if (typeof globalThis.vips !== "undefined") {
-        return;
-    }
-
+    if (typeof globalThis.vips !== "undefined") return;
     Benchmark.startTiming("load_libvips");
 
     const initCode = ModuleLoader.getModuleCode(urls.LibVipsLoaderUrl, tags.LibVipsLoaderTagName);
@@ -3405,10 +3952,7 @@ function loadLibVips() {
 
 // lodepng loader
 function loadLodepng() {
-    if (typeof globalThis.lodepng !== "undefined") {
-        return;
-    }
-
+    if (typeof globalThis.lodepng !== "undefined") return;
     Benchmark.startTiming("load_lodepng");
 
     const wasm = ModuleLoader.getModuleCode(urls.LodepngWasmUrl, tags.LodepngWasmTagName, FileDataTypes.binary, {
@@ -3554,7 +4098,7 @@ function mainLoadLibrary(loadLibrary) {
 function addLoadFuncs() {
     const wrapLoadFunc = func => {
         return function (library) {
-            ModuleLoader.useDefault(_ => {
+            ModuleLoader.useDefault(() => {
                 func(library);
             });
         };
@@ -3581,7 +4125,7 @@ function mainLoad(loadLibrary) {
 }
 
 function main() {
-    ModuleLoader.useDefault(_ => {
+    ModuleLoader.useDefault(() => {
         mainLoad(config.loadLibrary);
     });
 
