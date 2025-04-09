@@ -902,11 +902,11 @@ const LoaderUtils = {
             attach = msg.file;
         } else if (msg.attachments?.length > 0) {
             attach = msg.attachments[0];
-        } else if (typeof msg.fileUrl !== "undefined") {
-            url = msg.fileUrl;
         }
 
-        if (typeof attach !== "undefined") {
+        if (typeof msg.fileUrl !== "undefined") {
+            url = msg.fileUrl;
+        } else if (typeof attach !== "undefined") {
             url = attach.url;
             contentType = attach.contentType;
         }
@@ -2861,6 +2861,7 @@ const Patches = {
         globalObjs.Benchmark ??= Benchmark;
         globalObjs.HttpUtil ??= HttpUtil;
         globalObjs.LoaderUtils ??= LoaderUtils;
+        globalObjs.LoaderTextEncoder ??= LoaderTextEncoder;
         globalObjs.exit ??= exit;
 
         globalObjs.FileDataTypes ??= FileDataTypes;
