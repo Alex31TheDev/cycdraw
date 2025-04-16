@@ -9,7 +9,7 @@ const fontName = "Roboto",
     fontSize = 25;
 
 const voltages = ["ULV", "LV", "MV", "HV", "EV", "IV", "LuV", "ZPM", "UV", "UHV", "UEV", "UIV", "UMV", "UXV", "MAX"],
-    customUnits = ["rf", "eu", "tick", ...voltages];
+    customUnits = ["rf", "eu", "tick", ...voltages].map(unit => unit.toLowerCase());
 
 // sources
 const urls = {
@@ -85,7 +85,7 @@ const main = (() => {
         const QalcInit = ModuleLoader.loadModule(urls.QalculatorInit, tags.QalculatorInit, {
             scope: {
                 performance: {
-                    now: _ => Benchmark.getCurrentTime()
+                    now: () => Benchmark.getCurrentTime()
                 },
 
                 runGnuplot: {
@@ -169,9 +169,9 @@ const main = (() => {
         const FS = Qalc.FS,
             calc = new Qalc.Calculator();
 
-        const lower = input.toLowerCase();
+        const inputLower = input.toLowerCase();
 
-        if (customUnits.some(unit => lower.includes(unit.toLowerCase()))) {
+        if (customUnits.some(unit => inputLower.includes(unit))) {
             Benchmark.startTiming("load_units");
 
             const units = ModuleLoader.getModuleCode(urls.UnitDefinitions, tags.UnitDefinitions, FileDataTypes.text);
@@ -194,9 +194,9 @@ set output '/output'`;
     }
 
     function runGnuplot(data_files, commands, extra_commandline, persist) {
-        const FS = Gnuplot.FS;
-
         const files = Object.keys(data_files);
+
+        const FS = Gnuplot.FS;
 
         for (const [file, data] of Object.entries(data_files)) {
             FS.writeFile(file, data);
@@ -251,11 +251,12 @@ set output '/output'`;
 
     function fixOutput(out) {
         out = out.replace(intervalRegex, (_, g1) => g1);
+        out = LoaderUtils.escapeMarkdown(out);
 
         return out;
     }
 
-    return _ => {
+    return () => {
         initLoader();
 
         getInput();

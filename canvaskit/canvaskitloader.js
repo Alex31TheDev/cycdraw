@@ -1,5 +1,5 @@
 "use strict";
-/* global fastDecodeBase2n:readonly, decodeBase2n:readonly, table:readonly */
+/* global decodeBase2n:readonly, table:readonly, fastDecodeBase2n:readonly */
 
 // config
 const config = {
@@ -921,14 +921,115 @@ let LoaderUtils = {
         return LoaderUtils.overSizeLimits(str, LoaderUtils.outCharLimit, LoaderUtils.outLineLimit);
     },
 
-    codeBlock: str => {
-        const formatted = `\`\`\`\n${str}\`\`\``;
+    codeBlock: (str, lang) => {
+        let formatted = "```\n";
 
-        if (!LoaderUtils.exceedsLimits(formatted)) {
-            return formatted;
+        if (!LoaderUtils.empty(lang)) {
+            formatted += lang + "\n";
         }
 
-        return str;
+        formatted += str + "```";
+
+        if (LoaderUtils.exceedsLimits(formatted)) {
+            return str;
+        } else {
+            return formatted;
+        }
+    },
+
+    escapeMarkdown: (text, options = {}) => {
+        const codeBlock = options.codeBlock ?? true,
+            inlineCode = options.inlineCode ?? true,
+            bold = options.bold ?? true,
+            italic = options.italic ?? true,
+            underline = options.underline ?? true,
+            strikethrough = options.strikethrough ?? true,
+            spoiler = options.spoiler ?? true,
+            codeBlockContent = options.codeBlockContent ?? true,
+            inlineCodeContent = options.inlineCodeContent ?? true,
+            escape = options.escape ?? true,
+            heading = options.heading ?? true,
+            bulletedList = options.bulletedList ?? true,
+            numberedList = options.numberedList ?? true,
+            maskedLink = options.maskedLink ?? true;
+
+        if (!codeBlockContent) {
+            return text
+                .split("```")
+                .map((sub, i, arr) => {
+                    if (i % 2 && i !== arr.length - 1) return sub;
+
+                    return LoaderUtils.escapeMarkdown(sub, {
+                        ...options,
+                        codeBlockContent: true
+                    });
+                })
+                .join(codeBlock ? "\\`\\`\\`" : "```");
+        }
+
+        if (!inlineCodeContent) {
+            return text
+                .split(/(?<=^|[^`])`(?=[^`]|$)/g)
+                .map((sub, i, arr) => {
+                    if (i % 2 && i !== arr.length - 1) return sub;
+
+                    return LoaderUtils.escapeMarkdown(sub, {
+                        ...options,
+                        inlineCodeContent: true
+                    });
+                })
+                .join(inlineCode ? "\\`" : "`");
+        }
+
+        let res = text;
+
+        if (escape) res = res.replaceAll("\\", "\\\\");
+        if (inlineCode)
+            res = res.replaceAll(/(?<=^|[^`])``?(?=[^`]|$)/g, match => (match.length === 2 ? "\\`\\`" : "\\`"));
+        if (codeBlock) res = res.replaceAll("```", "\\`\\`\\`");
+
+        if (italic) {
+            let idx = 0;
+
+            res = res.replaceAll(/(?<=^|[^*])\*([^*]|\*\*|$)/g, (_, match) => {
+                if (match === "**") return ++idx % 2 ? `\\*${match}` : `${match}\\*`;
+                return `\\*${match}`;
+            });
+
+            idx = 0;
+
+            res = res.replaceAll(/(?<=^|[^_])(?<!<a?:.+|https?:\/\/\S+)_(?!:\d+>)([^_]|__|$)/g, (_, match) => {
+                if (match === "__") return ++idx % 2 ? `\\_${match}` : `${match}\\_`;
+                return `\\_${match}`;
+            });
+        }
+
+        if (bold) {
+            let idx = 0;
+
+            res = res.replaceAll(/\*\*(\*)?/g, (_, match) => {
+                if (match) return ++idx % 2 ? `${match}\\*\\*` : `\\*\\*${match}`;
+                return "\\*\\*";
+            });
+        }
+
+        if (underline) {
+            let idx = 0;
+
+            res = res.replaceAll(/(?<!<a?:.+|https?:\/\/\S+)__(_)?(?!:\d+>)/g, (_, match) => {
+                if (match) return ++idx % 2 ? `${match}\\_\\_` : `\\_\\_${match}`;
+                return "\\_\\_";
+            });
+        }
+
+        if (strikethrough) res = res.replaceAll("~~", "\\~\\~");
+        if (spoiler) res = res.replaceAll("||", "\\|\\|");
+        if (heading) res = res.replaceAll(/^( {0,2})([*-] )?( *)(#{1,3} )/gm, "$1$2$3\\$4");
+        if (bulletedList) res = res.replaceAll(/^( *)([*-])( +)/gm, "$1\\$2$3");
+        if (numberedList) res = res.replaceAll(/^( *\d+)\./gm, "$1\\.");
+        if (maskedLink) res = res.replaceAll(/\[.+]\(.+\)/gm, "\\$&");
+
+        return res;
     },
 
     createShiftedAlphabet: (alphabet, shift) => {

@@ -191,7 +191,7 @@ const main = (() => {
         );
     }
 
-    return _ => {
+    return () => {
         let { input, scale, hasAttachment } = getInput();
 
         loadLodepng();

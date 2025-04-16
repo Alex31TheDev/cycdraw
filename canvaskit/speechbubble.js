@@ -1,4 +1,5 @@
 "use strict";
+/* globals Image:readonly, Color:readonly, capture:readonly */
 
 // config
 const maxMessages = 3,
@@ -276,7 +277,7 @@ let messageIds;
 let bgColor = [49, 51, 56];
 
 let height, pfpRect, speechBubbleY;
-let screenshot, speechBubble, image;
+let screenshot, speechBubbleImg, image;
 
 // main
 const main = (() => {
@@ -466,7 +467,7 @@ const main = (() => {
             svg = SpeechBubble.generateSVG(data);
 
         const imgData = new Resvg(svg).render();
-        speechBubble = Image.fromPixels(imgData.pixels, imgData.width, imgData.height);
+        speechBubbleImg = Image.fromPixels(imgData.pixels, imgData.width, imgData.height);
 
         Benchmark.stopTiming("draw_speechbubble");
     }
@@ -481,9 +482,9 @@ const main = (() => {
         image.clear(bgColor);
 
         image.blit(0, speechBubbleY, screenshot);
-        image.overlap(0, 0, speechBubble);
+        image.overlap(0, 0, speechBubbleImg);
 
-        speechBubble = screenshot = undefined;
+        speechBubbleImg = screenshot = undefined;
         Benchmark.stopTiming("draw_total");
     }
 
@@ -520,7 +521,7 @@ const main = (() => {
         );
     }
 
-    return _ => {
+    return () => {
         getInput();
 
         initLoader();

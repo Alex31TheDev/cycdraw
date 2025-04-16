@@ -636,7 +636,7 @@ const main = (() => {
         );
     }
 
-    return _ => {
+    return () => {
         parseArgs();
 
         initLoader();

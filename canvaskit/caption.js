@@ -59,9 +59,9 @@ const customEmojiRegex = /<:(.+?):(\d+?)>/g,
     customEmojiReplacement = "\ue000";
 
 // classes
-const DiscordEndpoints = {
+const DiscordEndpoints = Object.freeze({
     customEmoji: id => HttpUtil.joinUrl("emojis", id)
-};
+});
 
 // globals
 
@@ -413,7 +413,7 @@ const main = (() => {
     function layoutParagraph(text, paraStyle, fontMgr) {
         let fontSize, availableSpace, paragraph, headerHeight, totalHeight, textWidth, textHeight;
 
-        const makeParagraph = _ => {
+        const makeParagraph = () => {
             [width, height] = calcClampedSize(width, height, totalHeight, maxHeight);
 
             [fontSize, availableSpace] = calcFontSize(width);
@@ -479,7 +479,7 @@ const main = (() => {
         const paraStyle = getParaStyle();
         let paragraph, headerHeight, totalHeight, textX, textY;
 
-        const layout = _ => {
+        const layout = () => {
             [paragraph, headerHeight, totalHeight, textX, textY] = layoutParagraph(text, paraStyle, fontMgr);
         };
 
@@ -681,7 +681,7 @@ const main = (() => {
         );
     }
 
-    return _ => {
+    return () => {
         initLoader();
         parseArgs();
         loadCanvasKit();

@@ -290,7 +290,7 @@ const main = (() => {
         );
     }
 
-    return _ => {
+    return () => {
         initLoader();
         parseArgs();
         loadCycdraw();

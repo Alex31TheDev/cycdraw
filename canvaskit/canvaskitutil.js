@@ -2,7 +2,7 @@
 
 class CanvasUtilError extends CustomError {}
 
-const CanvasKitUtil = {
+const CanvasKitUtil = Object.freeze({
     makeImageFromEncoded: imgData => {
         const image = CanvasKit.MakeImageFromEncoded(imgData);
 
@@ -119,6 +119,6 @@ const CanvasKitUtil = {
             snapshot.delete();
         }
     }
-};
+});
 
 module.exports = CanvasKitUtil;
