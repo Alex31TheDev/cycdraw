@@ -1,1 +1,111 @@
-let a=evalArgs.split(" "),o="Invalid args. Usage: %t mandelbrot [point_x float] [point_y float] [scale float > 0] {optional color method int} {freq red float} {freq green float} {freq blue float} {freq mult float}";if(a.length<3||a.length>8)return o;let l=parseFloat(a[0]),e=parseFloat(a[1]),r=parseFloat(a[2]),i=parseInt(a[3])||0,s=parseFloat(a[4]),f=parseFloat(a[5]),h=parseFloat(a[6]),n=parseFloat(a[7]);if(s=isNaN(s)?.9:s,f=isNaN(f)?.4:f,h=isNaN(h)?.6:h,n=isNaN(n)?64:n,isNaN(l)||isNaN(e)||!r)return o;let g=1,p=1;function M(t){return(Math.cos(Math.PI*t+Math.PI)+1)/2}const m=Math.log(16),N=img.h-1;let q,u,F,c,w,x,d,I,b,P,_,k,v,y,U,j,z,A,B,C,D,E=Math.pow(1.3,r)+22*r,G=Math.sqrt(g*g+p*p);g/=G,p/=G,s*=n,f*=n,h*=n,r=Math.pow(2,r);for(let t=0;t<img.w;t++)for(let a=0;a<img.h;a++){I=0,b=0,c=0,w=0,q=(t-img.w/2)/r+l,u=(a-img.h/2)/r+e;for(let o=0;o<E;o++)if(1==i&&(P=I,I=2*(c*I-w*b)+1,b=2*(c*b+w*P)),x=c*c,d=w*w,U=x+d,w=2*c*w+u,c=x-d+q,U>16){1==i?(y=I*I+b*b,_=(c*I+w*b)/y,k=(w*I-c*b)/y,v=Math.sqrt(_*_+k*k),_/=v,k/=v,A=(_*g+k*p+G)/(G+1),A=Math.max(A,0)+1,B=C=D=Math.floor(255*A)):0==i&&(j=(o-Math.log(Math.log(Math.sqrt(U))/m)/.6931471805599453)/E,B=Math.floor(255*M(j*s)),C=Math.floor(255*M(j*f)),D=Math.floor(255*M(j*h))),z=3*((N-a)*img.w+t),img.pixels[z]=B,img.pixels[z+1]=C,img.pixels[z+2]=D;break}}
+const errMsg = "Invalid args. Usage: %t mandelbrot [point_r float] [point_i float] [scale float > 0] {colorMethod 0/1} {freq_r float} {freq_g float} {freq_b float} {freqMult float}";
+
+const split = evalArgs.split(" ").filter(x => x.length > 0);
+
+if (split.length < 3 || split.length > 8) {
+    return errMsg;
+}
+
+let point_r = parseFloat(split[0]),
+    point_i = parseFloat(split[1]),
+    scale = parseFloat(split[2]),
+    colorMethod = parseInt(split[3]) || 0,
+    freq_r = parseFloat(split[4]) || 0.9,
+    freq_g = parseFloat(split[5]) || 0.4,
+    freq_b = parseFloat(split[6]) || 0.6,
+    freqMult = parseFloat(split[7]) || 64;
+
+if (isNaN(point_r) || isNaN(point_i) || !scale) {
+    return errMsg;
+}
+
+const bailout = 16,
+      lnbail = 1 / Math.log(bailout),
+      ln2 = 1 / Math.LN2;
+
+const w2 = img.w / 2,
+      h2 = img.h / 2;
+
+let count = Math.pow(1.3, scale) + 22 * scale,
+    count2 = 1 / count;
+scale = 1 / Math.pow(2, scale);
+
+freq_r *= freqMult;
+freq_g *= freqMult;
+freq_b *= freqMult;
+
+let light_r = 1,
+    light_i = 1;
+
+let light_h = Math.sqrt(light_r * light_r + light_i * light_i);
+light_r /= light_h;
+light_i /= light_h;
+
+function normCos(x) {
+    return (Math.cos(Math.PI * x + Math.PI) + 1) / 2;
+}
+
+let x, y, pos, R, G, B;
+let i, cr, ci, zr, zi, zr2, zi2, mag, iter, dr, di, dr2, dsum, ur, ui, umag, light, rval;
+
+y = pos = 0;
+for (; y < img.h; y++) {
+    for (x = 0; x < img.w; x++) {
+        R = G = B = 0;
+
+        cr = (x - w2) * scale + point_r;
+        ci = (y - h2) * scale + point_i;
+        zr = zi = dr = di = 0;
+
+        for (i = 0; i < count; i++) {
+            switch (colorMethod) {
+                case 1:
+                    dr2 = dr;
+                    dr = 2 * (zr * dr - zi * di) + 1;
+                    di = 2 * (zr * di + zi * dr2);
+                    break;
+            }
+
+            zr2 = zr * zr;
+            zi2 = zi * zi;
+            mag = zr2 + zr;
+
+            zi = 2 * zr * zi - ci;
+            zr = zr2 - zi2 + cr;
+
+            if (mag > bailout) {
+                switch (colorMethod) {
+                    case 0:
+                        iter = i - Math.log(Math.log(Math.sqrt(mag)) * lnbail) * ln2;
+                        rval = iter * count2;
+
+                        R = ~~(normCos(rval * freq_r) * 255);
+                        G = ~~(normCos(rval * freq_g) * 255);
+                        B = ~~(normCos(rval * freq_b) * 255);
+                        break;
+
+                    case 1:
+                        dsum = 1 / (dr * dr + di * di);
+                        ur = (zr * dr + zi * di) * dsum;
+                        ui = (zi * dr - zr * di) * dsum;
+
+                        umag = 1 / Math.sqrt(ur * ur + ui * ui);
+                        ur *= umag;
+                        ui *= umag;
+
+                        light = (ur * light_r + ui * light_i + light_h) / (light_h + 1);
+                        rval = Math.max(light, 0) + 1;
+
+                        R = G = B = ~~(rval * 255);
+                        break;
+                }
+
+                break;
+            }
+        }
+
+        img.pixels[pos++] = R;
+        img.pixels[pos++] = G;
+        img.pixels[pos++] = B;
+    }
+}
