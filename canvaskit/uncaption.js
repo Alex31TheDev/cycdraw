@@ -14,10 +14,11 @@ const urls = {};
 const tags = {
     ImageLoader: "ck_imageloader",
     CanvasKitUtil: "canvaskitutil",
-    Table: "ck_table",
 
     Cycdraw: "ck_cycdraw",
-    GifEncoder: "ck_gifenc"
+    GifEncoder: "ck_gifenc",
+
+    Table: "ck_table"
 };
 
 // help
@@ -54,11 +55,10 @@ const main = (() => {
 
         if (isGif) {
             loadGifEncoder();
-        } else if (targetMsg.attachInfo.ext !== ".png") {
-            image = Image.fromCanvaskitImage(image, true);
-            loadLibrary("lodepng");
-        } else {
+        } else if (targetMsg.attachInfo.ext === ".png") {
             image = Image.fromImageData(image);
+        } else {
+            image = Image.fromCanvaskitImage(image, true);
         }
     }
 
@@ -111,7 +111,7 @@ const main = (() => {
             case "canvaskit":
                 return loadCanvasKit();
             case "lodepng":
-                return loadLibrary("lodepng");
+                return loadLibrary(library);
         }
     }
 
@@ -177,9 +177,8 @@ const main = (() => {
     }
 
     function addFrameGif(gif, outImage, headerHeight, newHeight, options = {}) {
-        const frameInd = options.frame ?? 0;
-
-        const [frame, delay] = readCurrentFrame();
+        const frameInd = options.frame ?? 0,
+            [frame, delay] = readCurrentFrame();
 
         uncaptionFrame(frame, outImage, headerHeight);
 
@@ -196,61 +195,57 @@ const main = (() => {
         Benchmark.startTiming("uncaption_total");
 
         const headerHeight = (() => {
-            Benchmark.startTiming("calc_dimensions");
+                Benchmark.startTiming("calc_dimensions");
 
-            const frame = isGif ? readCurrentFrame()[0] : image.copy(),
-                headerHeight = calcHeaderHeight(frame);
+                const frame = isGif ? readCurrentFrame()[0] : image.copy(),
+                    headerHeight = calcHeaderHeight(frame);
 
-            Benchmark.stopTiming("calc_dimensions");
-            return headerHeight;
-        })();
-
-        const newHeight = height - headerHeight;
+                Benchmark.stopTiming("calc_dimensions");
+                return headerHeight;
+            })(),
+            newHeight = height - headerHeight;
 
         if (LoaderUtils.approxEquals(newHeight, height, identicalTreshold)) {
             Benchmark.stopTiming("uncaption_total");
             return;
         }
 
-        output = (() => {
-            Benchmark.startTiming("draw_image");
+        Benchmark.startTiming("draw_image");
 
-            if (isGif) {
-                const outImage = new Image(width, newHeight);
+        const outImage = new Image(width, newHeight);
 
-                const gif = gifenc.GIFEncoder(),
-                    frameCount = image.getFrameCount();
+        if (isGif) {
+            const gif = gifenc.GIFEncoder(),
+                frameCount = image.getFrameCount();
 
-                for (let frame = 0; frame < frameCount; frame++) {
-                    addFrameGif(gif, outImage, headerHeight, newHeight, {
-                        frame
-                    });
+            for (let frame = 0; frame < frameCount; frame++) {
+                addFrameGif(gif, outImage, headerHeight, newHeight, {
+                    frame
+                });
 
-                    image.decodeNextFrame();
-                }
-
-                gif.finish();
-                output = gif;
-            } else {
-                const outImage = new Image(width, newHeight);
-                uncaptionFrame(image, outImage, headerHeight);
-
-                output = outImage;
+                image.decodeNextFrame();
             }
 
-            Benchmark.stopTiming("draw_image");
+            gif.finish();
+            output = gif;
+        } else {
+            uncaptionFrame(image, outImage, headerHeight);
+            output = outImage;
+        }
 
-            image = undefined;
-            return output;
-        })();
+        Benchmark.stopTiming("draw_image");
+
+        image = undefined;
 
         Benchmark.stopTiming("uncaption_total");
     }
 
     function sendOutput() {
-        if (output === null || typeof output === "undefined") {
+        if (output == null) {
             exit(msg.reply(targetMsg.fileUrl));
         }
+
+        const filename = `image.${isGif ? "gif" : "png"}`;
 
         let imgBytes;
 
@@ -262,6 +257,7 @@ const main = (() => {
             Benchmark.stopTiming("encode_image");
         } else {
             const image = output;
+            loadDecodeLibrary("lodepng");
 
             Benchmark.startTiming("encode_image");
             imgBytes = lodepng.encode(image);
@@ -283,7 +279,7 @@ const main = (() => {
         exit(
             msg.reply(out, {
                 file: {
-                    name: `image.${isGif ? "gif" : "png"}`,
+                    name: filename,
                     data: imgBytes
                 }
             })

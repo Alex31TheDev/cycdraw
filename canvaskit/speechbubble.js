@@ -2,7 +2,8 @@
 /* globals Image:readonly, Color:readonly, capture:readonly */
 
 // config
-const maxMessages = 3,
+const nomiServerId = "927050775073534012",
+    maxMessages = 3,
     maxTries = 3;
 
 const trim = true,
@@ -29,11 +30,11 @@ let showTimes = false;
 const urls = {};
 
 const tags = {
-    Table: "ck_table",
+    Cycdraw: "ck_cycdraw",
 
     Capture: "capture",
 
-    Cycdraw: "ck_cycdraw"
+    Table: "ck_table"
 };
 
 // help
@@ -50,7 +51,7 @@ globalThis.ExitError = class extends Error {};
 const pfpRectKeys = ["x", "y", "width", "height"];
 
 // util
-const Util = {
+const Util = Object.freeze({
     calculateLength: (A, B) => {
         return Math.sqrt(Math.pow(B.x - A.x, 2) + Math.pow(B.y - A.y, 2));
     },
@@ -108,7 +109,7 @@ const Util = {
         const obj = Object.fromEntries(keys.map((key, i) => [key, values[i]]));
         return [obj, data.subarray(0, -byteCount)];
     }
-};
+});
 
 // classes
 const SpeechBubble = {
@@ -304,7 +305,7 @@ const main = (() => {
         })();
 
         messageIds = (() => {
-            if (serverId !== "927050775073534012") {
+            if (serverId !== nomiServerId) {
                 const out = ":information_source: This tag only works in **Nomi**.";
                 throw new ExitError(out);
             }
@@ -405,8 +406,10 @@ const main = (() => {
         })();
 
         Benchmark.stopTiming("capture_message");
+
         loadLodepng();
         Patches.apply("polyfillBuffer");
+
         Benchmark.restartTiming("capture_message");
 
         [pfpRect, screenshot] = Util.decodeObject(screenshot, pfpRectKeys);
@@ -436,6 +439,7 @@ const main = (() => {
         height = Math.max(screenshot.height, minHeight);
 
         screenshot.clip(0, 0, newWidth, screenshot.height);
+
         Benchmark.stopTiming("trim_screenshot");
     }
 
@@ -485,6 +489,7 @@ const main = (() => {
         image.overlap(0, 0, speechBubbleImg);
 
         speechBubbleImg = screenshot = undefined;
+
         Benchmark.stopTiming("draw_total");
     }
 

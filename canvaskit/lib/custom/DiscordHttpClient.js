@@ -3,17 +3,17 @@
 class ClientError extends CustomError {}
 class DiscordRequestError extends CustomError {}
 
-const discordDefaults = {
+const discordDefaults = Object.freeze({
     api: "https://discord.com/api/v9",
     cdn: "https://cdn.discordapp.com"
-};
+});
 
-const DiscordConstants = {
+const DiscordConstants = Object.freeze({
     allowedExtensions: ["webp", "png", "jpg", "jpeg", "gif"],
     allowedSizes: [16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
-};
+});
 
-const DiscordUtil = {
+const DiscordUtil = Object.freeze({
     getImageOpts: options => {
         let ext = options.ext ?? DiscordConstants.allowedExtensions[1],
             size = options.size ?? DiscordConstants.allowedSizes[3];
@@ -37,9 +37,9 @@ const DiscordUtil = {
         size = size.toString(10);
         return { size, ext };
     }
-};
+});
 
-const DiscordEndpoints = {};
+const DiscordEndpoints = Object.freeze({});
 
 class DiscordHttpClient {
     static Constants = DiscordConstants;

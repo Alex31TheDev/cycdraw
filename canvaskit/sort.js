@@ -22,7 +22,7 @@ const tags = {
 };
 
 // util
-const Util = {
+const Util = Object.freeze({
     camelToWords: str => {
         return str.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
     },
@@ -36,7 +36,7 @@ const Util = {
             )
             .replace(/\s+/g, "");
     }
-};
+});
 
 // errors
 globalThis.ExitError = class extends Error {};

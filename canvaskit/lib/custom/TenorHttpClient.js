@@ -2,13 +2,12 @@
 
 class ClientError extends CustomError {}
 
-const tenorDefaults = {
+const tenorDefaults = Object.freeze({
     api: "https://tenor.googleapis.com/v2",
-
     limit: 10
-};
+});
 
-const TenorConstants = {
+const TenorConstants = Object.freeze({
     media_filter: {
         gif: ["gif", "mediumgif", "tinygif"],
         mp4: ["mp4", "loopedmp4", "tinymp4", "nanomp4"],
@@ -16,9 +15,9 @@ const TenorConstants = {
     },
 
     contentfilter: ["off", "low", "medium", "high"]
-};
+});
 
-const TenorUtil = {
+const TenorUtil = Object.freeze({
     queryEncodeObject: obj => {
         return LoaderUtils.rewriteObject(obj, null, HttpUtil.getQueryString);
     },
@@ -37,9 +36,9 @@ const TenorUtil = {
 
         return { media_filter, contentfilter };
     }
-};
+});
 
-const TenorEndpoints = {
+const TenorEndpoints = Object.freeze({
     posts: (options = {}) => {
         const { media_filter, contentfilter } = TenorUtil.getGifOpts(options),
             limit = options.limit ?? tenorDefaults.limit;
@@ -59,7 +58,7 @@ const TenorEndpoints = {
 
         return HttpUtil.joinUrl("posts", HttpUtil.getQueryString(params));
     }
-};
+});
 
 class TenorHttpClient {
     static Constants = TenorConstants;

@@ -14,12 +14,12 @@ const urls = {};
 const tags = {
     ImageLoader: "ck_imageloader",
     CanvasKitUtil: "canvaskitutil",
-    Table: "ck_table",
-
-    DiscordHttpClient: "ck_discordhttpclient",
 
     Cycdraw: "ck_cycdraw",
-    GifEncoder: "ck_gifenc"
+    GifEncoder: "ck_gifenc",
+
+    DiscordHttpClient: "ck_discordhttpclient",
+    Table: "ck_table"
 };
 
 const fonts = {
@@ -556,9 +556,8 @@ const main = (() => {
     }
 
     function drawImageGif(gif, outImage, headerHeight, totalHeight, options = {}) {
-        const frameInd = options.frame ?? 0;
-
-        const [frame, delay] = readCurrentFrame();
+        const frameInd = options.frame ?? 0,
+            [frame, delay] = readCurrentFrame();
 
         if (imageOversized) {
             frame.scale(width, height);
@@ -578,62 +577,57 @@ const main = (() => {
     function captionMain() {
         Benchmark.startTiming("caption_total");
 
-        output = (() => {
-            const [fontMgr, paragraph, headerHeight, totalHeight, textX, textY] = prepareCaption();
+        const [fontMgr, paragraph, headerHeight, totalHeight, textX, textY] = prepareCaption();
 
-            Benchmark.startTiming("draw_image");
-            let output;
+        Benchmark.startTiming("draw_image");
 
-            if (isGif) {
-                let surface = CanvasKit.MakeSurface(width, headerHeight),
-                    canvas = surface.getCanvas();
+        if (isGif) {
+            let surface = CanvasKit.MakeSurface(width, headerHeight),
+                canvas = surface.getCanvas();
 
-                drawCaption(canvas, paragraph, textX, textY);
+            drawCaption(canvas, paragraph, textX, textY);
 
-                let headerPixels = CanvasKitUtil.readSurfacePixels(surface, true, CanvasKit.AlphaType.Opaque);
-                const header = Image.fromPixels(headerPixels, width, headerHeight);
-                surface = canvas = headerPixels = undefined;
+            let headerPixels = CanvasKitUtil.readSurfacePixels(surface, true, CanvasKit.AlphaType.Opaque);
+            const header = Image.fromPixels(headerPixels, width, headerHeight);
+            surface = canvas = headerPixels = undefined;
 
-                const outImage = new Image(width, totalHeight);
-                outImage.blit(0, 0, header);
+            const outImage = new Image(width, totalHeight);
+            outImage.blit(0, 0, header);
 
-                const gif = gifenc.GIFEncoder(),
-                    frameCount = image.getFrameCount();
+            const gif = gifenc.GIFEncoder(),
+                frameCount = image.getFrameCount();
 
-                for (let frame = 0; frame < frameCount; frame++) {
-                    drawImageGif(gif, outImage, headerHeight, totalHeight, {
-                        frame
-                    });
+            for (let frame = 0; frame < frameCount; frame++) {
+                drawImageGif(gif, outImage, headerHeight, totalHeight, {
+                    frame
+                });
 
-                    image.decodeNextFrame();
-                }
-
-                gif.finish();
-                output = gif;
-            } else {
-                const surface = CanvasKit.MakeSurface(width, totalHeight),
-                    canvas = surface.getCanvas();
-
-                drawCaption(canvas, paragraph, textX, textY);
-                drawImageCanvas(canvas, headerHeight, totalHeight);
-
-                output = surface;
+                image.decodeNextFrame();
             }
 
-            Benchmark.stopTiming("draw_image");
+            gif.finish();
+            output = gif;
+        } else {
+            const surface = CanvasKit.MakeSurface(width, totalHeight),
+                canvas = surface.getCanvas();
 
-            if (!isGif) image.delete();
-            image = undefined;
+            drawCaption(canvas, paragraph, textX, textY);
+            drawImageCanvas(canvas, headerHeight, totalHeight);
 
-            paragraph.delete();
-            fontMgr.delete();
+            output = surface;
+        }
 
-            for (const emoji of customEmojis) {
-                emoji.image.delete();
-            }
+        Benchmark.stopTiming("draw_image");
 
-            return output;
-        })();
+        if (!isGif) image.delete();
+        image = undefined;
+
+        paragraph.delete();
+        fontMgr.delete();
+
+        for (const emoji of customEmojis) {
+            emoji.image.delete();
+        }
 
         Benchmark.stopTiming("caption_total");
     }
@@ -642,6 +636,8 @@ const main = (() => {
         if (output === null || typeof output === "undefined") {
             throw new CustomError("No output");
         }
+
+        const filename = `caption.${isGif ? "gif" : "png"}`;
 
         let imgBytes;
 
@@ -674,7 +670,7 @@ const main = (() => {
         exit(
             msg.reply(out, {
                 file: {
-                    name: `caption.${isGif ? "gif" : "png"}`,
+                    name: filename,
                     data: imgBytes
                 }
             })

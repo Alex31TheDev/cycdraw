@@ -1518,19 +1518,16 @@ let LoaderUtils = {
             excludedUsers = options.excludedUsers ?? [],
             fixTags = options.fixTags ?? true;
 
-        let all = LoaderUtils.dumpTags(search);
-
         const enableNameBlacklist = excludedNames.length > 0,
             enableUserBlacklist = excludedUsers.length > 0;
+
+        let all = LoaderUtils.dumpTags(search);
 
         if (enableNameBlacklist) {
             all = all.filter(name =>
                 excludedNames.every(bl => {
-                    if (bl instanceof RegExp) {
-                        return !bl.test(name);
-                    }
-
-                    return bl !== name;
+                    if (bl instanceof RegExp) return !bl.test(name);
+                    else return bl !== name;
                 })
             );
         }
@@ -1544,10 +1541,7 @@ let LoaderUtils = {
 
             if (tag != null) {
                 const userExcluded = enableUserBlacklist && excludedUsers.includes(tag.owner);
-
-                if (!userExcluded && tag.owner !== config.tagOwner) {
-                    tags.push(tag);
-                }
+                if (!userExcluded && tag.owner !== config.tagOwner) tags.push(tag);
             }
 
             return tags;
@@ -1577,6 +1571,7 @@ let LoaderUtils = {
             }
 
             const newBody = LoaderUtils.getTagBody(tag);
+
             tag.isScript = tag.body !== newBody;
             tag.body = newBody;
         });
@@ -1728,21 +1723,31 @@ let LoaderUtils = {
         return true;
     },
 
+    _validPropOptions: ["both", "enum", "nonenum", "keys"],
     assign: (target, source, options, props) => {
-        switch (typeof options) {
-            case "undefined":
-                options = ["both"];
-                break;
-            case "string":
+        let enumerable, nonEnumerable, both, keys;
+
+        if (options == null) {
+            options = LoaderUtils._validPropOptions.slice(0, 1);
+            both = true;
+        } else {
+            if (!Array.isArray(options)) {
                 options = [options];
-                break;
+            }
+
+            if (!options.every(option => LoaderUtils._validPropOptions.includes(option))) {
+                throw new UtilError("Invalid property options");
+            }
+
+            both = options.includes("both");
+            keys = options.includes("keys");
         }
 
-        let enumerable,
-            nonEnumerable,
-            both = options.includes("both");
-
-        if (both) {
+        if (options.length < 1) {
+            throw new UtilError("Invalid property options");
+        } else if (keys) {
+            return Object.assign(target, source);
+        } else if (both) {
             enumerable = nonEnumerable = true;
         } else {
             enumerable = options.includes("enum");
@@ -1751,17 +1756,10 @@ let LoaderUtils = {
             both = enumerable && nonEnumerable;
         }
 
-        const keys = options.includes("keys");
+        const allDescriptors = (desc => Reflect.ownKeys(desc).map(key => [key, desc[key]]))(
+            Object.getOwnPropertyDescriptors(source)
+        );
 
-        if ((!enumerable && !nonEnumerable && !both && !keys) || (both && keys)) {
-            throw new UtilError("Invalid options: " + options.join(", "));
-        }
-
-        if (keys) {
-            Object.assign(target, source);
-        }
-
-        const allDescriptors = Object.entries(Object.getOwnPropertyDescriptors(source));
         let descriptors;
 
         if (both) {
@@ -1785,8 +1783,8 @@ let LoaderUtils = {
     },
 
     filterObject: (obj, f1, f2) => {
-        f1 ??= key => true;
-        f2 ??= value => true;
+        f1 ??= () => true;
+        f2 ??= () => true;
 
         const entries = Object.entries(obj),
             filtered = entries.filter(([key, value], i) => f1(key, i) && f2(value, i));
