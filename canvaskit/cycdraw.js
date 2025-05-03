@@ -600,7 +600,6 @@ class Image {
 
         this.w = Math.floor(w);
         this.h = Math.floor(h);
-
         this.aspect = this.w / this.h;
 
         this.pixels = new Uint8Array(Image.getBufSize(this)).fill(0);
@@ -929,26 +928,25 @@ class Image {
             j;
 
         let x, y;
-        let pos1, pos2;
+        let pos1 = 0,
+            pos2;
 
         for (; i < h; i++) {
             for (j = 0; j < w; j++) {
                 x = Math.floor((j / w) * this.w);
                 y = Math.floor((i / h) * this.h);
-
-                pos1 = 4 * (i * w + j);
                 pos2 = 4 * (y * this.w + x);
 
-                pixels2[pos1] = this.pixels[pos2];
-                pixels2[pos1 + 1] = this.pixels[pos2 + 1];
-                pixels2[pos1 + 2] = this.pixels[pos2 + 2];
-                pixels2[pos1 + 3] = this.pixels[pos2 + 3];
+                pixels2[pos1++] = this.pixels[pos2];
+                pixels2[pos1++] = this.pixels[pos2 + 1];
+                pixels2[pos1++] = this.pixels[pos2 + 2];
+                pixels2[pos1++] = this.pixels[pos2 + 3];
             }
         }
 
-        this.pixels = pixels2;
         this.w = w;
         this.h = h;
+        this.pixels = pixels2;
     }
 
     clip(x, y, w, h) {
@@ -986,9 +984,9 @@ class Image {
             pos2 += yi;
         }
 
-        this.pixels = pixels2;
         this.w = w;
         this.h = h;
+        this.pixels = pixels2;
     }
 
     flipHorizontal() {
