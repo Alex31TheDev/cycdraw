@@ -8,7 +8,7 @@ const defaultHelp = "No help text configured.",
     defaultUsage = `See \`%t ${tag.name} help\` for usage.`;
 
 const defaultTenorClientConfig = {
-    key: LoaderUtils.caesarCipher("", -16, 2),
+    key: LoaderUtils.caesarCipher("QYFqiEQRMdEE2wNFMmTYetr8wO9KX5JHLj6dyAU", -16, 2),
     client_key: "caption"
 };
 

@@ -15,7 +15,7 @@ let point_r = parseFloat(split[0]),
     freq_b = parseFloat(split[6]) || 0.6,
     freqMult = parseFloat(split[7]) || 64;
 
-if (isNaN(point_r) || isNaN(point_i) || !scale) {
+if (isNaN(point_r) || isNaN(point_i) || scale <= 0) {
     return errMsg;
 }
 
@@ -49,13 +49,15 @@ let x, y, pos, R, G, B;
 let i, cr, ci, zr, zi, zr2, zi2, mag, iter, dr, di, dr2, dsum, ur, ui, umag, light, rval;
 
 y = pos = 0;
+
 for (; y < img.h; y++) {
     for (x = 0; x < img.w; x++) {
         R = G = B = 0;
 
         cr = (x - w2) * scale + point_r;
-        ci = (y - h2) * scale + point_i;
-        zr = zi = dr = di = 0;
+        ci = (y - h2) * scale - point_i;
+        zr = zi = di = 0;
+        dr = 1;
 
         for (i = 0; i < count; i++) {
             switch (colorMethod) {
@@ -68,7 +70,7 @@ for (; y < img.h; y++) {
 
             zr2 = zr * zr;
             zi2 = zi * zi;
-            mag = zr2 + zr;
+            mag = zr2 + zi2;
 
             zi = 2 * zr * zi - ci;
             zr = zr2 - zi2 + cr;
@@ -79,9 +81,9 @@ for (; y < img.h; y++) {
                         iter = i - Math.log(Math.log(Math.sqrt(mag)) * lnbail) * ln2;
                         rval = iter * count2;
 
-                        R = ~~(normCos(rval * freq_r) * 255);
-                        G = ~~(normCos(rval * freq_g) * 255);
-                        B = ~~(normCos(rval * freq_b) * 255);
+                        R = normCos(rval * freq_r);
+                        G = normCos(rval * freq_g);
+                        B = normCos(rval * freq_b);
                         break;
 
                     case 1:
@@ -96,7 +98,7 @@ for (; y < img.h; y++) {
                         light = (ur * light_r + ui * light_i + light_h) / (light_h + 1);
                         rval = Math.max(light, 0) + 1;
 
-                        R = G = B = ~~(rval * 255);
+                        R = G = B = rval;
                         break;
                 }
 
@@ -104,8 +106,8 @@ for (; y < img.h; y++) {
             }
         }
 
-        img.pixels[pos++] = R;
-        img.pixels[pos++] = G;
-        img.pixels[pos++] = B;
+        img.pixels[pos++] = ~~(R * 255);
+        img.pixels[pos++] = ~~(G * 255);
+        img.pixels[pos++] = ~~(B * 255);
     }
 }

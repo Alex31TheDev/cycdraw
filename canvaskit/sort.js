@@ -324,8 +324,8 @@ const main = (() => {
 
     // colors
     function getRainbowColor(val) {
-        const ind = Math.round(((val - 1) / (arraySize - 1)) * (rainbowColors.length - 1));
-        return rainbowColors[ind];
+        const idx = Math.round(((val - 1) / (arraySize - 1)) * (rainbowColors.length - 1));
+        return rainbowColors[idx];
     }
 
     function getSegmentColor(i, val) {

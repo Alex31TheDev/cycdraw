@@ -117,16 +117,16 @@ const Util = {
     },
 
     splitAt: (str, sep = " ") => {
-        const ind = str.indexOf(sep);
+        const idx = str.indexOf(sep);
 
         let first, second;
 
-        if (ind === -1) {
+        if (idx === -1) {
             first = str;
             second = "";
         } else {
-            first = str.slice(0, ind);
-            second = str.slice(ind);
+            first = str.slice(0, idx);
+            second = str.slice(idx);
         }
 
         return [first, second];

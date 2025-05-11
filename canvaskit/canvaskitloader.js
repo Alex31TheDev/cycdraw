@@ -261,12 +261,12 @@ class Logger {
         return find[1];
     }
 
-    static _getLevelByIndex(ind) {
+    static _getLevelByIndex(idx) {
         const levels = Object.entries(Logger.levels),
-            find = levels.find(([, value]) => value === ind);
+            find = levels.find(([, value]) => value === idx);
 
         if (typeof find === "undefined") {
-            throw new LoggerError("Unknown level index: " + ind);
+            throw new LoggerError("Unknown level index: " + idx);
         }
 
         return find[0];
@@ -675,16 +675,16 @@ let LoaderUtils = {
     },
 
     splitAt: (str, sep = " ") => {
-        const ind = str.indexOf(sep);
+        const idx = str.indexOf(sep);
 
         let first, second;
 
-        if (ind === -1) {
+        if (idx === -1) {
             first = str;
             second = "";
         } else {
-            first = str.slice(0, ind);
-            second = str.slice(ind);
+            first = str.slice(0, idx);
+            second = str.slice(idx);
         }
 
         return [first, second];
@@ -720,20 +720,20 @@ let LoaderUtils = {
 
         let first, second;
 
-        let ind = -1,
+        let idx = -1,
             sepLength;
 
         if (sep.length === 1) {
             sep = sep[0] ?? sep;
 
-            ind = str.indexOf(sep);
+            idx = str.indexOf(sep);
             sepLength = sep.length;
 
             if (n > 1) {
                 for (let i = 1; i < n; i++) {
-                    ind = str.indexOf(sep, ind + 1);
+                    idx = str.indexOf(sep, idx + 1);
 
-                    if (ind === -1) {
+                    if (idx === -1) {
                         break;
                     }
                 }
@@ -746,7 +746,7 @@ let LoaderUtils = {
                 const match = exp.exec(str);
 
                 if (match) {
-                    ind = match.index;
+                    idx = match.index;
                     sepLength = match[0].length;
                 }
             } else {
@@ -754,24 +754,24 @@ let LoaderUtils = {
 
                 for (let i = 1; (match = exp.exec(str)) !== null; i++) {
                     if (i === n) {
-                        ind = match.index;
+                        idx = match.index;
                         sepLength = match[0].length;
 
                         break;
                     } else if (i > n) {
-                        ind = -1;
+                        idx = -1;
                         break;
                     }
                 }
             }
         }
 
-        if (ind === -1) {
+        if (idx === -1) {
             first = str;
             second = "";
         } else {
-            first = str.slice(0, ind);
-            second = str.slice(ind + sepLength);
+            first = str.slice(0, idx);
+            second = str.slice(idx + sepLength);
         }
 
         if (lowercaseFirst) {

@@ -377,8 +377,8 @@ class Font {
             if (key === "unknown") {
                 unknown = glyph;
 
-                const ind = this.charSet.indexOf(key);
-                this.charSet.splice(ind, 1);
+                const idx = this.charSet.indexOf(key);
+                this.charSet.splice(idx, 1);
             } else {
                 this.charMap[key] = glyph;
             }

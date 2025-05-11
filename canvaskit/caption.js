@@ -300,12 +300,12 @@ const main = (() => {
             let match;
             while ((match = customEmojiRegex.exec(text)) !== null) {
                 const [name, id] = match.slice(1),
-                    ind = match.index;
+                    idx = match.index;
 
-                customEmojis.push({ name, id, ind });
+                customEmojis.push({ name, id, idx });
 
-                text = LoaderUtils.replaceStringRange(text, customEmojiReplacement, ind, match[0].length);
-                customEmojiRegex.lastIndex = ind + 1;
+                text = LoaderUtils.replaceStringRange(text, customEmojiReplacement, idx, match[0].length);
+                customEmojiRegex.lastIndex = idx + 1;
             }
 
             customEmojiRegex.lastIndex = 0;
@@ -354,11 +354,11 @@ const main = (() => {
         Benchmark.restartTiming("load_custom_emojis");
 
         for (const emoji of customEmojis) {
-            const ind = emoji.ind;
+            const idx = emoji.idx;
 
             let rect = paragraph.getRectsForRange(
-                ind,
-                ind + 1,
+                idx,
+                idx + 1,
                 CanvasKit.RectHeightStyle.Tight,
                 CanvasKit.RectWidthStyle.Tight
             )[0].rect;

@@ -17,7 +17,7 @@ function loadTemplate() {
     try {
         template = fs.readFileSync(templatePath, "utf8");
     } catch (err) {
-        console.error("Error occured while reading the template file:");
+        console.error("ERROR: Occured while reading the template file:");
         console.error(err);
 
         process.exit(1);
@@ -32,14 +32,14 @@ function getScriptFiles(dirPath) {
     try {
         files = fs.readdirSync(dirPath);
     } catch (err) {
-        console.error("Error occured while reading the input directory:", err);
+        console.error("ERROR: Occured while reading the input directory:", err);
         return;
     }
 
     const jsFiles = files.filter(file => path.extname(file) === ".js");
 
     if (jsFiles.length < 1) {
-        console.error("No script files found.");
+        console.error("ERROR: No script files found.");
         return;
     }
 
@@ -58,7 +58,7 @@ function getPartFiles(dirPath) {
     let partFiles = files.map(file => [file.match(numRegex), file]).filter(([match]) => match);
 
     if (partFiles.length < 1) {
-        console.error("No part files found.");
+        console.error("ERROR: No part files found.");
         return;
     }
 
@@ -80,12 +80,12 @@ function parseArgs() {
         sourceUrl = args[5] ?? "";
 
     if (typeof inPath === "undefined") {
-        console.error("No output path provided.");
+        console.error("ERROR: No output path provided.");
         process.exit(1);
     }
 
     if (typeof scriptOutPath === "undefined") {
-        console.error("No output path provided.");
+        console.error("ERROR: No output path provided.");
         process.exit(1);
     }
 
@@ -140,7 +140,7 @@ function writeLoaderCode(template, tags, args) {
         fs.writeFileSync(args.scriptOutPath, loaderCode, "utf8");
         console.log("Wrote output file to:", args.scriptOutPath);
     } catch (err) {
-        console.error("Error occured while writing the script file:");
+        console.error("ERROR: Occured while writing the script file:");
         console.error(err);
 
         process.exit(1);
@@ -158,7 +158,7 @@ function writeTagsList(tags, args) {
         fs.writeFileSync(args.tagsOutPath, tagsJson, "utf8");
         console.log("Wrote output file to:", args.tagsOutPath);
     } catch (err) {
-        console.error("Error occured while writing the tags file:");
+        console.error("ERROR: Occured while writing the tags file:");
         console.error(err);
 
         process.exit(1);
