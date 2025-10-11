@@ -86,13 +86,14 @@ class DiscordHttpClient {
             delete options.url;
             delete options.returnType;
 
-            return ModuleLoader.getModuleCodeFromUrl(url, returnType, {
-                cache: false,
-
+            const res = ModuleLoader._fetchFromUrl(url, returnType, {
                 requestOptions: options,
                 parseError: false,
                 returnResponse: true
             });
+
+            res.data = ModuleLoader._parseModuleCode(res.data, returnType);
+            return res;
         } catch (err) {
             return this.handleError(err);
         }

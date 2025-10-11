@@ -67,10 +67,7 @@ const Util = Object.freeze({
     getMessageBlock(id, maxMessages) {
         const messages = util.fetchMessages(),
             index = messages.findIndex(msg => msg.id === id);
-
-        if (index === -1) {
-            return [id];
-        }
+        if (index === -1) return [id];
 
         const authorId = messages[index].authorId;
 
@@ -81,30 +78,19 @@ const Util = Object.freeze({
         while (messages[endIndex + 1]?.authorId === authorId) endIndex++;
 
         let block = messages.slice(startIndex, endIndex + 1);
-
-        if (block.length === 0) {
-            return [id];
-        }
+        if (block.length === 0) return [id];
 
         block.reverse();
         block = block.map(msg => msg.id);
 
-        if (maxMessages > -1) {
-            return block.slice(0, maxMessages);
-        } else {
-            return block;
-        }
+        return maxMessages > 0 ? block.slice(0, maxMessages) : block;
     },
 
-    decodeObject: (data, keys) => {
+    decodeObjectFromBuffer: (data, keys) => {
         const byteCount = keys.length * 2,
             buffer = Buffer.from(data.subarray(-byteCount));
 
-        const values = [];
-
-        for (let i = 0; i < keys.length; i++) {
-            values.push(buffer.readInt16BE(i * 2));
-        }
+        const values = Array.from({ length: keys.length }, (_, i) => buffer.readInt16BE(i * 2));
 
         const obj = Object.fromEntries(keys.map((key, i) => [key, values[i]]));
         return [obj, data.subarray(0, -byteCount)];
@@ -413,14 +399,10 @@ const main = (() => {
         Benchmark.restartTiming("capture_message");
 
         [pfpRect, screenshot] = Util.decodeObject(screenshot, pfpRectKeys);
-
         screenshot = Image.fromImageData(lodepng.decode(screenshot));
 
-        if (trim) {
-            trimScreenshot();
-        } else {
-            height = screenshot.height;
-        }
+        if (trim) trimScreenshot();
+        else height = screenshot.height;
 
         Benchmark.stopTiming("capture_message");
     }
@@ -516,14 +498,12 @@ const main = (() => {
             out = LoaderUtils.codeBlock(table);
         }
 
-        exit(
-            msg.reply(out, {
-                file: {
-                    name: "speechbubble.png",
-                    data: pngBytes
-                }
-            })
-        );
+        msg.reply(out, {
+            file: {
+                name: "speechbubble.png",
+                data: pngBytes
+            }
+        });
     }
 
     return () => {

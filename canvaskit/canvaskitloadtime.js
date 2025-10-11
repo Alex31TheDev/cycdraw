@@ -15,7 +15,9 @@ const PERC = (ELAPSED_MS / MAX_MS) * 100,
 
 const all = tag.args === "all";
 
-all
-    ? Benchmark.getAll()
-    : `Load time: ${ELAPSED_S}s (${ROUNDED_PERC}%)
+if (all) {
+    Benchmark.getAll();
+} else {
+    `Load time: ${ELAPSED_S}s (${ROUNDED_PERC}%)
 Remaining: ${REMAINING_S}s`;
+}

@@ -31,8 +31,10 @@
         "ExitError": "writable",
 
         "Benchmark": "writable",
-        "HttpUtil": "writable",
         "LoaderUtils": "writable",
+        "EncryptionUtil": "writable",
+        "HttpUtil": "writable",
+        "UploadUtil": "writable",
         "exit": "writable",
         "FileDataTypes": "writable",
         "ModuleLoader": "writable",

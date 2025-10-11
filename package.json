@@ -30,9 +30,10 @@
         "split-pngjs-min": "node ../base2n/scripts/splitter.cjs ./pngjs/build/bundle.min.js ./pngjs/split",
         "split-canvaskit-loader": "node ../base2n/scripts/splitter.cjs ./canvaskit/canvaskitloader.js ./canvaskit/split",
         "split-canvaskit-loader-min": "node ../base2n/scripts/splitter.cjs ./canvaskit/build/loader/canvaskitloader.js ./canvaskit/split",
-        "build-cycdraw-split-loader": "node ./split-loader/build-split-loader.js ./new/split ./new/split/split_loader.js default cycdraw_split cycdraw \"https://github.com/Alex31TheDev/cycdraw/tree/main/new\"",
-        "build-pngjs-split-loader": "node ./split-loader/build-split-loader.js ./pngjs/split ./pngjs/split/split_loader.js default pngjs_split pngjs \"https://github.com/Alex31TheDev/cycdraw/tree/main/pngjs\"",
-        "build-canvaskit-split-loader": "node ./split-loader/build-split-loader.js ./canvaskit/split ./canvaskit/split/split_loader.js default ck_loader canvaskitloader \"https://github.com/Alex31TheDev/cycdraw/blob/main/canvaskit/canvaskitloader.js\""
+        "build-cycdraw-split-loader": "node ./split-loader/build-split-loader.cjs ./new/split ./new/split/split_loader.js default cycdraw_split cycdraw \"https://github.com/Alex31TheDev/cycdraw/tree/main/new\"",
+        "build-pngjs-split-loader": "node ./split-loader/build-split-loader.cjs ./pngjs/split ./pngjs/split/split_loader.js default pngjs_split pngjs \"https://github.com/Alex31TheDev/cycdraw/tree/main/pngjs\"",
+        "build-canvaskit-split-loader": "node ./split-loader/build-split-loader.cjs ./canvaskit/split ./canvaskit/split/split_loader.js default ck_loader canvaskitloader \"https://github.com/Alex31TheDev/cycdraw/blob/main/canvaskit/canvaskitloader.js\"",
+        "check-canvaskit-utils": "node ./canvaskit/checkutils.cjs ./canvaskit/canvaskitloader.js ../el-levert/src/util/Util.js ../el-levert/src/util/ArrayUtil.js ../el-levert/src/util/ObjectUtil.js ../el-levert/src/util/TypeTester.js ../el-levert/src/util/DiscordUtil.js ../el-levert/src/util/misc/FunctionUtil.js ../el-levert/src/util/misc/RegexUtil.js ../el-levert/src/util/commands/ParserUtil.js"
     },
     "dependencies": {
         "pngjs": "^7.0.0"

@@ -356,11 +356,8 @@ const main = (() => {
             y = height - val * stretchY + stretchY / 2,
             r = stretchX / 2;
 
-        if (frame) {
-            img.drawFrameRadius(x, y, r + 2, color);
-        } else {
-            img.fillRadius(x, y, r, color);
-        }
+        if (frame) img.drawFrameRadius(x, y, r + 2, color);
+        else img.fillRadius(x, y, r, color);
     }
 
     function drawLineSegment(i, val, lastVal, color, double = false) {
@@ -369,11 +366,8 @@ const main = (() => {
             x2 = (i + 1) * stretchX - 1,
             y2 = height - val * stretchY;
 
-        if (double) {
-            img.drawLineThick(x1, y1, x2, y2, color, 3);
-        } else {
-            img.drawLine(x1, y1, x2, y2, color);
-        }
+        if (double) img.drawLineThick(x1, y1, x2, y2, color, 3);
+        else img.drawLine(x1, y1, x2, y2, color);
     }
 
     function drawPyramidLine(i, val, color) {
@@ -396,7 +390,6 @@ const main = (() => {
 
     function drawCircleSlice(i, color) {
         const [p2_x, p2_y, p3_x, p3_y] = calcCirclePoints(i);
-
         img.fillTriangle(p1_x, p1_y, p2_x, p2_y, p3_x, p3_y, color);
     }
 
@@ -406,19 +399,15 @@ const main = (() => {
             case "rainbow":
                 drawBar(i, val, color);
                 break;
-
             case "points":
                 drawScatterPoint(i, val, color);
                 break;
-
             case "lines":
                 drawLineSegment(i, val, lastVal, color);
                 break;
-
             case "pyramid":
                 drawPyramidLine(i, val, color);
                 break;
-
             case "circle":
                 drawCircleSlice(i, color);
                 break;
@@ -433,19 +422,15 @@ const main = (() => {
             case "rainbow":
                 drawBar(i, arraySize, color);
                 break;
-
             case "points":
                 drawScatterPoint(i, val, color, true);
                 break;
-
             case "lines":
                 drawLineSegment(i, val, lastVal, color, true);
                 break;
-
             case "pyramid":
                 drawPyramidLine(i, 0, color);
                 break;
-
             case "circle":
                 drawCircleSlice(i, color);
                 break;
@@ -487,17 +472,14 @@ const main = (() => {
         if (enableDebugger) drawStageCounter();
     }
 
-    function setVars(refresh) {
-        if (refresh) {
-            marked.length = 0;
-        }
-
+    function updateState(refresh) {
+        if (refresh) marked.length = 0;
         frame++;
     }
 
     function _writeFrame(refresh = true) {
         if (frame % nth !== 0) {
-            setVars(refresh);
+            updateState(refresh);
             return;
         }
 
@@ -510,7 +492,7 @@ const main = (() => {
             delay: Math.floor(delay)
         });
 
-        setVars(refresh);
+        updateState(refresh);
         frameCount++;
     }
 
@@ -626,14 +608,12 @@ const main = (() => {
             out = LoaderUtils.codeBlock(table);
         }
 
-        exit(
-            msg.reply(out, {
-                file: {
-                    name: "sort.gif",
-                    data: gifBytes
-                }
-            })
-        );
+        msg.reply(out, {
+            file: {
+                name: "sort.gif",
+                data: gifBytes
+            }
+        });
     }
 
     return () => {

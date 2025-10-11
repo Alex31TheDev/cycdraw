@@ -41,9 +41,7 @@ class Base2nWasmDec {
     static decodeBase2n(str, buf_size) {
         if (typeof this.#Decoder === "undefined") {
             throw new Base2nError("Can't decode, decoder isn't loaded");
-        }
-
-        if (typeof buf_size === "undefined") {
+        } else if (typeof buf_size === "undefined") {
             throw new Base2nError("No buffer size provided");
         }
 

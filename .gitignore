@@ -138,3 +138,8 @@ split/
 
 # Libs
 /canvaskit/lib/js/
+
+# Other
+.VSCodeCounter
+output*.*
+amongus1.png

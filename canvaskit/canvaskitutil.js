@@ -28,15 +28,6 @@ const CanvasKitUtil = Object.freeze({
         return CanvasKitUtil[`make${isGif ? "Gif" : "Image"}FromEncoded`](data);
     },
 
-    downloadImage: url => {
-        const data = http.request({
-            url,
-            responseType: "arraybuffer"
-        }).data;
-
-        return CanvasKitUtil.makeImageOrGifFromEncoded(data);
-    },
-
     makeTypefaceFromData: fontData => {
         const typeface = CanvasKit.Typeface.MakeFreeTypeFaceFromData(fontData);
 

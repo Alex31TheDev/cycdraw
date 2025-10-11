@@ -113,9 +113,7 @@ const charsets = Object.freeze({
 
 const TableUtil = Object.freeze({
     columnWidth: (heading, rows, minWidth = 0, maxWidth = Infinity) => {
-        if (rows == null) {
-            rows = [];
-        }
+        rows ??= [];
 
         const lineMax = LoaderUtils.maxLength(rows),
             width = Math.max(LoaderUtils.stringLength(heading), lineMax);
@@ -130,10 +128,7 @@ const TableUtil = Object.freeze({
 
             if (centerText) {
                 const sides = endPad - str.length;
-
-                if (sides <= 0) {
-                    return str;
-                }
+                if (sides <= 0) return str;
 
                 const left = Math.floor(sides / 2),
                     right = sides - left;
@@ -178,12 +173,7 @@ const Lines = Object.freeze({
 
     insertSeparator: (charset, sideLines) => line => {
         const separator = charset.vertical.line;
-
-        if (sideLines) {
-            return separator + line.join(separator) + separator;
-        } else {
-            return line.join(separator);
-        }
+        return sideLines ? `${separator}${line.join(separator)}${separator}` : line.join(separator);
     }
 });
 
@@ -194,9 +184,8 @@ class Table {
         this.columns = columns ?? {};
         this.rows = rows ?? {};
 
-        this.rows = rows;
-
         this.style = style ?? Table.defaultStyle;
+
         this.options = options;
 
         this.customChars = options.customCharset;
@@ -207,20 +196,20 @@ class Table {
 
     get charset() {
         if (this.style === "custom") {
-            if (this.customChars == null) {
-                throw new Error("No custom charset object provided");
-            }
-
-            return this.customChars;
+            return this.customChars == null
+                ? (() => {
+                      throw new Error("No custom charset object provided");
+                  })()
+                : this.customChars;
         }
 
         const charset = charsets[this.style];
 
-        if (typeof charset === "undefined") {
-            throw new Error("Invalid style: " + this.style);
-        }
-
-        return charset;
+        return typeof charset === "undefined"
+            ? (() => {
+                  throw new Error("Invalid style: " + this.style);
+              })()
+            : charset;
     }
 
     get columnIds() {
@@ -235,10 +224,7 @@ class Table {
 
     columnWidths() {
         const colIds = this.columnIds;
-
-        if (colIds === null) {
-            return [0];
-        }
+        if (colIds === null) return [0];
 
         let maxWidths = colIds.map(id => {
             const colName = this.columns[id],
@@ -257,10 +243,7 @@ class Table {
 
     maxRowHeight() {
         const colIds = this.columnIds;
-
-        if (colIds === null) {
-            return 0;
-        }
+        if (colIds === null) return 0;
 
         const allRows = colIds.map(id => this.rows[id]),
             maxHeight = LoaderUtils.maxLength(allRows, "array");
@@ -333,11 +316,9 @@ class Table {
 }
 
 function drawTable(columns, rows, style, options) {
-    for (const id of Object.keys(rows)) {
-        if (!Array.isArray(rows[id])) {
-            rows[id] = [rows[id]];
-        }
-    }
+    Object.keys(rows).forEach(id => {
+        rows[id] = LoaderUtils.guaranteeArray(rows[id]);
+    });
 
     const table = new Table(columns, rows, style, options);
     return table.draw();

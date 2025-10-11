@@ -8,7 +8,7 @@ const defaultHelp = "No help text configured.",
     defaultUsage = `See \`%t ${tag.name} help\` for usage.`;
 
 const defaultTenorClientConfig = {
-    key: LoaderUtils.caesarCipher("QYFqiEQRMdEE2wNFMmTYetr8wO9KX5JHLj6dyAU", -16, 2),
+    key: EncryptionUtil.caesarCipher("QYFqiEQRMdEE2wNFMmTYetr8wO9KX5JHLj6dyAU", -16, 2),
     client_key: "caption"
 };
 
@@ -262,10 +262,10 @@ function decodeImage(data) {
 
 function downloadImage(msg) {
     Benchmark.startTiming("download_image");
-    const { data } = LoaderUtils.fetchAttachment(msg, FileDataTypes.binary);
+    const { body } = LoaderUtils.fetchAttachment(msg, FileDataTypes.binary);
     Benchmark.stopTiming("download_image");
 
-    return decodeImage(data);
+    return decodeImage(body);
 }
 
 function loadImage() {

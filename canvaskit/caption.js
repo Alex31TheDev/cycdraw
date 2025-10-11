@@ -151,10 +151,7 @@ const main = (() => {
     }
 
     function loadGifEncoder() {
-        if (typeof globalThis.gifenc !== "undefined") {
-            return;
-        }
-
+        if (typeof globalThis.gifenc !== "undefined") return;
         Benchmark.restartTiming("load_libraries");
 
         Benchmark.startTiming("load_gifenc");
@@ -171,10 +168,7 @@ const main = (() => {
     }
 
     function loadDiscordClient() {
-        if (typeof globalThis.DiscordHttpClient !== "undefined") {
-            return;
-        }
-
+        if (typeof globalThis.DiscordHttpClient !== "undefined") return;
         Benchmark.restartTiming("load_libraries");
 
         Benchmark.startTiming("load_discord_client");
@@ -219,10 +213,7 @@ const main = (() => {
         const fontData = [];
 
         for (const name of names) {
-            if (name === null || typeof name === "undefined") {
-                continue;
-            }
-
+            if (name == null) continue;
             const fontInfo = fonts[name];
 
             if (typeof fontInfo === "undefined") {
@@ -254,7 +245,6 @@ const main = (() => {
             availableSpace = width - 2 * margin;
 
         availableSpace = Math.round(availableSpace);
-
         return [fontSize, availableSpace];
     }
 
@@ -432,9 +422,7 @@ const main = (() => {
             makeParagraph();
         } while (totalHeight - maxHeight > maxHeightDelta);
 
-        if (width < originalWidth || height < originalHeight) {
-            imageOversized = true;
-        }
+        if (width < originalWidth || height < originalHeight) imageOversized = true;
 
         const textX = (width - textWidth) / 2,
             textY = (headerHeight - textHeight) / 2;
@@ -444,18 +432,12 @@ const main = (() => {
 
     function loadUnresolvedFonts(paragraph, existing = {}, pre, post) {
         const unresolved = paragraph.unresolvedCodepoints();
-
-        if (unresolved.length === 0) {
-            return;
-        }
+        if (unresolved.length === 0) return;
 
         let foundRanges = Object.keys(fontRanges).filter(name =>
-            unresolved.some(codepoint => LoaderUtils.isInRange(fontRanges[name], codepoint))
+            unresolved.some(codepoint => LoaderUtils.isInRange(codepoint, fontRanges[name]))
         );
-
-        if (foundRanges.length === 0) {
-            return;
-        }
+        if (foundRanges.length === 0) return;
 
         if (Array.isArray(existing.fonts)) {
             foundRanges = Array.from(new Set(existing.fonts.concat(foundRanges)));
@@ -559,10 +541,7 @@ const main = (() => {
         const frameInd = options.frame ?? 0,
             [frame, delay] = readCurrentFrame();
 
-        if (imageOversized) {
-            frame.scale(width, height);
-        }
-
+        if (imageOversized) frame.scale(width, height);
         outImage.blit(0, headerHeight, frame);
 
         const palette = gifenc.quantize(outImage.pixels, 256),
@@ -598,10 +577,7 @@ const main = (() => {
                 frameCount = image.getFrameCount();
 
             for (let frame = 0; frame < frameCount; frame++) {
-                drawImageGif(gif, outImage, headerHeight, totalHeight, {
-                    frame
-                });
-
+                drawImageGif(gif, outImage, headerHeight, totalHeight, { frame });
                 image.decodeNextFrame();
             }
 
@@ -633,7 +609,7 @@ const main = (() => {
     }
 
     function sendOutput() {
-        if (output === null || typeof output === "undefined") {
+        if (output == null) {
             throw new CustomError("No output");
         }
 
@@ -667,14 +643,12 @@ const main = (() => {
             out = LoaderUtils.codeBlock(table);
         }
 
-        exit(
-            msg.reply(out, {
-                file: {
-                    name: filename,
-                    data: imgBytes
-                }
-            })
-        );
+        msg.reply(out, {
+            file: {
+                name: filename,
+                data: imgBytes
+            }
+        });
     }
 
     return () => {
@@ -699,9 +673,6 @@ try {
     main();
 } catch (err) {
     // output
-    if (err instanceof ExitError) {
-        err.message;
-    } else {
-        throw err;
-    }
+    if (err instanceof ExitError) err.message;
+    else throw err;
 }

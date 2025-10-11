@@ -47,7 +47,7 @@ const main = (() => {
     // parse args
     function getInput() {
         input = tag.args ?? "";
-        [, input] = LoaderUtils.parseScript(input);
+        ({ body: input } = LoaderUtils.parseScript(input));
 
         if (input.length < 1) {
             exit(":warning: No expression provided.");
@@ -99,9 +99,7 @@ const main = (() => {
             encoded: true
         });
 
-        if (loadSource === "tag") {
-            wasm = ZstdDecompressor.decompress(wasm);
-        }
+        if (loadSource === "tag") wasm = ZstdDecompressor.decompress(wasm);
 
         let Qalc;
         QalcInit({
@@ -132,9 +130,7 @@ const main = (() => {
             encoded: true
         });
 
-        if (loadSource === "tag") {
-            wasm = ZstdDecompressor.decompress(wasm);
-        }
+        if (loadSource === "tag") wasm = ZstdDecompressor.decompress(wasm);
 
         let Gnuplot;
         GnuplotInit({
@@ -194,25 +190,21 @@ set output '/output'`;
     }
 
     function runGnuplot(data_files, commands, extra_commandline, persist) {
-        const files = Object.keys(data_files);
-
         const FS = Gnuplot.FS;
+
+        const files = ["/commands", "/output"].concat(Object.keys(data_files));
+
+        const cmds = commands.replace("set terminal pop", getTerminalString());
+        FS.writeFile(files[0], cmds);
 
         for (const [file, data] of Object.entries(data_files)) {
             FS.writeFile(file, data);
         }
 
-        const cmds = commands.replace("set terminal pop", getTerminalString());
-        FS.writeFile("/commands", cmds);
+        Gnuplot.callMain(files.slice(0, 1));
 
-        Gnuplot.callMain(["/commands"]);
-
-        const output = FS.readFile("/output", { encoding: "utf8" });
-
-        for (const file of ["/commands", "/output", ...files]) {
-            FS.unlink(file);
-        }
-
+        const output = FS.readFile(files[1], { encoding: "utf8" });
+        for (const file of files) FS.unlink(file);
         return output;
     }
 
@@ -239,14 +231,12 @@ set output '/output'`;
         loadResvg();
         const pngBytes = renderSvg(svg);
 
-        exit(
-            msg.reply({
-                file: {
-                    name: "plot.png",
-                    data: pngBytes
-                }
-            })
-        );
+        msg.reply({
+            file: {
+                name: "plot.png",
+                data: pngBytes
+            }
+        });
     }
 
     function fixOutput(out) {

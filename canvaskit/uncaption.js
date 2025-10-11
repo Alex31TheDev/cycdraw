@@ -242,7 +242,7 @@ const main = (() => {
 
     function sendOutput() {
         if (output == null) {
-            exit(msg.reply(targetMsg.fileUrl));
+            msg.reply(targetMsg.fileUrl);
         }
 
         const filename = `image.${isGif ? "gif" : "png"}`;
@@ -276,14 +276,12 @@ const main = (() => {
             out = LoaderUtils.codeBlock(table);
         }
 
-        exit(
-            msg.reply(out, {
-                file: {
-                    name: filename,
-                    data: imgBytes
-                }
-            })
-        );
+        msg.reply(out, {
+            file: {
+                name: filename,
+                data: imgBytes
+            }
+        });
     }
 
     return () => {

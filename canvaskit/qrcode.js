@@ -90,7 +90,7 @@ const main = (() => {
         let input;
 
         try {
-            ({ data: input } = LoaderUtils.fetchAttachment(msg, undefined, "text/plain"));
+            ({ body: input } = LoaderUtils.fetchAttachment(msg, undefined, "text/plain"));
         } catch (err) {
             if (err.name === "UtilError") {
                 exit(":warning: Invalid file type. Only text files are allowed.");
@@ -181,25 +181,19 @@ const main = (() => {
             data: pixels
         });
 
-        exit(
-            msg.reply({
-                file: {
-                    name: "qrcode.png",
-                    data: pngBytes
-                }
-            })
-        );
+        msg.reply({
+            file: {
+                name: "qrcode.png",
+                data: pngBytes
+            }
+        });
     }
 
     return () => {
         let { input, scale, hasAttachment } = getInput();
+        if (hasAttachment) input = getAttachmentInput();
 
         loadLodepng();
-
-        if (hasAttachment) {
-            input = getAttachmentInput();
-        }
-
         loadQrcode();
 
         const code = createQrcode(input),

@@ -1923,8 +1923,8 @@ class Image {
             binaryMap = filteredMap;
         }
 
-        const rowSums = binaryMap.map(row => row.reduce((a, b) => a + b, 0)),
-            colSums = Array.from({ length: this.w }, (_, x) => binaryMap.reduce((sum, row) => sum + row[x], 0));
+        const rowSums = binaryMap.map(row => LoaderUtils.sum(row)),
+            colSums = Array.from({ length: this.w }, (_, i) => LoaderUtils.sum(binaryMap.map(row => row[i])));
 
         const [top, bottom] = this._findEdge(rowSums),
             [left, right] = this._findEdge(colSums);

@@ -46,6 +46,8 @@ const urls = {
 };
 
 const tags = {
+    Base64TagName: "ck_base64",
+
     Base2nTagName: "ck_base2n",
     Base2nWasmWrapperTagName: "ck_base2nwasm_dec",
     Base2nWasmInitTagName: "ck_base2nwasm_init",
@@ -101,10 +103,9 @@ class CustomError extends Error {
     }
 }
 
-class RefError extends CustomError {
+class ReferenceError extends CustomError {
     constructor(message = "", ref, ...args) {
         super(message, ...args);
-
         this.ref = ref;
     }
 }
@@ -112,9 +113,9 @@ class RefError extends CustomError {
 class ExitError extends CustomError {}
 class LoggerError extends CustomError {}
 
-class UtilError extends RefError {}
+class UtilError extends ReferenceError {}
 
-class LoaderError extends RefError {
+class LoaderError extends ReferenceError {
     constructor(message = "", ref, ...args) {
         if (ref instanceof Error) {
             super(message, ref, ...args);
@@ -124,7 +125,6 @@ class LoaderError extends RefError {
             Object.defineProperties(this, descriptors);
 
             this.stack = `${this.stack}\nCaused by: ${ref.stack}`;
-
             return this;
         }
 
@@ -152,9 +152,7 @@ class LoaderError extends RefError {
     ];
 
     for (const key of Object.keys(util)) {
-        if (!defaultUtilProps.includes(key)) {
-            delete util[key];
-        }
+        if (!defaultUtilProps.includes(key)) delete util[key];
     }
 })();
 
@@ -212,13 +210,8 @@ class Logger {
     }
 
     getLogs(level, last) {
-        if (LoaderUtils.empty(this.logs)) {
-            return "";
-        }
-
-        if (level == null && last == null) {
-            return this.log_str.slice(0, -1);
-        }
+        if (LoaderUtils.empty(this.logs)) return "";
+        else if (level == null && last == null) return this.log_str.slice(0, -1);
 
         let logs = this.logs;
 
@@ -227,13 +220,8 @@ class Logger {
             logs = logs.filter(log => Logger._getLevelIndex(log.level) >= levelInd);
         }
 
-        if (typeof last === "number") {
-            logs = logs.slice(-last);
-        }
-
-        if (LoaderUtils.empty(logs.length)) {
-            return "";
-        }
+        if (typeof last === "number") logs = logs.slice(-last);
+        if (LoaderUtils.empty(logs)) return "";
 
         const format = logs.map(info => this._formatLog(info)).join("\n");
         return format;
@@ -241,13 +229,10 @@ class Logger {
 
     replyWithLogs(level, last) {
         const log_str = this.getLogs(level, last);
-
-        if (LoaderUtils.empty(log_str)) {
-            return;
-        }
+        if (LoaderUtils.empty(log_str)) return;
 
         const codeBlock = LoaderUtils.codeBlock(log_str);
-        exit(msg.reply(codeBlock));
+        msg.reply(codeBlock);
     }
 
     static _getLevelIndex(level) {
@@ -273,15 +258,10 @@ class Logger {
     }
 
     _createEntry(level, msg, ...objs) {
-        if (!this.enabled) {
-            return;
-        }
+        if (!this.enabled) return;
 
         const levelInd = Logger._getLevelIndex(level);
-
-        if (levelInd < this._level) {
-            return;
-        }
+        if (levelInd < this._level) return;
 
         const info = {
             id: this._getSeqLogId(),
@@ -309,16 +289,12 @@ class Logger {
     }
 
     _formatObject(obj) {
-        if (Array.isArray(obj)) {
-            return `[${obj.join(", ")}]`;
+        if (Array.isArray(obj)) return `[${obj.join(", ")}]`;
+        else if (obj instanceof Error) return `${obj.message}\n${obj.stack}`;
+        else {
+            const properties = Object.getOwnPropertyNames(obj);
+            return JSON.stringify(obj, properties, this._objIndentation);
         }
-
-        if (obj instanceof Error) {
-            return `${obj.message}\n${obj.stack}`;
-        }
-
-        const properties = Object.getOwnPropertyNames(obj);
-        return JSON.stringify(obj, properties, this._objIndentation);
     }
 
     _defineLogFuncs() {
@@ -518,11 +494,7 @@ const md5 = (() => {
 
     function hex(arr) {
         const str = Array(arr.length);
-
-        for (let i = 0; i < arr.length; i++) {
-            str[i] = rhex(arr[i]);
-        }
-
+        for (let i = 0; i < arr.length; i++) str[i] = rhex(arr[i]);
         return str.join("");
     }
 
@@ -537,24 +509,40 @@ let LoaderUtils = {
     outCharLimit: util.outCharLimit ?? 1000,
     outLineLimit: util.outLineLimit ?? 6,
 
+    durationSeconds: Object.freeze({
+        milli: 1 / 1000,
+        second: 1,
+        minute: 60,
+        hour: 3600,
+        day: 86400,
+        month: 2592000,
+        week: 604800,
+        year: 31536000
+    }),
+
+    dataBytes: Object.freeze({
+        byte: 1,
+        kilobyte: 1024,
+        megabyte: 1048576,
+        gigabyte: 1073741824,
+        terabyte: 1099511627776
+    }),
+
     numbers: "0123456789",
     alphabet: "abcdefghijklmnopqrstuvwxyz",
 
-    parseInt: (str, radix = 10, defaultValue) => {
-        if (typeof str !== "string" || typeof radix !== "number") {
-            return defaultValue ?? NaN;
-        }
+    random: (a, b) => {
+        return a + ~~(Math.random() * (b - a));
+    },
 
-        if (radix < 2 || radix > 36) {
-            return defaultValue ?? NaN;
-        }
+    parseInt: (str, radix = 10, defaultValue) => {
+        if (typeof str !== "string" || typeof radix !== "number") return defaultValue ?? NaN;
+        else if (radix < 2 || radix > 36) return defaultValue ?? NaN;
 
         str = str.trim();
-        const exp = LoaderUtils._validNumberRegexes.get(radix);
 
-        if (!exp.test(str)) {
-            return defaultValue ?? NaN;
-        }
+        const exp = LoaderUtils._validNumberRegexes.get(radix);
+        if (!exp.test(str)) return defaultValue ?? NaN;
 
         str = str.replaceAll(",", "");
         return Number.parseInt(str, radix);
@@ -564,19 +552,12 @@ let LoaderUtils = {
     falsyStrings: new Set(["false", "no", "n", "f"]),
 
     parseBool: (str, defaultValue) => {
-        if (typeof str !== "string") {
-            return defaultValue ?? null;
-        }
-
+        if (typeof str !== "string") return defaultValue ?? null;
         str = str.trim().toLowerCase();
 
-        if (LoaderUtils.truthyStrings.has(str)) {
-            return true;
-        } else if (LoaderUtils.falsyStrings.has(str)) {
-            return false;
-        } else {
-            return defaultValue ?? null;
-        }
+        if (LoaderUtils.truthyStrings.has(str)) return true;
+        else if (LoaderUtils.falsyStrings.has(str)) return false;
+        else return defaultValue ?? null;
     },
 
     formatNumber: (num, digits) => {
@@ -601,24 +582,15 @@ let LoaderUtils = {
         return str.replace(/\s+/g, "");
     },
 
-    getCharType: char => {
-        if (char?.length !== 1) {
-            return "invalid";
-        }
-
+    charType: char => {
+        if (char?.length !== 1) return "invalid";
         const code = char.charCodeAt(0);
 
-        if (code === 32) {
-            return "space";
-        } else if (code >= 48 && code <= 57) {
-            return "number";
-        } else if (code >= 65 && code <= 90) {
-            return "uppercase";
-        } else if (code >= 97 && code <= 122) {
-            return "lowercase";
-        } else {
-            return "other";
-        }
+        if (code === 32) return "space";
+        else if (code >= 48 && code <= 57) return "number";
+        else if (code >= 65 && code <= 90) return "uppercase";
+        else if (code >= 97 && code <= 122) return "lowercase";
+        else return "other";
     },
 
     _leadingSpacesRegex: /^\s*/,
@@ -631,9 +603,8 @@ let LoaderUtils = {
 
         const content = str.slice(leading.length, str.length - trailing.length);
 
-        if (content.length < 1) {
-            return str;
-        } else {
+        if (content.length < 1) return str;
+        else {
             return leading + content[0].toUpperCase() + content.slice(1) + trailing;
         }
     },
@@ -655,23 +626,73 @@ let LoaderUtils = {
         return LoaderUtils.stripSpaces(camel);
     },
 
-    removeStringRange: (str, i, length = 1) => {
-        return str.slice(0, i) + str.slice(i + length);
+    removeStringRange: (str, i, length = 1, end = false) => {
+        const last = end ? length : i + length;
+        return str.slice(0, i) + str.slice(last);
     },
 
-    replaceStringRange: (str, replacement, i, length = 1) => {
-        return str.slice(0, i) + replacement + str.slice(i + length);
+    replaceStringRange: (str, replacement, i, length = 1, end = false) => {
+        const last = end ? length : i + length;
+        return str.slice(0, i) + replacement + str.slice(last);
     },
 
     randomString: n => {
-        const alphabet = LoaderUtils.alphanumeric,
-            result = Array(n);
+        return LoaderUtils.randomElement(LoaderUtils.alphanumeric, 0, LoaderUtils.alphanumeric.length, n).join("");
+    },
 
-        for (let i = 0; i < n; i++) {
-            result[i] = alphabet[~~(Math.random() * alphabet.length)];
+    countChars: str => {
+        return str?.length ?? 0;
+    },
+
+    countLines: str => {
+        if (typeof str !== "string") return 0;
+
+        let count = 1,
+            pos = 0;
+
+        while ((pos = str.indexOf("\n", pos)) !== -1) {
+            count++;
+            pos++;
         }
 
-        return result.join("");
+        return count;
+    },
+
+    getCount: (str, countType) => {
+        if (typeof countType !== "string" || LoaderUtils.empty(countType)) {
+            throw new UtilError("No count type provided");
+        }
+
+        let countFunc = null;
+
+        switch (countType) {
+            case "chars":
+                countFunc = LoaderUtils.countChars;
+                break;
+            case "lines":
+                countFunc = LoaderUtils.countLines;
+                break;
+            default:
+                throw new UtilError("Invalid count type: " + countType, countType);
+        }
+
+        return countFunc(str);
+    },
+
+    overSizeLimits: (obj, charLimit, lineLimit) => {
+        if (obj == null) return false;
+
+        if (typeof charLimit === "number") {
+            const count = LoaderUtils.countChars(obj);
+            if (count > charLimit) return [count, null];
+        }
+
+        if (typeof lineLimit === "number") {
+            const count = LoaderUtils.countLines(obj);
+            if (count > lineLimit) return [null, count];
+        }
+
+        return false;
     },
 
     splitAt: (str, sep = " ") => {
@@ -693,7 +714,7 @@ let LoaderUtils = {
     splitArgs: (str, lowercase = false, options = {}) => {
         let multipleLowercase = Array.isArray(lowercase);
 
-        if (!multipleLowercase && typeof lowercase === "object") {
+        if (!multipleLowercase && LoaderUtils.isObject(lowercase)) {
             options = lowercase;
 
             lowercase = options.lowercase ?? false;
@@ -706,24 +727,16 @@ let LoaderUtils = {
         let sep = options.sep ?? [" ", "\n"],
             n = options.n ?? 1;
 
-        if (sep.length === 0) {
-            if (lowercaseFirst) {
-                return [str.toLowerCase(), ""];
-            }
-
-            return [str, ""];
-        }
-
-        if (!Array.isArray(sep)) {
-            sep = [sep];
-        }
+        if (LoaderUtils.empty(sep)) {
+            return [lowercaseFirst ? str.toLowerCase() : str, ""];
+        } else sep = LoaderUtils.guaranteeArray(sep);
 
         let first, second;
 
         let idx = -1,
             sepLength;
 
-        if (sep.length === 1) {
+        if (LoaderUtils.single(sep)) {
             sep = sep[0] ?? sep;
 
             idx = str.indexOf(sep);
@@ -732,10 +745,7 @@ let LoaderUtils = {
             if (n > 1) {
                 for (let i = 1; i < n; i++) {
                     idx = str.indexOf(sep, idx + 1);
-
-                    if (idx === -1) {
-                        break;
-                    }
+                    if (idx === -1) break;
                 }
             }
         } else {
@@ -774,146 +784,101 @@ let LoaderUtils = {
             second = str.slice(idx + sepLength);
         }
 
-        if (lowercaseFirst) {
-            first = first.toLowerCase();
-        }
-
-        if (lowercaseSecond) {
-            second = second.toLowerCase();
-        }
-
-        return [first, second];
+        return [lowercaseFirst ? first.toLowerCase() : first, lowercaseSecond ? second.toLowerCase() : second];
     },
 
-    utf8ByteLength: str => {
-        let i = 0,
-            len = LoaderUtils.countChars(str);
+    trimString: (str, charLimit, lineLimit, options = {}) => {
+        if (typeof str !== "string") return str;
 
-        let codepoint,
-            length = 0;
+        const tight = options.tight ?? false,
+            showDiff = options.showDiff ?? false;
 
-        for (; i < len; i++) {
-            codepoint = str.codePointAt(i);
+        let oversized = options.oversized;
 
-            if (codepoint <= 0x7f) {
-                length += 1;
-            } else if (codepoint <= 0x7ff) {
-                length += 2;
-            } else if (codepoint <= 0xffff) {
-                length += 3;
-            } else {
-                length += 4;
-                i++;
-            }
-        }
-
-        return length;
-    },
-
-    countChars: str => {
-        return str?.length ?? 0;
-    },
-
-    countLines: str => {
-        if (typeof str !== "string") {
-            return 0;
-        }
-
-        let count = 1,
-            pos = 0;
-
-        while ((pos = str.indexOf("\n", pos)) !== -1) {
-            count++;
-            pos++;
-        }
-
-        return count;
-    },
-
-    overSizeLimits: (obj, charLimit, lineLimit) => {
-        if (obj == null) {
-            return false;
-        }
-
-        if (typeof charLimit === "number") {
-            const count = LoaderUtils.countChars(obj);
-
-            if (count > charLimit) {
-                return [count, null];
-            }
-        }
-
-        if (typeof lineLimit === "number") {
-            const count = LoaderUtils.countLines(obj);
-
-            if (count > lineLimit) {
-                return [null, count];
-            }
-        }
-
-        return false;
-    },
-
-    trimString: (str, charLimit, lineLimit, showDiff = false) => {
-        if (typeof str !== "string") {
-            return str;
-        }
-
-        const oversized = LoaderUtils.overSizeLimits(str, charLimit, lineLimit);
-
-        if (!oversized) {
-            return str;
-        }
+        if (oversized == null) oversized = LoaderUtils.overSizeLimits(str, charLimit, lineLimit);
+        if (!oversized) return str;
 
         const [chars, lines] = oversized;
 
         if (chars !== null) {
-            const trimmed = str.slice(0, charLimit);
-
-            const diff = chars - charLimit,
-                s = diff > 1 ? "s" : "";
-
             if (showDiff) {
-                return `${trimmed} ... (${diff} more character${s})`;
+                let suffix, trimmed;
+
+                const getSuffix = limit => {
+                    const diff = chars - limit,
+                        s = diff > 1 ? "s" : "";
+
+                    return ` ... (${diff} more character${s})`;
+                };
+
+                if (tight) {
+                    let newLimit = charLimit;
+
+                    do {
+                        newLimit--;
+
+                        trimmed = str.slice(0, newLimit);
+                        suffix = getSuffix(newLimit);
+                    } while (trimmed.length + suffix.length > charLimit && newLimit > 0);
+
+                    if (suffix.length > charLimit) suffix = "...";
+                } else {
+                    trimmed = str.slice(0, charLimit);
+                    suffix = getSuffix(charLimit);
+                }
+
+                return (trimmed + suffix).trim();
             } else {
+                const newLimit = tight ? LoaderUtils.clamp(charLimit - 3, 0) : charLimit,
+                    trimmed = str.slice(0, newLimit);
+
                 return trimmed + "...";
             }
         } else if (lines !== null) {
-            const split = str.split("\n"),
-                trimmed = split.slice(0, lineLimit).join("\n");
-
-            const diff = lines - lineLimit,
-                s = diff > 1 ? "s" : "";
-
             if (showDiff) {
-                return `${trimmed} ... (${diff} more line${s})`;
+                let split = str.split("\n"),
+                    trimmed = split.slice(0, lineLimit).join("\n");
+
+                const diff = lines - lineLimit,
+                    s = diff > 1 ? "s" : "";
+
+                let suffix = ` ... (${diff} more line${s})`;
+
+                if (tight) {
+                    if (suffix.length > charLimit) suffix = "...";
+
+                    const newLimit = LoaderUtils.clamp(charLimit - suffix.length, 0);
+                    trimmed = trimmed.slice(0, newLimit);
+                }
+
+                return (trimmed + suffix).trim();
             } else {
+                let split = str.split("\n"),
+                    trimmed = split.slice(0, lineLimit).join("\n");
+
+                if (tight) {
+                    const newLimit = LoaderUtils.clamp(charLimit - 3, 0);
+                    trimmed = trimmed.slice(0, newLimit);
+                }
+
                 return trimmed + "...";
             }
         }
     },
 
     findNthCharacter: (str, char, n) => {
-        let index = -1;
+        let idx = -1;
 
-        while (n > 0) {
-            index = str.indexOf(char, index + 1);
-
-            if (index === -1) {
-                return -1;
-            }
-
-            n--;
+        for (; n > 0; n--) {
+            idx = str.indexOf(char, idx + 1);
+            if (idx === -1) return -1;
         }
 
-        return index;
+        return idx;
     },
 
     hasPrefix: (prefixes, str) => {
-        if (!Array.isArray(prefixes)) {
-            prefixes = [prefixes];
-        }
-
+        prefixes = [].concat(prefixes);
         return prefixes.some(prefix => str.startsWith(prefix));
     },
 
@@ -921,20 +886,98 @@ let LoaderUtils = {
         return LoaderUtils.overSizeLimits(str, LoaderUtils.outCharLimit, LoaderUtils.outLineLimit);
     },
 
+    length: obj => {
+        return obj?.length ?? obj?.size ?? 0;
+    },
+
+    stringLength: obj => {
+        return obj == null ? 0 : String(obj).length;
+    },
+
+    getLength: (val, lengthType) => {
+        if (typeof lengthType !== "string" || LoaderUtils.empty(lengthType)) {
+            throw new UtilError("No length type provided");
+        }
+
+        let lengthFunc = null;
+
+        switch (lengthType) {
+            case "array":
+                lengthFunc = LoaderUtils.length;
+                break;
+            case "string":
+                lengthFunc = LoaderUtils.stringLength;
+                break;
+            default:
+                throw new UtilError("Invalid length type: " + lengthType, lengthType);
+        }
+
+        return lengthFunc(val);
+    },
+
+    maxLength: (array, lengthType = "string") => {
+        return Math.max(...array.map(x => LoaderUtils.getLength(x, lengthType)));
+    },
+
+    empty: obj => {
+        return LoaderUtils.length(obj) === 0;
+    },
+
+    single: obj => {
+        return LoaderUtils.length(obj) === 1;
+    },
+
+    multiple: obj => {
+        return LoaderUtils.length(obj) > 1;
+    },
+
+    first: (val, start = 0, n = 1) => {
+        return n > 1 ? val.slice(start, start + n) : val[start];
+    },
+
+    last: (val, end = 0, n = 1) => {
+        return n > 1 ? val.slice(-end - n, -end || undefined) : val.at(-end - 1);
+    },
+
+    after: (val, start = 0, n = -1) => {
+        return n > 0 ? val.slice(start + 1, start + 1 + n) : val.slice(start + 1);
+    },
+
+    before: (val, end = 0, n = -1) => {
+        return n > 0 ? val.slice(Math.max(0, end - n), end) : val.slice(0, end);
+    },
+
+    randomElement: (val, a = 0, b = val.length, n = 1) => {
+        return n > 1 ? Array.from({ length: n }, () => val[LoaderUtils.random(a, b)]) : val[LoaderUtils.random(a, b)];
+    },
+
+    setFirst(array, value, start = 0) {
+        array[start] = value;
+        return array;
+    },
+
+    setLast(array, value, end = 0) {
+        array[array.length - end - 1] = value;
+        return array;
+    },
+
+    setAfter(array, value, start = 0) {
+        array.splice(start + 1, value.length, ...value);
+        return array;
+    },
+
+    setRandomElement(array, value, a = 0, b = array.length) {
+        array[a + ~~(Math.random() * (b - a))] = value;
+        return array;
+    },
+
     codeBlock: (str, lang) => {
         let formatted = "```\n";
 
-        if (!LoaderUtils.empty(lang)) {
-            formatted += lang + "\n";
-        }
-
+        if (!LoaderUtils.empty(lang)) formatted += lang + "\n";
         formatted += str + "```";
 
-        if (LoaderUtils.exceedsLimits(formatted)) {
-            return str;
-        } else {
-            return formatted;
-        }
+        return LoaderUtils.exceedsLimits(formatted) ? str : formatted;
     },
 
     escapeMarkdown: (text, options = {}) => {
@@ -1032,94 +1075,6 @@ let LoaderUtils = {
         return res;
     },
 
-    createShiftedAlphabet: (alphabet, shift) => {
-        const length = alphabet.length;
-        shift = ((shift % length) + length) % length;
-
-        return alphabet.slice(shift) + alphabet.slice(0, shift);
-    },
-
-    caesarCipher: (str, shift, mode = 0) => {
-        const A = "A".charCodeAt(0),
-            a = "a".charCodeAt(0),
-            zero = "0".charCodeAt(0);
-
-        let upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-            lower,
-            digit = "0123456789";
-
-        let alphabet;
-
-        let split = str.split(""),
-            out;
-
-        switch (mode) {
-            case 0:
-                alphabet = LoaderUtils.createShiftedAlphabet(upper, shift);
-
-                out = split.map(char => {
-                    const code = char.charCodeAt(0);
-
-                    if ("A" <= char && char <= "Z") {
-                        return alphabet[code - A];
-                    } else if ("a" <= char && char <= "z") {
-                        return alphabet[code - a];
-                    }
-
-                    return char;
-                });
-
-                break;
-            case 1:
-                upper = LoaderUtils.createShiftedAlphabet(upper, shift);
-                lower = upper.toLowerCase();
-                digit = LoaderUtils.createShiftedAlphabet(digit, shift);
-
-                out = split.map(char => {
-                    const code = char.charCodeAt(0);
-
-                    if ("A" <= char && char <= "Z") {
-                        return upper[code - A];
-                    } else if ("a" <= char && char <= "z") {
-                        return lower[code - a];
-                    } else if ("0" <= char && char <= "9") {
-                        return digit[code - zero];
-                    }
-
-                    return char;
-                });
-
-                break;
-            case 2:
-                const upper_off = 0,
-                    lower_off = upper_off + upper.length,
-                    digit_off = lower_off + upper.length;
-
-                lower = upper.toLowerCase();
-                alphabet = LoaderUtils.createShiftedAlphabet(upper + lower + digit, shift);
-
-                out = split.map(char => {
-                    const code = char.charCodeAt(0);
-
-                    if ("A" <= char && char <= "Z") {
-                        return alphabet[code - A + upper_off];
-                    } else if ("a" <= char && char <= "z") {
-                        return alphabet[code - a + lower_off];
-                    } else if ("0" <= char && char <= "9") {
-                        return alphabet[code - zero + digit_off];
-                    }
-
-                    return char;
-                });
-
-                break;
-            default:
-                throw new UtilError("Invalid mode: " + mode, mode);
-        }
-
-        return out.join("");
-    },
-
     clamp: (x, a, b) => {
         a ??= -Infinity;
         b ??= Infinity;
@@ -1134,10 +1089,7 @@ let LoaderUtils = {
 
     smallRound: (num, digits) => {
         const tresh = 1 / 10 ** digits;
-
-        if (Math.abs(num) <= tresh) {
-            digits = -Math.floor(Math.log10(Math.abs(num)));
-        }
+        if (Math.abs(num) <= tresh) digits = -Math.floor(Math.log10(Math.abs(num)));
 
         return LoaderUtils.round(num, digits);
     },
@@ -1151,85 +1103,135 @@ let LoaderUtils = {
     },
 
     countDigits: (num, base = 10) => {
-        if (num === 0) {
-            return 1;
-        }
+        if (num === 0) return 1;
 
         const log = Math.log(Math.abs(num)) / Math.log(base);
         return Math.floor(log) + 1;
     },
 
-    length: obj => {
-        return obj?.length ?? obj?.size ?? 0;
+    withLength: (length, callback) => {
+        return Array.from({ length }, (_, i) => callback(i));
     },
 
-    stringLength: obj => {
-        return obj == null ? 0 : String(obj).length;
+    guaranteeArray: (val, length) => {
+        if (typeof length !== "number") return Array.isArray(val) ? val : [val];
+
+        return Array.isArray(val)
+            ? val.concat(new Array(LoaderUtils.clamp(length - val.length, 0)).fill())
+            : new Array(length).fill(val);
     },
 
-    maxLength: (arr, length = "string") => {
-        let lengthFunc;
+    guaranteeFirst: val => {
+        return Array.isArray(val) ? val[0] : val;
+    },
 
-        switch (length) {
-            case "array":
-                lengthFunc = LoaderUtils.length;
-                break;
-            case "string":
-                lengthFunc = LoaderUtils.stringLength;
-                break;
+    _indexFunc: (array, item) => {
+        switch (typeof item) {
+            case "number":
+                return item;
+            case "function":
+                const callback = item;
+                return array.findIndex(callback);
             default:
-                throw new UtilError("Invalid length function: " + length);
+                return array.indexOf(item);
+        }
+    },
+    _valueFunc: callback => {
+        switch (typeof callback) {
+            case "string":
+                const propName = callback;
+                return obj => obj[propName];
+            case "function":
+                return callback;
+            default:
+                return val => val;
+        }
+    },
+
+    sum: (array, callback) => {
+        const getValue = LoaderUtils._valueFunc(callback);
+        return array.reduce((total, item) => total + getValue(item), 0);
+    },
+
+    concat: (array, ...args) => {
+        return Array.isArray(array) ? array.concat(...args) : [array, ...args].join("");
+    },
+
+    frequency: (array, callback) => {
+        const getValue = LoaderUtils._valueFunc(callback);
+
+        return array.reduce((map, item) => {
+            const val = getValue(item);
+            map.set(val, (map.get(val) || 0) + 1);
+
+            return map;
+        }, new Map());
+    },
+
+    unique: (array, callback) => {
+        const getValue = LoaderUtils._valueFunc(callback),
+            seen = new Set();
+
+        return array.filter(item => {
+            const val = getValue(item);
+
+            if (seen.has(val)) return false;
+            else {
+                seen.add(val);
+                return true;
+            }
+        });
+    },
+
+    sameElements(arr1, arr2, strict = true, callback) {
+        if (arr1.length !== arr2.length) return false;
+
+        if (strict) {
+            const getValue = LoaderUtils._valueFunc(callback);
+
+            return arr1.every((a, i) => {
+                const b = arr2[i];
+                return getValue(a) === getValue(b);
+            });
         }
 
-        return Math.max(...arr.map(x => lengthFunc(x)));
-    },
+        const aFreq = LoaderUtils.frequency(arr1, callback),
+            bFreq = LoaderUtils.frequency(arr2, callback);
 
-    empty: obj => {
-        return LoaderUtils.length(obj) === 0;
-    },
+        if (aFreq.size !== bFreq.size) return false;
 
-    single: obj => {
-        return LoaderUtils.length(obj) === 1;
-    },
-
-    multiple: obj => {
-        return LoaderUtils.length(obj) > 1;
-    },
-
-    firstElement: (arr, start = 0) => {
-        return arr[start];
-    },
-
-    lastElement: (arr, start = 0) => {
-        return arr[arr.length + start - 1];
-    },
-
-    afterElement: (array, start = 0) => {
-        return array.slice(start + 1);
-    },
-
-    randomElement: (arr, a = 0, b = arr.length) => {
-        return arr[a + ~~(Math.random() * (b - a))];
-    },
-
-    concat: (a, ...args) => {
-        const concatenated = [].concat(a, ...args);
-
-        if (Array.isArray(a)) {
-            return concatenated;
+        for (const [val, count] of aFreq) {
+            if (bFreq.get(val) !== count) return false;
         }
 
-        return concatenated.join("");
+        return true;
     },
 
-    split: (arr, callback) => {
-        return arr.reduce(
+    sort: (array, callback) => {
+        const getValue = LoaderUtils._valueFunc(callback);
+
+        return array.sort((a, b) => {
+            const a_val = getValue(a),
+                b_val = getValue(b);
+
+            if (typeof a_val === "number" && typeof b_val === "number") {
+                return a_val - b_val;
+            }
+
+            return a_val.localeCompare(b_val, undefined, {
+                numeric: true,
+                sensitivity: "base"
+            });
+        });
+    },
+
+    split: (array, callback) => {
+        return array.reduce(
             (acc, item, i) => {
-                if (callback(item, i)) {
-                    acc[0].push(item);
-                } else {
-                    acc[1].push(item);
-                }
+                const idx = Number(callback(item, i));
+
+                while (acc.length <= idx) acc.push([]);
+                acc[idx].push(item);
 
                 return acc;
             },
@@ -1240,38 +1242,6 @@ let LoaderUtils = {
     zip: (arr1, arr2) => {
         const len = Math.min(arr1.length, arr2.length);
         return Array.from({ length: len }, (_, i) => [arr1[i], arr2[i]]);
-    },
-
-    sort: (array, callback) => {
-        const useCallback = typeof callback === "function";
-
-        return array.sort((a, b) => {
-            const a_val = useCallback ? callback(a) : a,
-                b_val = useCallback ? callback(b) : b;
-
-            return a_val.localeCompare(b_val, "en", {
-                numeric: true,
-                sensitivity: "base"
-            });
-        });
-    },
-
-    unique: (array, propName) => {
-        const hasPropName = typeof propName === "string",
-            getProp = hasPropName ? obj => obj[propName] : obj => obj;
-
-        const seen = new Set();
-
-        return array.filter(item => {
-            const val = getProp(item);
-
-            if (seen.has(val)) {
-                return false;
-            }
-
-            seen.add(val);
-            return true;
-        });
     },
 
     _regexEscapeRegex: /[.*+?^${}()|[\]\\]/g,
@@ -1285,18 +1255,22 @@ let LoaderUtils = {
     },
 
     firstGroup: (match, name) => {
-        if (!match) {
-            return;
-        }
+        if (!match) return null;
 
         const groups = Object.keys(match.groups).filter(key => typeof match.groups[key] !== "undefined"),
             foundName = groups.find(key => key.startsWith(name));
 
-        if (typeof foundName === "undefined") {
-            return;
-        }
+        return foundName && match.groups[foundName];
+    },
 
-        return match.groups[foundName];
+    wordStart: (str, idx) => {
+        const char = str[idx - 1];
+        return idx === 0 || char === " " || !LoaderUtils.alphanumeric.includes(char);
+    },
+
+    wordEnd: (str, idx) => {
+        const char = str[idx + 1];
+        return idx === str.length || char === " " || !LoaderUtils.alphanumeric.includes(char);
     },
 
     _templateReplaceRegex: /(?<!\\){{(.*?)}}(?!\\)/g,
@@ -1337,31 +1311,24 @@ let LoaderUtils = {
         return Array.from(matches).map(match => [match.index, match.index + match[0].length]);
     },
 
+    _parseScriptResult: (body, isScript = false, lang = "") => ({ body, isScript, lang }),
     parseScript: script => {
         const match = script.match(LoaderUtils._parseScriptRegex);
+        if (!match) return LoaderUtils._parseScriptResult(script);
 
-        if (!match) {
-            return [false, script, ""];
-        }
+        const body = (match[2] ?? match[3])?.trim(),
+            lang = match[1]?.trim() ?? "";
 
-        const body = (match[2] ?? match[3])?.trim();
-
-        if (typeof body === "undefined") {
-            return [false, script, ""];
-        }
-
-        const lang = match[1]?.trim() ?? "";
-        return [true, body, lang];
+        return typeof body === "undefined"
+            ? LoaderUtils._parseScriptResult(script)
+            : LoaderUtils._parseScriptResult(body, true, lang);
     },
 
     _msgUrlRegex:
         /^(?:(https?:)\/\/)?(?:(www|ptb)\.)?discord\.com\/channels\/(?<sv_id>\d{18,19}|@me)\/(?<ch_id>\d{18,19})(?:\/(?<msg_id>\d{18,19}))$/,
     parseMessageUrl: url => {
         const match = url.match(LoaderUtils._msgUrlRegex);
-
-        if (!match) {
-            return;
-        }
+        if (!match) return null;
 
         const groups = match.groups;
 
@@ -1379,10 +1346,7 @@ let LoaderUtils = {
         /^(?<prefix>(?:(https?:)\/\/)?(cdn|media)\.discordapp\.(com|net)\/attachments\/(?<sv_id>\d+)\/(?<ch_id>\d+)\/(?<filename>.+?)(?<ext>\.[^.?]+)?(?=\?|$))\??(?:ex=(?<ex>[0-9a-f]+)&is=(?<is>[0-9a-f]+)&hm=(?<hm>[0-9a-f]+))?.*$/,
     parseAttachmentUrl: url => {
         const match = url.match(LoaderUtils._attachUrlRegex);
-
-        if (!match) {
-            return;
-        }
+        if (!match) return null;
 
         const groups = match.groups;
 
@@ -1425,158 +1389,49 @@ let LoaderUtils = {
         return new Date(timestamp + LoaderUtils.discordEpoch);
     },
 
-    fetchAttachment: (msg, returnType = FileDataTypes.text, allowedContentTypes) => {
-        let attach, url;
-        let attachInfo, contentType;
+    fetchAttachment: (msg, returnType = FileDataTypes.text, options = {}) => {
+        const ctypes = [].concat(options.allowedContentType ?? [], options.allowedContentTypes ?? []);
 
-        if (typeof msg.file !== "undefined") {
-            attach = msg.file;
-        } else if (msg.attachments?.length > 0) {
-            attach = msg.attachments[0];
-        }
+        const maxSizeKb = Math.round(options.maxSize ?? Infinity),
+            maxSize = maxSizeKb * LoaderUtils.dataBytes.kilobyte;
 
-        if (typeof msg.fileUrl !== "undefined") {
-            url = msg.fileUrl;
-        } else if (typeof attach !== "undefined") {
-            url = attach.url;
-            contentType = attach.contentType;
-        }
+        const maxSizeError = attachSize =>
+            new UtilError(`The attachment can take up at most ${maxSizeKb} kb`, { attachSize, maxSizeKb });
 
-        if (typeof url === "undefined") {
+        const attach = msg.file ?? msg.attachments?.at(0),
+            url = msg.fileUrl ?? attach?.url;
+
+        if (typeof url !== "string" || LoaderUtils.empty(url)) {
             throw new UtilError("Message doesn't have any attachments");
         }
 
-        if (typeof allowedContentTypes !== "undefined") {
-            if (typeof allowedContentTypes === "string") {
-                allowedContentTypes = [allowedContentTypes];
-            }
+        const attachInfo = msg.attachInfo ?? LoaderUtils.parseAttachmentUrl(url),
+            contentType = attach?.contentType ?? HttpUtil.getContentType(attachInfo.ext);
 
-            attachInfo = msg.attachInfo ?? LoaderUtils.parseAttachmentUrl(url);
+        const [extensions, ctypePrefs] = LoaderUtils.split(ctypes, type => type.startsWith("."));
 
-            let extChecked = false,
-                ctChecked = false;
-
-            let extAllowed = false,
-                ctAllowed = false;
-
-            for (const type of allowedContentTypes) {
-                if (type.startsWith(".")) {
-                    if (!extChecked) {
-                        if (typeof attachInfo === "undefined")
-                            throw new UtilError("Extension can only be validated for attachment URLs");
-                        extChecked = true;
-                    }
-
-                    if (attachInfo.ext === type) {
-                        extAllowed = true;
-                        break;
-                    }
-                } else {
-                    if (!ctChecked) {
-                        if (typeof contentType === "undefined")
-                            throw new UtilError("Attachment doesn't have a content type");
-                        ctChecked = true;
-                    }
-
-                    if (contentType.includes(type)) {
-                        ctAllowed = true;
-                        break;
-                    }
-                }
-            }
-
-            if (extChecked && !extAllowed) {
+        if (!LoaderUtils.empty(extensions)) {
+            if (attachInfo == null || LoaderUtils.empty(attachInfo.ext)) {
+                throw new UtilError("Extension can only be validated for attachment URLs");
+            } else if (!extensions.includes(attachInfo.ext)) {
                 throw new UtilError("Invalid file extension: " + attachInfo.ext, attachInfo.ext);
             }
+        }
 
-            if (ctChecked && !ctAllowed) {
+        if (!LoaderUtils.empty(ctypePrefs)) {
+            if (contentType == null) {
+                throw new UtilError("Attachment doesn't have a content type");
+            } else if (!LoaderUtils.hasPrefix(ctypePrefs, contentType)) {
                 throw new UtilError("Invalid content type: " + contentType, contentType);
             }
         }
 
-        const data = ModuleLoader.getModuleCodeFromUrl(url, returnType, {
-            cache: false
-        });
+        if (attach?.size > maxSize) throw maxSizeError();
 
-        return { data, contentType };
-    },
+        let data = ModuleLoader._fetchFromUrl(url, returnType);
+        data = ModuleLoader._parseModuleCode(data, returnType);
 
-    dumpTags: search => {
-        const all = util.dumpTags();
-
-        if (typeof search === "string") {
-            return all.filter(name => name.includes(search));
-        } else if (search instanceof RegExp) {
-            return all.filter(name => search.test(name));
-        }
-
-        return all;
-    },
-
-    fullDump: (search, options = {}) => {
-        const excludedNames = options.excludedNames ?? [],
-            excludedUsers = options.excludedUsers ?? [],
-            fixTags = options.fixTags ?? true;
-
-        const enableNameBlacklist = excludedNames.length > 0,
-            enableUserBlacklist = excludedUsers.length > 0;
-
-        let all = LoaderUtils.dumpTags(search);
-
-        if (enableNameBlacklist) {
-            all = all.filter(name =>
-                excludedNames.every(bl => {
-                    if (bl instanceof RegExp) return !bl.test(name);
-                    else return bl !== name;
-                })
-            );
-        }
-
-        let tags = all.reduce((tags, name) => {
-            let tag;
-
-            try {
-                tag = util.fetchTag(name);
-            } catch (err) {}
-
-            if (tag != null) {
-                const userExcluded = enableUserBlacklist && excludedUsers.includes(tag.owner);
-                if (!userExcluded && tag.owner !== config.tagOwner) tags.push(tag);
-            }
-
-            return tags;
-        }, []);
-
-        if (!fixTags) {
-            return tags;
-        }
-
-        tags = tags.filter(tag => [tag.name, tag.body].every(prop => typeof prop === "string"));
-        tags = tags.filter(tag => LoaderUtils.validTagName(tag.name));
-
-        tags.forEach(tag => {
-            tag.isAlias = tag.hops.length > 1;
-            tag.aliasName = "";
-
-            if (tag.isAlias) {
-                tag.isScript = false;
-
-                tag.name = tag.hops[0];
-                tag.aliasName = tag.hops[1];
-                tag.body = "";
-
-                return;
-            } else {
-                tag.args = "";
-            }
-
-            const newBody = LoaderUtils.getTagBody(tag);
-
-            tag.isScript = tag.body !== newBody;
-            tag.body = newBody;
-        });
-
-        return tags;
+        return { attach, body: data, contentType };
     },
 
     fetchTag: (name, owner) => {
@@ -1586,7 +1441,7 @@ let LoaderUtils = {
             throw new UtilError("Unknown tag: " + name, name);
         }
 
-        if (typeof owner === "string" && owner.length > 0) {
+        if (typeof owner === "string" && !LoaderUtils.empty(owner)) {
             if (tag.owner !== owner) {
                 throw new UtilError(`Incorrect tag owner (${tag.owner} =/= ${owner}) for tag: ${name}`, {
                     original: tag.owner,
@@ -1598,26 +1453,80 @@ let LoaderUtils = {
         return tag;
     },
 
-    _leveretScriptBodyRegex: /^`{3}([\S]+)?\n([\s\S]+)\n`{3}$/u,
-    getTagBody: tag => {
-        let body = tag.body,
-            match = body.match(LoaderUtils._leveretScriptBodyRegex);
+    dumpTags: search => {
+        const all = util.dumpTags();
 
-        if (match && match[2]) {
-            body = match[2];
+        if (search != null) {
+            return all.filter(name => (search instanceof RegExp ? search.test(name) : name.includes(search)));
+        } else return all;
+    },
+
+    fullDump: (search, options = {}) => {
+        const excludedNames = options.excludedNames ?? [],
+            excludedUsers = options.excludedUsers ?? [],
+            fixTags = options.fixTags ?? true;
+
+        const enableNameBlacklist = excludedNames.length > 0,
+            enableUserBlacklist = excludedUsers.length > 0;
+
+        const isAllowed = tag => {
+            if (search) {
+                return search instanceof RegExp ? search.test(tag.name) : tag.name.includes(search);
+            }
+
+            if (tag.owner === config.tagOwner) return false;
+
+            if (enableNameBlacklist) {
+                if (excludedNames.some(bl => (bl instanceof RegExp ? bl.test(tag.name) : bl === tag.name)))
+                    return false;
+            }
+
+            if (enableUserBlacklist) {
+                if (excludedUsers.includes(tag.owner)) return false;
+            }
+
+            return true;
+        };
+
+        let tags = util.dumpTags(true).filter(tag => isAllowed(tag));
+        if (!fixTags) return tags;
+
+        const validProps = tag => [tag.name, tag.body].every(prop => typeof prop === "string");
+        tags = tags.filter(tag => validProps(tag) && LoaderUtils.validTagName(tag.name));
+
+        for (const tag of tags) {
+            tag.isAlias = tag.hops.length > 1;
+
+            if (tag.isAlias) {
+                tag.isScript = false;
+
+                tag.aliasName = tag.hops[1];
+                tag.name = tag.hops[0];
+
+                tag.body = "";
+            } else {
+                tag.aliasName = "";
+                tag.args = "";
+
+                const newBody = LoaderUtils.getTagBody(tag);
+                tag.isScript = tag.body !== newBody;
+
+                tag.body = newBody;
+            }
         }
 
-        return body;
+        return tags;
+    },
+
+    _leveretScriptBodyRegex: /^`{3}([\S]+)?\n([\s\S]+)\n`{3}$/u,
+    getTagBody: tag => {
+        const match = tag.body.match(LoaderUtils._leveretScriptBodyRegex);
+        return match?.[2] ?? tag.body;
     },
 
     formatOutput: out => {
-        if (out === null) {
-            return undefined;
-        }
-
-        if (Array.isArray(out)) {
-            return out.join(", ");
-        }
+        if (out === null) return undefined;
+        else if (Array.isArray(out)) return out.join(", ");
 
         switch (typeof out) {
             case "bigint":
@@ -1639,9 +1548,7 @@ let LoaderUtils = {
     },
 
     bindArgs: (fn, boundArgs) => {
-        if (!Array.isArray(boundArgs)) {
-            boundArgs = [boundArgs];
-        }
+        boundArgs = LoaderUtils.guaranteeArray(boundArgs);
 
         return function (...args) {
             return fn.apply(this, boundArgs.concat(args));
@@ -1653,12 +1560,8 @@ let LoaderUtils = {
         const code = func.toString(),
             match = code.match(LoaderUtils._funcArgsRegex);
 
-        if (!match) {
-            return [];
-        }
-
-        const args = match[1];
-        return args.split(", ").map(arg => arg.trim());
+        if (!match) return [];
+        return match[1].split(", ").map(arg => arg.trim());
     },
 
     getArgumentPositions: (func, names) => {
@@ -1668,59 +1571,127 @@ let LoaderUtils = {
         return positions.filter(pos => pos !== -1);
     },
 
-    isArray: arr => {
-        return Array.isArray(arr) || ArrayBuffer.isView(arr);
-    },
-
     isObject: obj => {
         return obj !== null && typeof obj === "object";
     },
 
+    isArray: arr => {
+        return Array.isArray(arr) || ArrayBuffer.isView(arr);
+    },
+
     isClass: obj => {
-        if (typeof obj !== "function") {
-            return false;
+        if (typeof obj !== "function") return false;
+        else if (obj.toString().startsWith("class")) return true;
+        else {
+            return Object.getOwnPropertyNames(obj.prototype).length > 1;
+        }
+    },
+
+    isPromise: obj => {
+        return typeof obj?.then === "function";
+    },
+
+    className: obj => {
+        if (obj == null) return "";
+        else if (typeof obj === "function") obj = obj.prototype;
+
+        return obj.constructor.name;
+    },
+
+    parseRanges: (str, base = 16) => {
+        return str.split(" ").map(range => {
+            const split = range.split("-");
+
+            const first = LoaderUtils.parseInt(split[0], base),
+                last = split[1] ? LoaderUtils.parseInt(split[1], base) : first;
+
+            return [first, last];
+        });
+    },
+
+    isInRange: (value, range) => {
+        return range.some(([first, last]) => value >= first && value <= last);
+    },
+
+    outOfRange(propName, min, max, ...args) {
+        const hasPropName = typeof propName === "string",
+            getProp = hasPropName ? obj => obj[propName] : obj => obj;
+
+        if (!hasPropName) {
+            args = [max].concat(args);
+
+            max = min;
+            min = propName;
         }
 
-        if (obj.toString().startsWith("class")) {
-            return true;
-        }
+        const check = val => {
+            if (val === null) return false;
+            return Number.isNaN(val) || val < min || val > max;
+        };
 
-        return Object.getOwnPropertyNames(obj.prototype).length > 1;
+        if (args.length === 1) {
+            const obj = args[0];
+            return check(getProp(obj));
+        } else {
+            return args.find(obj => check(getProp(obj)));
+        }
     },
 
     _validProp: (obj, expected) => {
         if (typeof expected === "string") {
-            if (expected === "object") {
-                return LoaderUtils.isObject(obj);
-            } else {
-                return typeof obj === expected;
-            }
-        }
-
-        if (typeof expected === "function") {
+            return expected === "object" ? LoaderUtils.isObject(obj) : typeof obj === expected;
+        } else if (typeof expected === "function") {
             return obj instanceof expected;
+        } else if (LoaderUtils.isObject(expected)) {
+            return LoaderUtils.validateProps(obj, expected);
+        } else {
+            throw new UtilError("Invalid expected type provided", expected);
         }
-
-        if (LoaderUtils.isObject(expected)) {
-            if (LoaderUtils.isObject(obj)) {
-                return LoaderUtils.validateProps(obj, expected);
-            } else {
-                return false;
-            }
-        }
-
-        throw new UtilError("Invalid expected type");
     },
     validateProps: (obj, requiredProps) => {
-        for (const [name, expected] of Object.entries(requiredProps)) {
-            const prop = obj[name];
+        if (!LoaderUtils.isObject(obj)) return false;
 
-            if (!LoaderUtils._validProp(prop, expected)) {
-                return false;
-            }
+        for (const [name, expected] of Object.entries(requiredProps)) {
+            if (!(name in obj)) return false;
+
+            const prop = obj[name];
+            if (!LoaderUtils._validProp(prop, expected)) return false;
         }
 
         return true;
+    },
+
+    bufferIsGif: buf => {
+        const header = LoaderTextEncoder.bytesToString(buf.slice(0, 6));
+        return ["GIF87a", "GIF89a"].includes(header);
+    },
+
+    filterObject: (obj, keyFunc, valFunc) => {
+        keyFunc ??= () => true;
+        valFunc ??= () => true;
+
+        const entries = Object.entries(obj),
+            filtered = entries.filter(([key, value], i) => keyFunc(key, i) && valFunc(value, i));
+
+        return Object.fromEntries(filtered);
+    },
+
+    rewriteObject: (obj, keyFunc, valFunc) => {
+        keyFunc ??= key => key;
+        valFunc ??= value => value;
+
+        const entries = Object.entries(obj),
+            newEntries = entries.map(([key, value], i) => [keyFunc(key, i), valFunc(value, i)]);
+
+        return Object.fromEntries(newEntries);
+    },
+
+    removeNullValues: obj => {
+        return Object.fromEntries(Object.entries(obj).filter(([, value]) => value != null));
+    },
+
+    reverseObject: obj => {
+        return Object.fromEntriesObject.fromEntries(Object.entries(obj).map(([key, value]) => [value, key]));
     },
 
     _validPropOptions: ["both", "enum", "nonenum", "keys"],
@@ -1728,15 +1699,13 @@ let LoaderUtils = {
         let enumerable, nonEnumerable, both, keys;
 
         if (options == null) {
-            options = LoaderUtils._validPropOptions.slice(0, 1);
+            options = [LoaderUtils._validPropOptions[0]];
             both = true;
         } else {
-            if (!Array.isArray(options)) {
-                options = [options];
-            }
+            options = LoaderUtils.guaranteeArray(options);
 
             if (!options.every(option => LoaderUtils._validPropOptions.includes(option))) {
-                throw new UtilError("Invalid property options");
+                throw new UtilError("Invalid property options", LoaderUtils._validPropOptions);
             }
 
             both = options.includes("both");
@@ -1744,7 +1713,7 @@ let LoaderUtils = {
         }
 
         if (options.length < 1) {
-            throw new UtilError("Invalid property options");
+            throw new UtilError("Invalid property options", LoaderUtils._validPropOptions);
         } else if (keys) {
             return Object.assign(target, source);
         } else if (both) {
@@ -1760,20 +1729,20 @@ let LoaderUtils = {
             Object.getOwnPropertyDescriptors(source)
         );
 
-        let descriptors;
+        let descriptors = [];
 
-        if (both) {
-            descriptors = allDescriptors;
-        } else if (enumerable) {
-            descriptors = allDescriptors.filter(([, desc]) => desc.enumerable);
-        } else if (nonEnumerable) {
-            descriptors = allDescriptors.filter(([, desc]) => !desc.enumerable);
+        if (both) descriptors = allDescriptors;
+        else {
+            descriptors = allDescriptors.filter(([, desc]) => (enumerable ? desc.enumerable : !desc.enumerable));
         }
 
-        if (typeof props === "object") descriptors = descriptors.map(([key, desc]) => [key, { ...desc, ...props }]);
-        descriptors = Object.fromEntries(descriptors);
+        if (LoaderUtils.isObject(props)) {
+            descriptors = descriptors.map(([key, desc]) => [key, { ...desc, ...props }]);
+        }
 
+        descriptors = Object.fromEntries(descriptors);
         Object.defineProperties(target, descriptors);
+
         return target;
     },
 
@@ -1782,32 +1751,26 @@ let LoaderUtils = {
         return LoaderUtils.assign(clone, obj, options);
     },
 
-    filterObject: (obj, f1, f2) => {
-        f1 ??= () => true;
-        f2 ??= () => true;
+    defineProperty(obj, factory, ...args) {
+        const props = [].concat(factory(...args)).filter(Boolean);
 
-        const entries = Object.entries(obj),
-            filtered = entries.filter(([key, value], i) => f1(key, i) && f2(value, i));
+        for (const prop of props) {
+            let { propName, desc } = prop;
 
-        return Object.fromEntries(filtered);
-    },
+            if (typeof propName !== "string" || LoaderUtils.empty(propName) || !LoaderUtils.isObject(props)) {
+                throw new UtilError("Invalid property recieved from factory", prop);
+            }
 
-    rewriteObject: (obj, f1, f2) => {
-        f1 ??= key => key;
-        f2 ??= value => value;
+            desc = LoaderUtils.shallowClone(desc);
+            desc.enumerable ??= false;
+            desc.configurable ??= false;
 
-        const entries = Object.entries(obj),
-            newEntries = entries.map(([key, value], i) => [f1(key, i), f2(value, i)]);
+            if ([desc.get, desc.set].every(val => typeof val === "undefined")) {
+                desc.writable ??= false;
+            } else delete desc.writable;
 
-        return Object.fromEntries(newEntries);
-    },
-
-    removeUndefinedValues: obj => {
-        return Object.fromEntries(Object.entries(obj).filter(([, value]) => typeof value !== "undefined"));
-    },
-
-    reverseObject: obj => {
-        return Object.fromEntriesObject.fromEntries(Object.entries(obj).map(([key, value]) => [value, key]));
+            Object.defineProperty(obj, propName, desc);
+        }
     },
 
     _infiniteProxyHandler: {
@@ -1924,30 +1887,6 @@ let LoaderUtils = {
         };
 
         return new Proxy(mirrorObj, handler);
-    },
-
-    bufferIsGif: buf => {
-        const header = String.fromCharCode(...buf.slice(0, 6));
-        return ["GIF87a", "GIF89a"].includes(header);
-    },
-
-    parseRanges: (str, base = 16) => {
-        return str.split(" ").map(range => {
-            const split = range.split("-");
-
-            const first = Number.parseInt(split[0], base),
-                last = split[1] ? Number.parseInt(split[1], base) : first;
-
-            return [first, last];
-        });
-    },
-
-    isInRange: (range, value) => {
-        for (const [first, last] of range) {
-            if (value >= first && value <= last) return true;
-        }
-
-        return false;
     }
 };
 
@@ -1970,6 +1909,155 @@ let LoaderUtils = {
 
     LoaderUtils = Object.freeze(LoaderUtils);
 }
+
+const LoaderTextEncoder = Object.freeze({
+    stringToBytes: str => {
+        const bytes = new Uint8Array(str.length);
+
+        for (let i = 0; i < str.length; i++) {
+            bytes[i] = str.charCodeAt(i);
+        }
+
+        return bytes;
+    },
+
+    bytesToString: bytes => {
+        let str = "";
+
+        for (let i = 0; i < bytes.length; i++) {
+            str += String.fromCharCode(bytes[i]);
+        }
+
+        return str;
+    },
+
+    stringToUtf8: str => {
+        const bytes = [];
+
+        for (let i = 0; i < str.length; i++) {
+            let cp = str.codePointAt(i);
+
+            if (cp >= 0xd800 && cp <= 0xdfff) cp = 0xfffd;
+            else if (cp > 0xffff) i++;
+
+            if (cp <= 0x7f) {
+                bytes.push(cp);
+            } else if (cp <= 0x7ff) {
+                bytes.push(0xc0 | (cp >> 6));
+                bytes.push(0x80 | (cp & 0x3f));
+            } else if (cp <= 0xffff) {
+                bytes.push(0xe0 | (cp >> 12));
+                bytes.push(0x80 | ((cp >> 6) & 0x3f));
+                bytes.push(0x80 | (cp & 0x3f));
+            } else {
+                bytes.push(0xf0 | (cp >> 18));
+                bytes.push(0x80 | ((cp >> 12) & 0x3f));
+                bytes.push(0x80 | ((cp >> 6) & 0x3f));
+                bytes.push(0x80 | (cp & 0x3f));
+            }
+        }
+
+        return new Uint8Array(bytes);
+    },
+
+    stringUtf8Length: str => {
+        let i = 0,
+            len = LoaderUtils.countChars(str);
+
+        let code,
+            length = 0;
+
+        for (; i < len; i++) {
+            code = str.codePointAt(i);
+
+            if (code <= 0x7f) length += 1;
+            else if (code <= 0x7ff) length += 2;
+            else if (code <= 0xffff) length += 3;
+            else {
+                length += 4;
+                i++;
+            }
+        }
+
+        return length;
+    }
+});
+
+const EncryptionUtil = Object.freeze({
+    createShiftedAlphabet: (alphabet, shift) => {
+        const length = alphabet.length;
+        shift = ((shift % length) + length) % length;
+
+        return alphabet.slice(shift) + alphabet.slice(0, shift);
+    },
+
+    caesarCipher: (str, shift, mode = 0) => {
+        const A = "A".charCodeAt(0),
+            a = "a".charCodeAt(0),
+            zero = "0".charCodeAt(0);
+
+        let upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            lower,
+            digit = "0123456789";
+
+        let alphabet = "";
+
+        let split = str.split(""),
+            out;
+
+        switch (mode) {
+            case 0:
+                alphabet = EncryptionUtil.createShiftedAlphabet(upper, shift);
+
+                out = split.map(char => {
+                    const code = char.charCodeAt(0);
+
+                    if ("A" <= char && char <= "Z") return alphabet[code - A];
+                    else if ("a" <= char && char <= "z") return alphabet[code - a];
+                    else return char;
+                });
+
+                break;
+            case 1:
+                upper = EncryptionUtil.createShiftedAlphabet(upper, shift);
+                lower = upper.toLowerCase();
+                digit = EncryptionUtil.createShiftedAlphabet(digit, shift);
+
+                out = split.map(char => {
+                    const code = char.charCodeAt(0);
+
+                    if ("A" <= char && char <= "Z") return upper[code - A];
+                    else if ("a" <= char && char <= "z") return lower[code - a];
+                    else if ("0" <= char && char <= "9") return digit[code - zero];
+                    else return char;
+                });
+
+                break;
+            case 2:
+                const upper_off = 0,
+                    lower_off = upper_off + upper.length,
+                    digit_off = lower_off + upper.length;
+
+                lower = upper.toLowerCase();
+                alphabet = EncryptionUtil.createShiftedAlphabet(upper + lower + digit, shift);
+
+                out = split.map(char => {
+                    const code = char.charCodeAt(0);
+
+                    if ("A" <= char && char <= "Z") return alphabet[code - A + upper_off];
+                    else if ("a" <= char && char <= "z") return alphabet[code - a + lower_off];
+                    else if ("0" <= char && char <= "9") return alphabet[code - zero + digit_off];
+                    else return char;
+                });
+
+                break;
+            default:
+                throw new UtilError("Invalid mode: " + mode, mode);
+        }
+
+        return out.join("");
+    }
+});
 
 const HttpUtil = Object.freeze({
     protocolRegex: /^[^/:]+:\/*$/,
@@ -2001,19 +2089,10 @@ const HttpUtil = Object.freeze({
                 throw new TypeError("URL part must be a string");
             }
 
-            if (part.length < 1) {
-                continue;
-            }
+            if (part.length < 1) continue;
 
-            if (i > 0) {
-                part = part.replace(HttpUtil.leadingSlashRegex, "");
-            }
-
-            if (i === input.length - 1) {
-                part = part.replace(HttpUtil.trailingSlashRegex, "/");
-            } else {
-                part = part.replace(HttpUtil.trailingSlashRegex, "");
-            }
+            if (i > 0) part = part.replace(HttpUtil.leadingSlashRegex, "");
+            part = part.replace(HttpUtil.trailingSlashRegex, i === input.length - 1 ? "/" : "");
 
             result.push(part);
         }
@@ -2042,58 +2121,272 @@ const HttpUtil = Object.freeze({
         const query = [];
 
         for (const [key, value] of Object.entries(params)) {
-            if (value != null) {
-                query.push(key + "=" + encodeURIComponent(value));
+            if (value != null) query.push(key + "=" + encodeURIComponent(value));
+        }
+
+        if (query.length < 1) return "";
+        return `?${query.join("&")}`;
+    },
+
+    _statusRegex: /Request failed with status code (\d+)/,
+    getHttpErrStatus: (res, reqErr) => {
+        if (util.env && res?.ok === false) return res.status;
+        else if (reqErr == null) return null;
+
+        const statusStr = reqErr?.message;
+        if (typeof statusStr !== "string") return -1;
+
+        const statusMatch = statusStr.match(HttpUtil._statusRegex);
+        return LoaderUtils.parseInt(statusMatch?.[1], 10, -1);
+    },
+
+    _mimeTypes: {
+        jpg: "image/jpeg",
+        jpeg: "image/jpeg",
+        png: "image/png",
+        gif: "image/gif",
+        bmp: "image/bmp",
+        webp: "image/webp",
+        pdf: "application/pdf",
+        txt: "text/plain",
+        html: "text/html",
+        json: "application/json",
+        csv: "text/csv",
+        mp3: "audio/mpeg",
+        mp4: "video/mp4",
+        zip: "application/zip",
+        tar: "application/x-tar",
+        gz: "application/gzip"
+    },
+    _defaultMimeType: "application/octet-stream",
+    getContentType: ext => {
+        if (ext.startsWith(".")) ext = ext.slice(1);
+        ext = ext.toLowerCase();
+
+        return HttpUtil._mimeTypes[ext.toLowerCase()] ?? HttpUtil._defaultMimeType;
+    },
+
+    CRLF: "\r\n",
+    CRLF2: "\r\n".repeat(2),
+
+    formContent: "Content-Disposition: form-data; ",
+
+    getFormBoundary: () => {
+        return `----WebKitFormBoundary${LoaderUtils.randomString(16)}`;
+    },
+
+    getFormCtype: formBoundary => {
+        return `multipart/form-data; boundary=${formBoundary}`;
+    },
+
+    _mergeFormData: chunks => {
+        let formSize = chunks.reduce((sum, chunk) => sum + chunk.length, 0),
+            offset = 0;
+
+        const merged = new Uint8Array(formSize);
+
+        for (const chunk of chunks) {
+            merged.set(chunk, offset);
+            offset += chunk.length;
+        }
+
+        return [formSize, merged];
+    },
+    encodeFormMeta: (formMeta, data) => {
+        const chunks = formMeta.map(line => LoaderTextEncoder.stringToUtf8(line));
+        chunks.splice(formMeta.length - 2, 0, data);
+
+        return HttpUtil._mergeFormData(chunks);
+    }
+});
+
+let UploadUtil = {
+    _sendUploadReq(url, formInfo, formData, options = {}) {
+        const returnType = options.returnType ?? "text",
+            headers = options.headers ?? {};
+
+        if (util.env) {
+            headers["Content-Type"] = formInfo.formCtype;
+            headers["Content-Length"] = formInfo.formSize;
+        } else {
+            headers["L-Content-Type"] = formInfo.formCtype;
+            headers["L-Content-Length"] = formInfo.formSize;
+
+            formData = Array.from(formData)
+                .map(b => b.toString(16).padStart(2, "0"))
+                .join("");
+        }
+
+        const config = {
+            url,
+            method: "POST",
+            headers,
+            data: formData,
+            responseType: ModuleLoader._returnTypeToRes(returnType, true),
+            errorType: "value"
+        };
+
+        let res = null,
+            reqErr = null;
+
+        try {
+            res = http.request(config);
+        } catch (err) {
+            reqErr = err;
+        }
+
+        const status = HttpUtil.getHttpErrStatus(res, reqErr);
+
+        if (status === null) return res?.data ?? null;
+        else {
+            throw new LoaderError("Upload failed with code: " + status, status);
+        }
+    },
+    uploadToCustom: (apiUrl, data, ext, options = {}) => {
+        if (ext.startsWith(".")) ext = ext.slice(1);
+
+        const fileFieldName = options.fileField ?? "file",
+            otherFields = options.fields ?? {},
+            contentType = options.contentType ?? HttpUtil.getContentType(ext);
+
+        if (!(data instanceof Uint8Array)) {
+            throw new UtilError("Invalid input data");
+        }
+
+        const formBoundary = HttpUtil.getFormBoundary(),
+            formMeta = [];
+
+        for (let [name, value] of Object.entries(otherFields)) {
+            value = String(value).trim();
+
+            formMeta.push(
+                `--${formBoundary}${HttpUtil.CRLF}`,
+                `${HttpUtil.formContent}name="${name}"${HttpUtil.CRLF2}`,
+                `${value}${HttpUtil.CRLF}`
+            );
+        }
+
+        formMeta.push(
+            `--${formBoundary}${HttpUtil.CRLF}`,
+            `${HttpUtil.formContent}name="${fileFieldName}"; filename="data.${ext}"${HttpUtil.CRLF}`,
+            `Content-Type: ${contentType}${HttpUtil.CRLF2}`,
+
+            HttpUtil.CRLF,
+
+            `--${formBoundary}--${HttpUtil.CRLF}`
+        );
+
+        const [formSize, formData] = HttpUtil.encodeFormMeta(formMeta, data);
+
+        return UploadUtil._sendUploadReq(
+            apiUrl,
+            {
+                formCtype: HttpUtil.getFormCtype(formBoundary),
+                formSize
+            },
+            formData,
+            options
+        );
+    },
+
+    _catboxUrls: {
+        permanent: "https://catbox.moe/user/api.php",
+        litter: "https://litterbox.catbox.moe/resources/internals/api.php"
+    },
+    uploadToCatbox: (data, ext, options = {}) => {
+        const litter = options.litter ?? false,
+            userhash = options.userhash,
+            expiryTime = options.expiryTime ?? "1h";
+
+        if (!litter && (typeof userhash !== "string" || LoaderUtils.empty(userhash))) {
+            throw new UtilError("No userhash provided");
+        }
+
+        const apiUrl = UploadUtil._catboxUrls[litter ? "litter" : "permanent"];
+
+        const fields = {
+            reqtype: "fileupload"
+        };
+
+        if (litter) {
+            fields.time = expiryTime;
+            fields.fileNameLength = 16;
+        } else {
+            fields.userhash = userhash;
+        }
+
+        return UploadUtil.uploadToCustom(apiUrl, data, ext, {
+            fileField: "fileToUpload",
+            fields,
+            contentType: options.contentType
+        });
+    },
+
+    _filecanBase: "http://162.55.99.10:40076/",
+    uploadToFilecan: (data, ext, options = {}) => {
+        const password = options.password ?? "",
+            expiryTime = Math.floor((options.expiryTime ?? 1) * 3600000);
+
+        if (options.passwordRequired ?? true) {
+            if (typeof password !== "string" || LoaderUtils.empty(password)) {
+                throw new UtilError("No password provided");
+            } else if (typeof token !== "string" || LoaderUtils.empty(token)) {
+                throw new UtilError("No token provided");
             }
         }
 
-        if (query.length < 1) {
-            return "";
+        let token = null;
+
+        {
+            const config = {
+                url: HttpUtil.joinUrl(UploadUtil._filecanBase, "api/auth/authenticate"),
+                method: "post",
+                data: {
+                    type: "upload",
+                    password
+                },
+                responseType: "json"
+            };
+
+            let res = null,
+                reqErr = null;
+
+            try {
+                res = http.request(config);
+            } catch (err) {
+                reqErr = err;
+            }
+
+            const status = HttpUtil.getHttpErrStatus(res, reqErr);
+
+            if (status === null) token = res?.data.token ?? null;
+            else {
+                throw new LoaderError("Filecan auth failed with code: " + status, status);
+            }
         }
 
-        const queryString = query.join("&");
-        return "?" + queryString;
-    },
+        const file = UploadUtil.uploadToCustom(UploadUtil._filecanApi, data, ext, {
+            fileField: "files",
+            fields: {
+                password,
+                expirylength: expiryTime
+            },
 
-    statusRegex: /Request failed with status code (\d+)/,
-    getReqErrStatus: err => {
-        if (!err.message) {
-            return;
-        }
+            contentType: options.contentType,
+            returnType: "json",
 
-        const statusStr = err.message,
-            statusMatch = statusStr.match(LoaderUtils.statusRegex);
+            headers: { token }
+        }).files[0];
 
-        if (!statusMatch) {
-            return;
-        }
-
-        const status = Number.parseInt(statusMatch[1], 10);
-        return status;
+        return HttpUtil.joinUrl(UploadUtil._filecanBase, file.filename);
     }
-});
+};
 
-const LoaderTextEncoder = Object.freeze({
-    stringToBytes: str => {
-        const bytes = new Uint8Array(str.length);
+{
+    UploadUtil._filecanApi = HttpUtil.joinUrl(UploadUtil._filecanBase, "api/upload");
 
-        for (let i = 0; i < str.length; i++) {
-            bytes[i] = str.charCodeAt(i);
-        }
-
-        return bytes;
-    },
-
-    bytesToString: bytes => {
-        let str = "";
-
-        for (let i = 0; i < bytes.length; i++) {
-            str += String.fromCharCode(bytes[i]);
-        }
-
-        return str;
-    }
-});
+    UploadUtil = Object.freeze(UploadUtil);
+}
 
 class Benchmark {
     static data = Object.create(null);
@@ -2101,7 +2394,7 @@ class Benchmark {
     static timepoints = new Map();
 
     static getCurrentTime(ms = true) {
-        let time;
+        let time = 0;
 
         switch (this.timeToUse) {
             case "dateNow":
@@ -2115,11 +2408,7 @@ class Benchmark {
                 break;
         }
 
-        if (ms) {
-            return this._timeToMs(time);
-        } else {
-            return time;
-        }
+        return ms ? this._timeToMs(time) : time;
     }
 
     static delay(ms) {
@@ -2158,10 +2447,7 @@ class Benchmark {
         }
 
         const t1 = this.timepoints.get(key);
-
-        if (typeof t1 === "undefined") {
-            return NaN;
-        }
+        if (typeof t1 === "undefined") return NaN;
 
         this.timepoints.delete(key);
 
@@ -2178,15 +2464,9 @@ class Benchmark {
         key = this._formatTimeKey(key);
         const time = this.data[key];
 
-        if (!format) {
-            return time ?? NaN;
-        }
+        if (!format) return time ?? NaN;
 
-        if (typeof time === "undefined") {
-            return `Key "${key}" not found.`;
-        }
-
-        return this._formatTime(key, time);
+        return typeof time === "undefined" ? `Key "${key}" not found.` : this._formatTime(key, time);
     }
 
     static deleteTime(key) {
@@ -2233,7 +2513,7 @@ class Benchmark {
     }
 
     static getSum(...keys) {
-        let sumTimes;
+        let sumTimes = [];
 
         if (keys.length > 0) {
             sumTimes = keys
@@ -2250,13 +2530,10 @@ class Benchmark {
     }
 
     static getAll(...includeSum) {
-        let format = LoaderUtils.lastElement(includeSum);
+        let format = LoaderUtils.last(includeSum);
 
-        if (typeof format === "boolean") {
-            includeSum.pop();
-        } else {
-            format = true;
-        }
+        if (typeof format === "boolean") includeSum.pop();
+        else format = true;
 
         let useSum = includeSum.length > 0,
             sum;
@@ -2297,17 +2574,15 @@ class Benchmark {
         name = this._formatCountName(name);
         const count = this.counts[name];
 
-        if (!format) {
-            return count ?? NaN;
-        }
+        if (!format) return count ?? NaN;
 
         const originalName = this._origCountNames.get(name);
 
         if (typeof count === "undefined" || typeof originalName === "undefined") {
             return `Count "${name}" not found.`;
+        } else {
+            return this._formatCount(originalName, count);
         }
-
-        return this._formatCount(originalName, count);
     }
 
     static incrementCount(name) {
@@ -2404,13 +2679,10 @@ class Benchmark {
     static _vm = globalThis.vm;
 
     static timeToUse = (() => {
-        if (typeof this._performance !== "undefined") {
-            return "performanceNow";
-        } else if (typeof this._vm !== "undefined") {
-            return "vmTime";
-        } else if (typeof this._Date !== "undefined") {
-            return "dateNow";
-        } else {
+        if (typeof this._performance !== "undefined") return "performanceNow";
+        else if (typeof this._vm !== "undefined") return "vmTime";
+        else if (typeof this._Date !== "undefined") return "dateNow";
+        else {
             throw new UtilError("No suitable timing function detected");
         }
     })();
@@ -2481,7 +2753,7 @@ class Benchmark {
 // module loader
 class ModuleCode {
     constructor(name, code, returnType) {
-        this.name = name.toString() ?? "";
+        this.name = String(name ?? "");
         this.code = code;
         this.returnType = returnType;
     }
@@ -2493,7 +2765,7 @@ class Module {
             const module = name,
                 newName = id;
 
-            this.name = newName?.toString() ?? module.name;
+            this.name = String(newName ?? module.name);
             this.id = module.id;
             this.exports = module.exports;
             this.loaded = module.loaded;
@@ -2501,11 +2773,8 @@ class Module {
             return this;
         }
 
-        if (name == null) {
-            this.name = ModuleLoader._Cache.getSeqModuleName();
-        } else {
-            this.name = name.toString() ?? "";
-        }
+        if (name == null) this.name = ModuleLoader._Cache.getSeqModuleName();
+        else this.name = String(name);
 
         this.id = id ?? "none";
         this.exports = {};
@@ -2522,54 +2791,50 @@ class ModuleCacheManager {
     }
 
     getModuleByName(name) {
-        name = name.toString();
-        return this._cache.get(name);
+        name = String(name ?? "");
+        return this._cache.get(name) ?? null;
     }
 
     getModuleById(id) {
         for (const module of this._cache.values()) {
-            if (module.id === id) {
-                return module;
-            }
+            if (module.id === id) return module;
         }
+
+        return null;
     }
 
     addModule(module, newName, reload = false) {
         const name = module.name;
 
-        if (!reload && typeof this.getModuleById(name) !== "undefined") {
+        if (!reload && this.getModuleById(name) !== null) {
             throw new LoaderError(`Module ${name} already exists`, name);
         }
 
         this._cache.set(name, module);
 
-        if (typeof newName !== "undefined") {
+        if (newName != null) {
             const newModule = new Module(module, newName);
             this._cache.set(newName, newModule);
         }
     }
 
     deleteModule(id) {
-        if (id instanceof Module) {
-            id = id.id;
-        }
+        if (id instanceof Module) ({ id } = id);
 
         for (const [key, module] of this._cache.entries()) {
-            if (module.id === id) {
-                this._cache.delete(key);
-            }
+            if (module.id === id) this._cache.delete(key);
         }
     }
 
     getCodeByName(name) {
-        name = name.toString();
-        return this._code.get(name);
+        name = String(name ?? "");
+        return this._code.get(name) ?? null;
     }
 
     addCode(code, reload = false) {
         const name = code.name;
 
-        if (!reload && typeof this.getCodeByName(name) !== "undefined") {
+        if (!reload && this.getCodeByName(name) !== null) {
             throw new LoaderError(`Module ${name} already exists`, name);
         }
 
@@ -2577,11 +2842,8 @@ class ModuleCacheManager {
     }
 
     deleteCode(name) {
-        if (name instanceof ModuleCode) {
-            name = name.name;
-        } else {
-            name = name.toString();
-        }
+        if (name instanceof ModuleCode) ({ name } = name);
+        else name = String(name ?? "");
 
         this._code.delete(name);
     }
@@ -2607,9 +2869,7 @@ class ModuleGlobalsUtil {
 
     static _globalsProxyHandler = {
         set(target, prop, value, reciever) {
-            if (typeof value === "undefined") {
-                return false;
-            }
+            if (value == null) return false;
 
             const success = Reflect.set(target, prop, value, reciever);
             if (success) Patches._loadedPatch(prop);
@@ -2680,9 +2940,7 @@ return [false, null];
             errName: "_" + LoaderUtils.randomString(32)
         };
 
-        if (typeof names === "object") {
-            Object.assign(names, randomNames);
-        }
+        if (LoaderUtils.isObject(names)) Object.assign(names, randomNames);
 
         return LoaderUtils.templateReplace(this.moduleCodeTemplate, {
             moduleCode,
@@ -2693,7 +2951,6 @@ return [false, null];
 
 class ModuleStackTraceUtil {
     static indent = " ".repeat(4);
-
     static errLocationExp = /<anonymous>:(\d+):(\d+)\)$/;
 
     static getLocation(stackFrame) {
@@ -2709,20 +2966,15 @@ class ModuleStackTraceUtil {
 
         let newStackFrame = `at (<module`;
 
-        if (typeof moduleName === "string") {
-            newStackFrame += ` ${moduleName}>)`;
-        } else {
-            newStackFrame += ">)";
-        }
+        if (typeof moduleName === "string") newStackFrame += ` ${moduleName}>)`;
+        else newStackFrame += ">)";
 
         newStackFrame += `:${lineNum}:${columnNum}`;
         return newStackFrame;
     }
 
     static rewriteStackTrace(err, randomNames, moduleName) {
-        if (typeof err.stack !== "string") {
-            return err.stack;
-        }
+        if (typeof err.stack !== "string") return err.stack;
 
         let stackFrames = err.stack.split("\n"),
             msgLine;
@@ -2731,12 +2983,7 @@ class ModuleStackTraceUtil {
         stackFrames = stackFrames.map(frame => frame.trim());
 
         const innerFnLine = stackFrames.findIndex(frame => frame.startsWith(`at ${randomNames.innerFnName}`));
-
-        if (innerFnLine === -1) {
-            return err.stack;
-        }
-
-        //for (let i = 0; i < innerFnLine; i++) {}
+        if (innerFnLine === -1) return err.stack;
 
         stackFrames[innerFnLine] = this.getNewStackFrame(stackFrames[innerFnLine], moduleName);
         stackFrames.splice(innerFnLine + 1);
@@ -2757,10 +3004,10 @@ class ModuleLoader {
     static Require = ModuleRequireUtil;
 
     static useDefault(...vars) {
-        const cb = LoaderUtils.lastElement(vars),
+        const cb = LoaderUtils.last(vars),
             useCb = typeof cb === "function";
 
-        let old;
+        let old = null;
 
         if (useCb) {
             vars.pop();
@@ -2805,7 +3052,7 @@ class ModuleLoader {
 
         if (cache && !forceReload) {
             const foundCode = this._Cache.getCodeByName(name);
-            if (typeof foundCode !== "undefined") return foundCode.code;
+            if (foundCode !== null) return foundCode.code;
         }
 
         let res = this._fetchFromUrl(url, returnType, options),
@@ -2837,7 +3084,7 @@ class ModuleLoader {
 
         if (cache && !forceReload) {
             const foundCode = this._Cache.getCodeByName(name);
-            if (typeof foundCode !== "undefined") return foundCode.code;
+            if (foundCode !== null) return foundCode.code;
         }
 
         const owner = options.owner ?? this.tagOwner,
@@ -2845,10 +3092,7 @@ class ModuleLoader {
             buf_size = options.buf_size;
 
         let moduleCode = this._fetchTagBody(tagName, owner, options);
-
-        if (encoded) {
-            moduleCode = this._decodeModuleCode(moduleCode, buf_size);
-        }
+        if (encoded) moduleCode = this._decodeModuleCode(moduleCode, buf_size);
 
         moduleCode = this._parseModuleCode(moduleCode, returnType);
 
@@ -2879,14 +3123,16 @@ class ModuleLoader {
         }
     }
 
-    static loadModuleFromSource(moduleCode, loadScope = {}, breakpoint = this.breakpoint, options = {}) {
+    static loadModuleFromSource(moduleCode, loadScope, breakpoint = this.breakpoint, options = {}) {
+        loadScope ??= {};
+
         const moduleName = options.name,
             cache = this.enableCache && (options.cache ?? true),
             forceReload = options.forceReload ?? false;
 
-        if (cache && typeof moduleName !== "undefined" && !forceReload) {
+        if (cache && moduleName != null && !forceReload) {
             const foundModule = this._Cache.getModuleByName(moduleName);
-            if (typeof foundModule !== "undefined") return foundModule.exports;
+            if (foundModule !== null) return foundModule.exports;
         }
 
         moduleCode = moduleCode.trim();
@@ -2895,7 +3141,7 @@ class ModuleLoader {
             throw new LoaderError("Invalid module code");
         }
 
-        let moduleId;
+        let moduleId = null;
 
         if (cache) {
             moduleId = md5(moduleCode);
@@ -2903,7 +3149,7 @@ class ModuleLoader {
             if (!forceReload) {
                 const foundModule = this._Cache.getModuleById(moduleId);
 
-                if (typeof foundModule !== "undefined") {
+                if (foundModule !== null) {
                     if (foundModule.name !== moduleName) this._Cache.addModule(foundModule, moduleName);
                     return foundModule.exports;
                 }
@@ -2913,7 +3159,7 @@ class ModuleLoader {
         const module = new Module(moduleName, moduleId),
             exports = module.exports;
 
-        if (cache) this._Cache.addModule(module, undefined, forceReload);
+        if (cache) this._Cache.addModule(module, null, forceReload);
 
         const isolateGlobals = options.isolateGlobals ?? this.isolateGlobals,
             wrapErrors = true;
@@ -2933,26 +3179,20 @@ class ModuleLoader {
             customGlobalKeys = [];
 
         for (const [key, obj] of Object.entries(loadScope)) {
-            if (obj === null || typeof obj !== "object") {
+            if (!LoaderUtils.isObject(obj)) {
                 newLoadScope[key] = obj;
                 continue;
             }
 
-            if (obj.globalHolder === true) {
-                customGlobalKeys.push(key);
-            } else if ("value" in obj) {
-                if (obj.global === true) {
-                    loadGlobals[key] = obj.value;
-                } else {
-                    newLoadScope[key] = obj.value;
-                }
-            } else {
-                newLoadScope[key] = obj;
-            }
+            if (obj.globalHolder === true) customGlobalKeys.push(key);
+            else if ("value" in obj) {
+                if (obj.global === true) loadGlobals[key] = obj.value;
+                else newLoadScope[key] = obj.value;
+            } else newLoadScope[key] = obj;
         }
 
-        const filteredGlobals = LoaderUtils.removeUndefinedValues({ ...globals, ...loadGlobals }),
-            filteredScope = LoaderUtils.removeUndefinedValues(newLoadScope);
+        const filteredGlobals = LoaderUtils.removeNullValues({ ...globals, ...loadGlobals }),
+            filteredScope = LoaderUtils.removeNullValues(newLoadScope);
 
         let originalGlobal, patchedGlobal;
 
@@ -3040,7 +3280,7 @@ class ModuleLoader {
 
         if (cache && isModule && !forceReload) {
             const foundModule = this._Cache.getModuleByName(url);
-            if (typeof foundModule !== "undefined") return foundModule.exports;
+            if (foundModule !== null) return foundModule.exports;
         }
 
         const moduleCode = this.getModuleCodeFromUrl(url, ...codeArgs);
@@ -3059,7 +3299,7 @@ class ModuleLoader {
 
         if (cache && isModule && !forceReload) {
             const foundModule = this._Cache.getModuleByName(tagName);
-            if (typeof foundModule !== "undefined") return foundModule.exports;
+            if (foundModule !== null) return foundModule.exports;
         }
 
         const moduleCode = this.getModuleCodeFromTag(tagName, ...codeArgs);
@@ -3095,50 +3335,56 @@ class ModuleLoader {
 
     static _Cache = new ModuleCacheManager();
 
-    static _fetchFromUrl(url, returnType, options = {}) {
-        let responseType;
-
+    static _returnTypeToRes(returnType, allowJson = false) {
         switch (returnType) {
+            default:
             case FileDataTypes.text:
-            case FileDataTypes.json:
             case FileDataTypes.module:
-                responseType = "text";
-                break;
+                return "text";
+            case FileDataTypes.json:
+                return allowJson ? "json" : "text";
             case FileDataTypes.binary:
-                responseType = "arraybuffer";
-                break;
+                return "arraybuffer";
         }
+    }
 
-        const configReqOpts = options.requestOptions,
-            parseError = options.parseError ?? true,
+    static _fetchFromUrl(url, returnType, options = {}) {
+        const method = options.requestMethod ?? "get",
+            optionsConfig = options.requestOptions ?? {};
+
+        const parseError = options.parseError ?? true,
             returnRes = options.returnResponse ?? false;
 
-        const opts = {
+        const config = {
             url,
-            method: "get",
-            responseType,
-            ...configReqOpts
+            method,
+            responseType: this._returnTypeToRes(returnType),
+            ...optionsConfig,
+            errorType: "value"
         };
 
-        let res;
+        let res = null,
+            reqErr = null;
 
         try {
-            res = http.request(opts);
+            res = http.request(config);
         } catch (err) {
-            if (!parseError) {
-                throw err;
-            }
-
-            const status = HttpUtil.getReqErrStatus(err);
-
-            if (status) {
-                throw new LoaderError("Could not fetch file. Code: " + status, status);
-            } else {
-                throw new LoaderError("Could not fetch file. Error: " + err.message);
-            }
+            reqErr = err;
         }
 
-        return returnRes ? res : res.data;
+        const status = HttpUtil.getHttpErrStatus(res, reqErr);
+        if (status === null) return returnRes ? res : res?.data ?? null;
+
+        let msg = "Could not fetch file.";
+
+        if (parseError) {
+            if (status > 0) msg += ` Code: ${status}`;
+            else if (reqErr?.message) msg += ` Error: ${reqErr.message}`;
+
+            throw new LoaderError(msg, status);
+        } else {
+            throw reqErr ?? new Error(res?.error?.message ?? msg);
+        }
     }
 
     static _fetchTagBody(tagName, owner, options = {}) {
@@ -3146,7 +3392,7 @@ class ModuleLoader {
             useArray = Array.isArray(tagName),
             usePattern = tagName instanceof RegExp;
 
-        let body;
+        let body = "";
 
         if (useName) {
             if (tagName == null) {
@@ -3156,31 +3402,22 @@ class ModuleLoader {
             const tag = LoaderUtils.fetchTag(tagName, owner);
             body = LoaderUtils.getTagBody(tag);
         } else {
-            let tagNames;
+            let tagNames = [];
 
-            if (useArray) {
-                tagNames = tagName;
-            } else if (usePattern) {
-                tagNames = LoaderUtils.dumpTags(tagName);
-            } else {
+            if (useArray) tagNames = tagName;
+            else if (usePattern) tagNames = LoaderUtils.dumpTags(tagName);
+            else {
                 throw new LoaderError("Invalid tag name");
             }
 
-            tagNames.sort((a, b) =>
-                a.localeCompare(b, "en", {
-                    numeric: true
-                })
-            );
+            tagNames.sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
 
             const tags = tagNames
                 .map(name => {
                     try {
                         return LoaderUtils.fetchTag(name, owner);
                     } catch (err) {
-                        if (err.name === "UtilError") {
-                            return null;
-                        }
-
+                        if (err.name === "UtilError") return null;
                         throw err;
                     }
                 })
@@ -3197,45 +3434,49 @@ class ModuleLoader {
     }
 
     static _parseModuleCode(moduleCode, returnType) {
+        if (!util.env) {
+            if (moduleCode instanceof ArrayBuffer) moduleCode = new Uint8Array(moduleCode);
+            else if (LoaderUtils.isObject(moduleCode) && moduleCode?.type === "Buffer") {
+                moduleCode = new Uint8Array(moduleCode.data);
+            }
+        }
+
         switch (returnType) {
             case FileDataTypes.text:
             case FileDataTypes.module:
                 if (LoaderUtils.isArray(moduleCode)) {
                     return LoaderTextEncoder.bytesToString(moduleCode);
-                }
-
-                return moduleCode;
+                } else return moduleCode;
             case FileDataTypes.json:
-                let jsonString = moduleCode;
-
-                if (LoaderUtils.isArray(jsonString)) {
-                    jsonString = LoaderTextEncoder.bytesToString(moduleCode);
-                }
+                const jsonString = LoaderUtils.isArray(moduleCode)
+                    ? LoaderTextEncoder.bytesToString(moduleCode)
+                    : moduleCode;
 
                 return JSON.parse(jsonString);
             case FileDataTypes.binary:
-                if (LoaderUtils.isArray(moduleCode)) {
-                    return moduleCode;
+                if (LoaderUtils.isArray(moduleCode)) return moduleCode;
+                else {
+                    return LoaderTextEncoder.stringToBytes(moduleCode);
                 }
-
-                return LoaderTextEncoder.stringToBytes(moduleCode);
             default:
                 throw new LoaderError("Unknown return type: " + returnType, returnType);
         }
     }
 
+    static _wasmBase2nMult = 5 / 3;
+
     static _decodeModuleCode(moduleCode, buf_size) {
-        if (wasmDecoderLoaded) {
-            if (typeof fastDecodeBase2n === "undefined") {
+        if (wasmBase2nLoaded) {
+            if (typeof globalThis.fastDecodeBase2n === "undefined") {
                 throw new LoaderError("WASM Base2n decoder not initialized");
             }
 
-            buf_size ??= Math.ceil(moduleCode.length * 1.66);
+            buf_size ??= Math.ceil(moduleCode.length * this._wasmBase2nMult);
             return fastDecodeBase2n(moduleCode, buf_size);
         } else {
-            if (typeof decodeBase2n === "undefined") {
+            if (typeof globalThis.decodeBase2n === "undefined") {
                 throw new LoaderError("Base2n decoder not initialized");
-            } else if (typeof table === "undefined") {
+            } else if (typeof globalThis.table === "undefined") {
                 throw new LoaderError("Base2n table not initialized");
             }
 
@@ -3246,7 +3487,7 @@ class ModuleLoader {
     }
 
     static _getLoadArgs(name, options) {
-        if (typeof options !== "object") {
+        if (!LoaderUtils.isObject(options)) {
             throw new LoaderError("Options must be an object");
         }
 
@@ -3289,22 +3530,22 @@ class ModuleLoader {
 
 // globals
 const globals = ModuleGlobalsUtil.createGlobalsObject({
-    setTimeout: undefined,
-    setImmediate: undefined,
-    clearTimeout: undefined,
-    clearImmediate: undefined,
+    setTimeout: null,
+    setImmediate: null,
+    clearTimeout: null,
+    clearImmediate: null,
 
-    console: undefined,
+    console: null,
 
-    Promise: undefined,
-    Buffer: undefined,
-    TextEncoder: undefined,
-    TextDecoder: undefined,
-    Blob: undefined,
-    XMLHttpRequest: undefined,
-    Event: undefined,
-    Worker: undefined,
-    ImageData: undefined
+    Promise: null,
+    Buffer: null,
+    TextEncoder: null,
+    TextDecoder: null,
+    Blob: null,
+    XMLHttpRequest: null,
+    Event: null,
+    Worker: null,
+    ImageData: null
 });
 
 const globalObjs = ModuleGlobalsUtil.createGlobalsObject();
@@ -3367,7 +3608,7 @@ const Patches = {
 
             {
                 scope: globals.Buffer
-                    ? undefined
+                    ? null
                     : {
                           Buffer: {
                               global: true,
@@ -3451,6 +3692,52 @@ const Patches = {
         };
     },
 
+    patchMsgReply: () => {
+        const originalReply = globalThis.msg.reply;
+
+        const customReply = (text, reply) => {
+            let content = null;
+
+            if (LoaderUtils.isObject(text)) {
+                reply = text;
+
+                content = reply.content || "";
+                delete reply.content;
+            } else {
+                reply ??= {};
+                content = text || "";
+            }
+
+            const file = reply?.file;
+
+            if (!LoaderUtils.isObject(file)) {
+                originalReply(content, reply);
+                return exit();
+            } else delete reply.file;
+
+            let fileName = file.name ?? "message.txt",
+                fileData = file.data;
+
+            const fileExt = fileName.includes(".") ? fileName.split(".").pop().toLowerCase() : "";
+
+            if (typeof fileData === "string") {
+                fileData = LoaderTextEncoder.stringToUtf8(fileData);
+            } else if (!LoaderUtils.isArray(fileData)) {
+                fileData = LoaderTextEncoder.stringToBytes("Empty file");
+            }
+
+            const uploadUrl = UploadUtil.uploadToFilecan(fileData, fileExt, {
+                passwordRequired: false
+            });
+            content = `${content}\n${uploadUrl}`.trimStart();
+
+            originalReply(content, reply);
+            exit();
+        };
+
+        globalThis.msg.reply = customReply;
+    },
+
     patchWasmModule: () => {
         if (WebAssembly.patchedModule === true) return;
 
@@ -3470,13 +3757,10 @@ const Patches = {
             originalModule = Patches._origWasmModule;
 
         WebAssembly.instantiate = Benchmark.wrapFunction("wasm_instantiate", (bufferSource, importObject) => {
-            let wasmModule;
+            let wasmModule = null;
 
-            if (bufferSource instanceof WebAssembly.Module) {
-                wasmModule = bufferSource;
-            } else {
-                wasmModule = new originalModule(bufferSource);
-            }
+            if (bufferSource instanceof WebAssembly.Module) wasmModule = bufferSource;
+            else wasmModule = new originalModule(bufferSource);
 
             const instance = new WebAssembly.Instance(wasmModule, importObject);
 
@@ -3491,7 +3775,7 @@ const Patches = {
     },
 
     patchGlobalContext: objs => {
-        if (objs === null || typeof objs !== "object") {
+        if (!LoaderUtils.isObject(objs)) {
             throw new LoaderError("Invalid patch objects");
         }
 
@@ -3521,7 +3805,7 @@ const Patches = {
     },
 
     addContextGlobals: objs => {
-        if (typeof objs === "object") {
+        if (LoaderUtils.isObject(objs)) {
             LoaderUtils.assign(globals, objs, "enum");
         }
 
@@ -3530,13 +3814,15 @@ const Patches = {
 
     addGlobalObjects: (library = config.loadLibrary) => {
         globalObjs.CustomError ??= CustomError;
-        globalObjs.RefError ??= RefError;
+        globalObjs.RefError ??= ReferenceError;
         globalObjs.ExitError ??= ExitError;
 
         globalObjs.Benchmark ??= Benchmark;
         globalObjs.HttpUtil ??= HttpUtil;
         globalObjs.LoaderUtils ??= LoaderUtils;
         globalObjs.LoaderTextEncoder ??= LoaderTextEncoder;
+        globalObjs.EncryptionUtil ??= EncryptionUtil;
+        globalObjs.UploadUtil ??= UploadUtil;
         globalObjs.exit ??= exit;
 
         globalObjs.FileDataTypes ??= FileDataTypes;
@@ -3555,6 +3841,7 @@ const Patches = {
                 get: function () {
                     return ModuleLoader.loadSource;
                 },
+
                 enumerable: true
             });
         }
@@ -3654,6 +3941,8 @@ const Patches = {
         Patches.addContextGlobals();
         Patches.addGlobalObjects(library);
 
+        Patches.patchMsgReply();
+
         Patches.patchWasmModule();
         Patches.patchWasmInstantiate();
 
@@ -3697,14 +3986,37 @@ const Patches = {
 };
 
 // misc loader
-let wasmDecoderLoaded = false;
+function loadBase64Utils() {
+    if (typeof globalThis.Base64 !== "undefined") return;
+    Benchmark.startTiming("load_base64");
+
+    const Base64 = ModuleLoader.loadModule(
+        null,
+        tags.Base64TagName,
+
+        {
+            cache: false /*,
+                breakpoint: config.enableDebugger */
+        }
+    );
+
+    if (!Base64) {
+        Benchmark.stopTiming("load_base64");
+        throw new LoaderError("Base64 couldn't be loaded");
+    }
+
+    Patches.patchGlobalContext({ Base64 });
+    Benchmark.stopTiming("load_base64");
+}
+
+let wasmBase2nLoaded = false;
 
 function loadBase2nDecoder() {
     function loadJsBase2nDecoder(charset = "normal") {
         if (typeof globalThis.decodeBase2n !== "undefined") return;
-        Benchmark.startTiming("load_decoder");
+        Benchmark.startTiming("load_base2n");
 
-        const { base2n } = ModuleLoader.loadModule(
+        let base2n = ModuleLoader.loadModule(
             null,
             tags.Base2nTagName,
 
@@ -3713,7 +4025,10 @@ function loadBase2nDecoder() {
             }
         );
 
-        if (typeof base2n === "undefined") return;
+        if (!base2n) {
+            Benchmark.stopTiming("load_base2n");
+            throw new LoaderError("Base2n couldn't be loaded");
+        } else ({ base2n } = base2n);
 
         let charsetRanges,
             sortRanges = true;
@@ -3752,16 +4067,16 @@ function loadBase2nDecoder() {
             decodeBase2n: patchedDecode,
             table
         });
-
-        Benchmark.stopTiming("load_decoder");
+        Benchmark.stopTiming("load_base2n");
     }
 
     function unloadJsBase2nDecoder() {
-        const keys = Object.keys(globalThis).filter(key => {
-            key = key.toLowerCase();
-            return key.includes("base2n") && !key.includes("fast");
-        });
-        keys.push("table");
+        const keys = ["table"].concat(
+            Object.keys(globalThis).filter(key => {
+                key = key.toLowerCase();
+                return key.includes("base2n") && !key.includes("fast");
+            })
+        );
 
         Patches.removeFromGlobalContext(keys);
     }
@@ -3769,8 +4084,7 @@ function loadBase2nDecoder() {
     function loadWasmBase2nDecoder() {
         if (typeof globalThis.fastDecodeBase2n !== "undefined") return;
         Patches.checkGlobalPolyfill("Promise", "Can't load WASM Base2n decoder.");
-
-        Benchmark.startTiming("load_wasm_decoder");
+        Benchmark.startTiming("load_base2n_wasm");
 
         const Base2nWasmDec = ModuleLoader.loadModule(
             null,
@@ -3786,8 +4100,6 @@ function loadBase2nDecoder() {
             }
         );
 
-        if (typeof Base2nWasmDec === "undefined") return;
-
         const DecoderInit = ModuleLoader.loadModule(
             null,
             tags.Base2nWasmInitTagName,
@@ -3797,6 +4109,12 @@ function loadBase2nDecoder() {
                 breakpoint: config.enableDebugger */
             }
         );
+
+        console.replyWithLogs("warn");
+        if (!DecoderInit) {
+            Benchmark.stopTiming("load_base2n_wasm");
+            throw new LoaderError("Couldn't load WASM Base2n decoder");
+        }
 
         const decoderWasm = ModuleLoader.getModuleCode(null, tags.Base2nWasmWasmTagName, FileDataTypes.binary, {
             encoded: true,
@@ -3810,12 +4128,9 @@ function loadBase2nDecoder() {
 
         console.replyWithLogs("warn");
 
-        Patches.patchGlobalContext({
-            fastDecodeBase2n: patchedDecode
-        });
-
-        wasmDecoderLoaded = true;
-        Benchmark.stopTiming("load_wasm_decoder");
+        Patches.patchGlobalContext({ fastDecodeBase2n: patchedDecode });
+        Benchmark.stopTiming("load_base2n_wasm");
+        wasmBase2nLoaded = true;
     }
 
     const base2nCharset = config.useWasmBase2nDecoder ? "base64" : "normal";
@@ -3842,7 +4157,10 @@ function loadXzDecompressor() {
         }
     );
 
-    if (typeof XzDecompressor === "undefined") return;
+    if (!XzDecompressor) {
+        Benchmark.stopTiming("load_xz_decompressor");
+        throw new LoaderError("Couldn't load XZ decompressor");
+    }
 
     const xzWasm = ModuleLoader.getModuleCode(null, tags.XzWasmTagName, FileDataTypes.binary, {
         encoded: true,
@@ -3857,7 +4175,6 @@ function loadXzDecompressor() {
     XzDecompressor.decompress = patchedDecompress;
 
     Patches.patchGlobalContext({ XzDecompressor });
-
     Benchmark.stopTiming("load_xz_decompressor");
 }
 
@@ -3875,7 +4192,10 @@ function loadZstdDecompressor() {
         }
     );
 
-    if (typeof ZstdDecompressor === "undefined") return;
+    if (!ZstdDecompressor) {
+        Benchmark.stopTiming("load_zstd_decompressor");
+        throw new LoaderError("Couldn't load zstd decompressor");
+    }
 
     const zstdWasm = ModuleLoader.getModuleCode(null, tags.ZstdWasmTagName, FileDataTypes.binary, {
         encoded: true,
@@ -3890,8 +4210,17 @@ function loadZstdDecompressor() {
     ZstdDecompressor.decompress = patchedDecompress;
 
     Patches.patchGlobalContext({ ZstdDecompressor });
-
     Benchmark.stopTiming("load_zstd_decompressor");
+}
+
+function decompress(data) {
+    let decompressor = null;
+
+    if (features.useXzDecompressor) decompressor = XzDecompressor;
+    else if (features.useZstdDecompressor) decompressor = ZstdDecompressor;
+    else return data;
+
+    return decompressor.decompress(data);
 }
 
 // canvaskit loader
@@ -3910,6 +4239,10 @@ function loadCanvasKit() {
     );
 
     console.replyWithLogs("warn");
+    if (!CanvasKitInit) {
+        Benchmark.stopTiming("load_canvaskit");
+        throw new LoaderError("Couldn't load CanvasKit");
+    }
 
     let wasmTagName, buf_size;
 
@@ -3926,17 +4259,10 @@ function loadCanvasKit() {
         buf_size,
         cache: false
     });
-
-    if (ModuleLoader.loadSource === "tag") {
-        if (features.useXzDecompressor) {
-            wasm = XzDecompressor.decompress(wasm);
-        } else if (features.useZstdDecompressor) {
-            wasm = ZstdDecompressor.decompress(wasm);
-        }
-    }
+    if (ModuleLoader.loadSource === "tag") wasm = decompress(wasm);
 
     Benchmark.startTiming("canvaskit_init");
-    let CanvasKit;
+    let CanvasKit = null;
     CanvasKitInit({
         wasmBinary: wasm
     })
@@ -3945,9 +4271,12 @@ function loadCanvasKit() {
     Benchmark.stopTiming("canvaskit_init");
 
     console.replyWithLogs("warn");
+    if (!CanvasKit) {
+        Benchmark.stopTiming("load_canvaskit");
+        throw new LoaderError("Couldn't load CanvasKit");
+    }
 
     Patches.patchGlobalContext({ CanvasKit });
-
     Benchmark.stopTiming("load_canvaskit");
 }
 
@@ -3967,16 +4296,17 @@ function loadResvg() {
     );
 
     console.replyWithLogs("warn");
+    if (!ResvgInit) {
+        Benchmark.stopTiming("load_resvg");
+        throw new LoaderError("Couldn't load resvg");
+    }
 
     let wasm = ModuleLoader.getModuleCode(urls.ResvgWasmUrl, tags.ResvgWasmTagName, FileDataTypes.binary, {
         encoded: true,
         buf_size: 700 * 1024,
         cache: false
     });
-
-    if (ModuleLoader.loadSource === "tag") {
-        wasm = XzDecompressor.decompress(wasm);
-    }
+    if (ModuleLoader.loadSource === "tag") wasm = decompress(wasm);
 
     Benchmark.startTiming("resvg_init");
     try {
@@ -3989,7 +4319,6 @@ function loadResvg() {
     console.replyWithLogs("warn");
 
     Patches.patchGlobalContext({ Resvg: ResvgInit.Resvg });
-
     Benchmark.stopTiming("load_resvg");
 }
 
@@ -4023,17 +4352,18 @@ function loadLibVips() {
     );
 
     console.replyWithLogs("warn");
+    if (!LibVipsInit) {
+        Benchmark.stopTiming("load_libvips");
+        throw new LoaderError("Couldn't load LibVips");
+    }
 
     let wasm = ModuleLoader.getModuleCode(urls.LibVipsWasmUrl, tags.LibVipsWasmTagName, FileDataTypes.binary, {
         encoded: true
     });
-
-    if (ModuleLoader.loadSource === "tag") {
-        wasm = XzDecompressor.decompress(wasm);
-    }
+    if (ModuleLoader.loadSource === "tag") wasm = decompress(wasm);
 
     Benchmark.startTiming("libvips_init");
-    let vips;
+    let vips = null;
     LibVipsInit({
         wasmBinary: wasm,
         dynamicLibraries: []
@@ -4043,9 +4373,12 @@ function loadLibVips() {
     Benchmark.stopTiming("libvips_init");
 
     console.replyWithLogs("warn");
+    if (!vips) {
+        Benchmark.stopTiming("load_libvips");
+        throw new LoaderError("Couldn't load LibVips");
+    }
 
     Patches.patchGlobalContext({ vips });
-
     Benchmark.stopTiming("load_libvips");
 }
 
@@ -4086,9 +4419,12 @@ function loadLodepng() {
     );
 
     console.replyWithLogs("warn");
+    if (!lodepng) {
+        Benchmark.stopTiming("load_lodepng");
+        throw new LoaderError("Couldn't load lodepng");
+    }
 
     Patches.patchGlobalContext({ lodepng });
-
     Benchmark.stopTiming("load_lodepng");
 }
 
@@ -4113,11 +4449,8 @@ function mainLoadMisc(loadLibrary) {
             case "canvaskit":
                 features.useBase2nDecoder = true;
 
-                if (config.forceXzDecompressor) {
-                    features.useXzDecompressor = true;
-                } else {
-                    features.useZstdDecompressor = true;
-                }
+                if (config.forceXzDecompressor) features.useXzDecompressor = true;
+                else features.useZstdDecompressor = true;
 
                 break;
             case "resvg":
@@ -4143,25 +4476,14 @@ function mainLoadMisc(loadLibrary) {
 
         loadLibrary.forEach(decideMiscConfig);
     } else {
-        if (loadFuncLibs.includes(loadLibrary)) {
-            features.useLoadFuncs = true;
-        }
-
+        if (loadFuncLibs.includes(loadLibrary)) features.useLoadFuncs = true;
         decideMiscConfig(loadLibrary);
     }
 
     if (ModuleLoader.loadSource === "tag") {
-        if (features.useBase2nDecoder) {
-            loadBase2nDecoder();
-        }
-
-        if (features.useXzDecompressor) {
-            loadXzDecompressor();
-        }
-
-        if (features.useZstdDecompressor) {
-            loadZstdDecompressor();
-        }
+        if (features.useBase2nDecoder) loadBase2nDecoder();
+        if (features.useXzDecompressor) loadXzDecompressor();
+        if (features.useZstdDecompressor) loadZstdDecompressor();
     }
 }
 
@@ -4187,23 +4509,19 @@ function mainLoadLibrary(loadLibrary) {
         }
     }
 
-    if (Array.isArray(loadLibrary)) {
-        loadLibrary.forEach(subLoadLibrary);
-    } else {
-        subLoadLibrary(loadLibrary);
-    }
+    if (Array.isArray(loadLibrary)) loadLibrary.forEach(subLoadLibrary);
+    else subLoadLibrary(loadLibrary);
 }
 
 function addLoadFuncs() {
     const wrapLoadFunc = func => {
         return function (library) {
-            ModuleLoader.useDefault(() => {
-                func(library);
-            });
+            ModuleLoader.useDefault(() => func(library));
         };
     };
 
     const loadFuncs = {
+        loadBase64Utils: wrapLoadFunc(loadBase64Utils),
         loadBase2nDecoder: wrapLoadFunc(loadBase2nDecoder),
         loadXzDecompressor: wrapLoadFunc(loadXzDecompressor),
         loadZstdDecompressor: wrapLoadFunc(loadZstdDecompressor),
@@ -4224,13 +4542,8 @@ function mainLoad(loadLibrary) {
 }
 
 function main() {
-    ModuleLoader.useDefault(() => {
-        mainLoad(config.loadLibrary);
-    });
-
-    if (features.useLoadFuncs) {
-        addLoadFuncs();
-    }
+    ModuleLoader.useDefault(() => mainLoad(config.loadLibrary));
+    if (features.useLoadFuncs) addLoadFuncs();
 }
 
 function insideEval() {
@@ -4252,26 +4565,25 @@ try {
 
     // eval check
     if (!insideEval()) {
-        exit(
-            msg.reply(":information_source: This is meant to be used inside eval, not as a standalone tag.", {
-                embed: {
-                    fields: [
-                        {
-                            name: "Usage examples",
-                            value: usage
-                        },
-                        {
-                            name: "Script examples",
-                            value: scripts
-                        },
-                        {
-                            name: "Docs",
-                            value: docs
-                        }
-                    ]
-                }
-            })
-        );
+        msg.reply(":information_source: This is meant to be used inside eval, not as a standalone tag.", {
+            embed: {
+                fields: [
+                    {
+                        name: "Usage examples",
+                        value: usage
+                    },
+                    {
+                        name: "Script examples",
+                        value: scripts
+                    },
+                    {
+                        name: "Docs",
+                        value: docs
+                    }
+                ]
+            }
+        });
+        exit();
     }
 
     // run main
@@ -4281,9 +4593,6 @@ try {
     else exit(".");
 } catch (err) {
     // output
-    if (err instanceof ExitError) {
-        err.message;
-    } else {
-        throw err;
-    }
+    if (err instanceof ExitError) err.message;
+    else throw err;
 }
