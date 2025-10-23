@@ -6,8 +6,7 @@ const nomiServerId = "927050775073534012",
     maxMessages = 3,
     maxTries = 3;
 
-const trim = true,
-    minWidth = 500,
+const minWidth = 500,
     minHeight = 0;
 
 let padding = 6,
@@ -400,29 +399,9 @@ const main = (() => {
 
         [pfpRect, screenshot] = Util.decodeObject(screenshot, pfpRectKeys);
         screenshot = Image.fromImageData(lodepng.decode(screenshot));
-
-        if (trim) trimScreenshot();
-        else height = screenshot.height;
+        height = screenshot.height;
 
         Benchmark.stopTiming("capture_message");
-    }
-
-    function trimScreenshot() {
-        Benchmark.startTiming("trim_screenshot");
-
-        bgColor = new Color(...bgColor);
-
-        const { left, right } = screenshot.findTrim({
-            treshold: 3,
-            background: bgColor
-        });
-
-        const newWidth = Math.max(left + right + 2, minWidth);
-        height = Math.max(screenshot.height, minHeight);
-
-        screenshot.clip(0, 0, newWidth, screenshot.height);
-
-        Benchmark.stopTiming("trim_screenshot");
     }
 
     // speech bubble

@@ -1880,7 +1880,7 @@ class Image {
                 const [r, g, b] = this.getPixel_u_rgb(j, i),
                     diff = Math.abs(r - bg.r) + Math.abs(g - bg.g) + Math.abs(b - bg.b);
 
-                binaryMap[i][j] = diff > threshold ? 1 : 0;
+                binaryMap[i][j] = Number(diff > threshold);
             }
         }
 
@@ -1900,19 +1900,13 @@ class Image {
 
                 for (j = 0; j < this.w; j++) {
                     count = 0;
-
                     for (dy = -1; dy <= 1; dy++) {
                         y = i + dy;
-
-                        if (y >= 0 && y < this.h) {
+                        if (y >= 0 && y < this.h)
                             for (dx = -1; dx <= 1; dx++) {
                                 x = j + dx;
-
-                                if (x >= 0 && x < this.w) {
-                                    neighbors[count++] = binaryMap[y][x];
-                                }
+                                if (x >= 0 && x < this.w) neighbors[count++] = binaryMap[y][x];
                             }
-                        }
                     }
 
                     neighbors.subarray(0, count).sort((a, b) => a - b);
@@ -1929,16 +1923,7 @@ class Image {
         const [top, bottom] = this._findEdge(rowSums),
             [left, right] = this._findEdge(colSums);
 
-        if (top > bottom || left > right) {
-            return { top: 0, left: 0, bottom: 0, right: 0 };
-        }
-
-        return {
-            top,
-            left,
-            bottom,
-            right
-        };
+        return top > bottom || left > right ? { top: 0, left: 0, bottom: 0, right: 0 } : { top, left, bottom, right };
     }
 }
 
