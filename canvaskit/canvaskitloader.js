@@ -659,7 +659,7 @@ let LoaderUtils = {
     },
 
     getCount: (str, countType) => {
-        if (typeof countType !== "string" || LoaderUtils.empty(countType)) {
+        if (!LoaderUtils.nonemptyString(countType)) {
             throw new UtilError("No count type provided");
         }
 
@@ -895,7 +895,7 @@ let LoaderUtils = {
     },
 
     getLength: (val, lengthType) => {
-        if (typeof lengthType !== "string" || LoaderUtils.empty(lengthType)) {
+        if (!LoaderUtils.nonemptyString(lengthType)) {
             throw new UtilError("No length type provided");
         }
 
@@ -917,6 +917,10 @@ let LoaderUtils = {
 
     maxLength: (array, lengthType = "string") => {
         return Math.max(...array.map(x => LoaderUtils.getLength(x, lengthType)));
+    },
+
+    nonemptyString: str => {
+        return typeof str === "string" && str.length > 0;
     },
 
     empty: obj => {
@@ -1401,7 +1405,7 @@ let LoaderUtils = {
         const attach = msg.file ?? msg.attachments?.at(0),
             url = msg.fileUrl ?? attach?.url;
 
-        if (typeof url !== "string" || LoaderUtils.empty(url)) {
+        if (!LoaderUtils.nonemptyString(url)) {
             throw new UtilError("Message doesn't have any attachments");
         }
 
@@ -1441,13 +1445,11 @@ let LoaderUtils = {
             throw new UtilError("Unknown tag: " + name, name);
         }
 
-        if (typeof owner === "string" && !LoaderUtils.empty(owner)) {
-            if (tag.owner !== owner) {
-                throw new UtilError(`Incorrect tag owner (${tag.owner} =/= ${owner}) for tag: ${name}`, {
-                    original: tag.owner,
-                    needed: owner
-                });
-            }
+        if (LoaderUtils.nonemptyString(owner) && tag.owner !== owner) {
+            throw new UtilError(`Incorrect tag owner (${tag.owner} =/= ${owner}) for tag: ${name}`, {
+                original: tag.owner,
+                needed: owner
+            });
         }
 
         return tag;
@@ -1757,7 +1759,7 @@ let LoaderUtils = {
         for (const prop of props) {
             let { propName, desc } = prop;
 
-            if (typeof propName !== "string" || LoaderUtils.empty(propName) || !LoaderUtils.isObject(props)) {
+            if (!LoaderUtils.nonemptyString(propName) || !LoaderUtils.isObject(props)) {
                 throw new UtilError("Invalid property recieved from factory", prop);
             }
 
@@ -2205,7 +2207,7 @@ let UploadUtil = {
         const returnType = options.returnType ?? "text",
             headers = options.headers ?? {};
 
-        if (util.env) {
+        if (true || util.env) {
             headers["Content-Type"] = formInfo.formCtype;
             headers["Content-Length"] = formInfo.formSize;
         } else {
@@ -2298,7 +2300,7 @@ let UploadUtil = {
             userhash = options.userhash,
             expiryTime = options.expiryTime ?? "1h";
 
-        if (!litter && (typeof userhash !== "string" || LoaderUtils.empty(userhash))) {
+        if (!litter && !LoaderUtils.nonemptyString(userhash)) {
             throw new UtilError("No userhash provided");
         }
 
@@ -2322,15 +2324,15 @@ let UploadUtil = {
         });
     },
 
-    _filecanBase: "http://162.55.99.10:40076/",
+    _filecanBase: "http://",
     uploadToFilecan: (data, ext, options = {}) => {
         const password = options.password ?? "",
             expiryTime = Math.floor((options.expiryTime ?? 1) * 3600000);
 
         if (options.passwordRequired ?? true) {
-            if (typeof password !== "string" || LoaderUtils.empty(password)) {
+            if (!LoaderUtils.nonemptyString(password)) {
                 throw new UtilError("No password provided");
-            } else if (typeof token !== "string" || LoaderUtils.empty(token)) {
+            } else if (!LoaderUtils.nonemptyString(token)) {
                 throw new UtilError("No token provided");
             }
         }
@@ -3137,7 +3139,7 @@ class ModuleLoader {
 
         moduleCode = moduleCode.trim();
 
-        if (typeof moduleCode !== "string" || LoaderUtils.empty(moduleCode)) {
+        if (!LoaderUtils.nonemptyString(moduleCode)) {
             throw new LoaderError("Invalid module code");
         }
 
@@ -3726,12 +3728,13 @@ const Patches = {
                 fileData = LoaderTextEncoder.stringToBytes("Empty file");
             }
 
-            const uploadUrl = UploadUtil.uploadToFilecan(fileData, fileExt, {
-                passwordRequired: false
+            const uploadUrl = UploadUtil.uploadToCatbox(fileData, fileExt, {
+                litter: true
             });
-            content = `${content}\n${uploadUrl}`.trimStart();
 
+            content = `${content}\n${uploadUrl}`.trimStart();
             originalReply(content, reply);
+
             exit();
         };
 
