@@ -2324,7 +2324,7 @@ let UploadUtil = {
         });
     },
 
-    _filecanBase: "http://",
+    _filecanBase: "http://api.example.com/",
     uploadToFilecan: (data, ext, options = {}) => {
         const password = options.password ?? "",
             expiryTime = Math.floor((options.expiryTime ?? 1) * 3600000);
@@ -3697,17 +3697,18 @@ const Patches = {
     patchMsgReply: () => {
         const originalReply = globalThis.msg.reply;
 
+        /*
         const customReply = (text, reply) => {
             let content = null;
 
             if (LoaderUtils.isObject(text)) {
                 reply = text;
 
-                content = reply.content || "";
+                content = String(reply.content || "");
                 delete reply.content;
             } else {
                 reply ??= {};
-                content = text || "";
+                content = String(text || "");
             }
 
             const file = reply?.file;
@@ -3729,12 +3730,29 @@ const Patches = {
             }
 
             const uploadUrl = UploadUtil.uploadToCatbox(fileData, fileExt, {
-                litter: true
+                userhash: EncryptionUtil.caesarCipher("IKquOPtItGsJvIMuuMsPsOvNH", -16, 2)
             });
 
             content = `${content}\n${uploadUrl}`.trimStart();
             originalReply(content, reply);
 
+            exit();
+        };
+        */
+        const customReply = (text, reply) => {
+            let content = null;
+
+            if (LoaderUtils.isObject(text)) {
+                reply = text;
+
+                content = String(reply.content || "");
+                delete reply.content;
+            } else {
+                reply ??= {};
+                content = String(text || "");
+            }
+
+            originalReply(content, reply);
             exit();
         };
 
