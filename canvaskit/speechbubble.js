@@ -1,9 +1,8 @@
 "use strict";
-/* globals Image:readonly, Color:readonly, capture:readonly */
+/* globals Image:readonly, Color:readonly, getMessageWindow:readonly, capture:readonly */
 
 // config
 const nomiServerId = "927050775073534012",
-    maxMessages = 3,
     maxTries = 3;
 
 const minWidth = 500,
@@ -61,28 +60,6 @@ const Util = Object.freeze({
             AC = Math.sqrt(Math.pow(C.x - A.x, 2) + Math.pow(C.y - A.y, 2));
 
         return Math.acos((BC * BC + AB * AB - AC * AC) / (2 * BC * AB));
-    },
-
-    getMessageBlock(id, maxMessages) {
-        const messages = util.fetchMessages(),
-            index = messages.findIndex(msg => msg.id === id);
-        if (index === -1) return [id];
-
-        const authorId = messages[index].authorId;
-
-        let startIndex = index;
-        while (messages[startIndex - 1]?.authorId === authorId) startIndex--;
-
-        let endIndex = index;
-        while (messages[endIndex + 1]?.authorId === authorId) endIndex++;
-
-        let block = messages.slice(startIndex, endIndex + 1);
-        if (block.length === 0) return [id];
-
-        block.reverse();
-        block = block.map(msg => msg.id);
-
-        return maxMessages > 0 ? block.slice(0, maxMessages) : block;
     },
 
     decodeObjectFromBuffer: (data, keys) => {
@@ -260,8 +237,6 @@ const serverId = msg.guildId,
 let messageIds;
 
 // speech bubble
-let bgColor = [49, 51, 56];
-
 let height, pfpRect, speechBubbleY;
 let screenshot, speechBubbleImg, image;
 
@@ -302,7 +277,7 @@ const main = (() => {
                 throw new ExitError(out);
             }
 
-            return Util.getMessageBlock(replyId, maxMessages);
+            return getMessageWindow(replyId);
         })();
     }
 
@@ -329,7 +304,7 @@ const main = (() => {
         const capture = ModuleLoader.loadModuleFromTag(tags.Capture);
         Benchmark.stopTiming("load_screenshot");
 
-        Patches.patchGlobalContext({ capture });
+        Patches.patchGlobalContext(capture);
 
         Benchmark.stopTiming("load_libraries");
     }
@@ -397,7 +372,7 @@ const main = (() => {
 
         Benchmark.restartTiming("capture_message");
 
-        [pfpRect, screenshot] = Util.decodeObject(screenshot, pfpRectKeys);
+        [pfpRect, screenshot] = Util.decodeObjectFromBuffer(screenshot, pfpRectKeys);
         screenshot = Image.fromImageData(lodepng.decode(screenshot));
         height = screenshot.height;
 
@@ -406,7 +381,7 @@ const main = (() => {
 
     // speech bubble
     function findProfilePicture() {
-        const hasProfilePicture = pfpRect.x !== 0;
+        const hasProfilePicture = pfpRectKeys.every(key => pfpRect[key] !== 0);
 
         if (hasProfilePicture) {
             x0 = pfpRect.x + pfpRect.width / 2;
@@ -444,6 +419,8 @@ const main = (() => {
         drawSpeechBubble();
 
         image = new Image(screenshot.width, height + speechBubbleY + padding);
+
+        const bgColor = screenshot.getPixel(0, 0);
         image.clear(bgColor);
 
         image.blit(0, speechBubbleY, screenshot);
@@ -486,10 +463,10 @@ const main = (() => {
     }
 
     return () => {
-        getInput();
-
         initLoader();
         loadCapture();
+
+        getInput();
 
         captureMessage();
         loadLibrary("resvg");
