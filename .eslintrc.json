@@ -45,6 +45,7 @@
 
         "XzDecompressor": "writable",
         "ZstdDecompressor": "writable",
+        "decompress": "writable",
 
         "CanvasKit": "writable",
         "Resvg": "writable",

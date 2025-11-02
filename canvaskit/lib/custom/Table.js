@@ -123,7 +123,7 @@ const TableUtil = Object.freeze({
 
     padLine: (line, widths, extraSpaces, centerText) => {
         return line.map((x, i) => {
-            const str = x?.toString() ?? "",
+            const str = String(x ?? ""),
                 endPad = widths[i] ?? 0;
 
             if (centerText) {
@@ -281,7 +281,7 @@ class Table {
         const lines = this._getSeparatedLines();
 
         const headingLine = LoaderUtils.first(lines),
-            contentLines = LoaderUtils.after(lines).join("\n");
+            contentLines = LoaderUtils.after(lines, 0).join("\n");
 
         const formattedTable = [headingLine];
 

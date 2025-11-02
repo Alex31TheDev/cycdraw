@@ -38,11 +38,13 @@ const urls = {
     ResvgLoaderUrl: "https://files.catbox.moe/5fiy8q.js",
     ResvgWasmUrl: "https://cdn.jsdelivr.net/npm/@resvg/resvg-wasm@2.6.2/index_bg.wasm",
 
-    LibVipsLoaderUrl: "https://files.catbox.moe/j1uor5.js",
-    LibVipsWasmUrl: "https://cdn.jsdelivr.net/npm/wasm-vips@0.0.11/lib/vips.wasm",
-
     LodepngInitUrl: "https://cdn.jsdelivr.net/npm/@cwasm/lodepng@0.1.7/index.js",
-    LodepngWasmUrl: "https://cdn.jsdelivr.net/npm/@cwasm/lodepng@0.1.7/lodepng.wasm"
+    LodepngWasmUrl: "https://cdn.jsdelivr.net/npm/@cwasm/lodepng@0.1.7/lodepng.wasm",
+
+    SatoriLoaderUrl: "https://files.catbox.moe/c2xoqd.js",
+    SatoriWasmUrl: "https://files.catbox.moe/jw8hmm.wasm",
+
+    BabelStandaloneUrl: "https://cdn.jsdelivr.net/npm/@babel/standalone@7.28.5/babel.min.js"
 };
 
 const tags = {
@@ -71,11 +73,13 @@ const tags = {
     ResvgLoaderTagName: "ck_resvg_init",
     ResvgWasmTagName: /^ck_resvg_wasm\d+$/,
 
-    LibVipsLoaderTagName: "",
-    LibVipsWasmTagName: "",
-
     LodepngInitTagName: "ck_lodepng_init",
-    LodepngWasmTagName: "ck_lodepng_wasm"
+    LodepngWasmTagName: "ck_lodepng_wasm",
+
+    SatoriLoaderTagName: /^ck_satori_init\d+$/,
+    SatoriWasmTagName: /^ck_satori_wasm\d+$/,
+
+    BabelStandaloneTagName: /^ck_babel_standalone\d+$/
 };
 
 // info
@@ -1602,12 +1606,8 @@ let LoaderUtils = {
 
     parseRanges: (str, base = 16) => {
         return str.split(" ").map(range => {
-            const split = range.split("-");
-
-            const first = LoaderUtils.parseInt(split[0], base),
-                last = split[1] ? LoaderUtils.parseInt(split[1], base) : first;
-
-            return [first, last];
+            const [first, last] = range.split("-").map(x => LoaderUtils.parseInt(x, base));
+            return [first, last ?? first];
         });
     },
 
@@ -2654,10 +2654,11 @@ class Benchmark {
             _this.incrementCount(name);
             _this.startTiming(_this.getCount(name));
 
-            const ret = func.apply(this, args);
-
-            _this.stopTiming(_this.getCount(name));
-            return ret;
+            try {
+                return func.apply(this, args);
+            } finally {
+                _this.stopTiming(_this.getCount(name));
+            }
         };
     }
 
@@ -3125,8 +3126,9 @@ class ModuleLoader {
         }
     }
 
-    static loadModuleFromSource(moduleCode, loadScope, breakpoint = this.breakpoint, options = {}) {
+    static loadModuleFromSource(moduleCode, loadScope, breakpoint, options = {}) {
         loadScope ??= {};
+        breakpoint ??= this.breakpoint;
 
         const moduleName = options.name,
             cache = this.enableCache && (options.cache ?? true),
@@ -3164,37 +3166,37 @@ class ModuleLoader {
         if (cache) this._Cache.addModule(module, null, forceReload);
 
         const isolateGlobals = options.isolateGlobals ?? this.isolateGlobals,
-            wrapErrors = true;
+            wrapErrors = options.wrapErrors ?? true;
 
         const randomNames = {};
 
         if (breakpoint) moduleCode = ModuleTemplateUtil.addDebuggerStmt(moduleCode);
         if (wrapErrors) moduleCode = ModuleTemplateUtil.wrapErrorHandling(moduleCode, randomNames);
 
-        const moduleObjs = {
-            module,
-            exports
-        };
+        const moduleObjs = { module, exports };
 
         const newLoadScope = {},
             loadGlobals = {},
             customGlobalKeys = [];
 
-        for (const [key, obj] of Object.entries(loadScope)) {
-            if (!LoaderUtils.isObject(obj)) {
-                newLoadScope[key] = obj;
+        for (const [key, value] of Object.entries(loadScope)) {
+            if (!LoaderUtils.isObject(value)) {
+                newLoadScope[key] = value;
                 continue;
             }
 
-            if (obj.globalHolder === true) customGlobalKeys.push(key);
-            else if ("value" in obj) {
-                if (obj.global === true) loadGlobals[key] = obj.value;
-                else newLoadScope[key] = obj.value;
-            } else newLoadScope[key] = obj;
+            if (value.globalHolder === true) customGlobalKeys.push(key);
+            else if ("value" in value) {
+                const obj = value;
+                (obj.global === true ? loadGlobals : newLoadScope)[key] = obj.value;
+            } else newLoadScope[key] = value;
         }
 
-        const filteredGlobals = LoaderUtils.removeNullValues({ ...globals, ...loadGlobals }),
+        let filteredGlobals = LoaderUtils.removeNullValues({ ...globals, ...loadGlobals }),
             filteredScope = LoaderUtils.removeNullValues(newLoadScope);
+
+        const loadScopeThis = filteredScope.this ?? undefined;
+        filteredScope = LoaderUtils.filterObject(filteredScope, key => key !== "this");
 
         let originalGlobal, patchedGlobal;
 
@@ -3220,13 +3222,7 @@ class ModuleLoader {
             try {
                 Patches.removeFromGlobalContext("nondefault");
             } catch (err) {
-                if (err instanceof TypeError) {
-                    throw new LoaderError(
-                        "You're not allowed to have functions defined via the function keyword or vars in the same scope as the load call. Use an object or an IIFE to isolate them."
-                    );
-                } else {
-                    throw err;
-                }
+                throw err instanceof TypeError ? new LoaderError(ModuleLoader._isolateGlobalsError) : err;
             }
 
             Patches.patchGlobalContext(patchedGlobal);
@@ -3247,21 +3243,32 @@ class ModuleLoader {
         };
 
         if (wrapErrors) {
-            const loaderFn = new Function(loadParams, moduleCode);
+            let loaderFn = null,
+                loadErr = null;
 
-            const [loaded, err] = loaderFn(...loadArgs);
-            module.loaded = loaded;
+            try {
+                loaderFn = new Function(loadParams, moduleCode);
+            } catch (err) {
+                loadErr = err;
+            }
+
+            if (loaderFn !== null) {
+                let loaded;
+                [loaded, loadErr] = loaderFn.apply(loadScopeThis, loadArgs);
+
+                module.loaded = loaded;
+            }
 
             cleanup();
 
-            if (err !== null) {
-                err.stack = ModuleStackTraceUtil.rewriteStackTrace(err, randomNames, module.name);
-                throw new LoaderError(`Error occured while loading module ${module.name}.`, err);
+            if (loadErr !== null) {
+                loadErr.stack = ModuleStackTraceUtil.rewriteStackTrace(loadErr, randomNames, module.name);
+                throw new LoaderError(`Error occured while loading module ${module.name}.`, loadErr);
             }
         } else {
             try {
                 const loaderFn = new Function(loadParams, moduleCode);
-                loaderFn(...loadArgs);
+                loaderFn.apply(loadScopeThis, loadArgs);
 
                 module.loaded = true;
             } finally {
@@ -3334,6 +3341,9 @@ class ModuleLoader {
     }
 
     static _tagConfigVars = ["loadSource", "isolateGlobals", "tagOwner"];
+
+    static _isolateGlobalsError =
+        "You're not allowed to have functions defined via the function keyword or vars in the same scope as the load call. Use an object or an IIFE to isolate them.";
 
     static _Cache = new ModuleCacheManager();
 
@@ -3470,14 +3480,14 @@ class ModuleLoader {
     static _decodeModuleCode(moduleCode, buf_size) {
         if (wasmBase2nLoaded) {
             if (typeof globalThis.fastDecodeBase2n === "undefined") {
-                throw new LoaderError("WASM Base2n decoder not initialized");
+                throw new LoaderError("WASM Base2n decoder not loaded");
             }
 
             buf_size ??= Math.ceil(moduleCode.length * this._wasmBase2nMult);
             return fastDecodeBase2n(moduleCode, buf_size);
         } else {
             if (typeof globalThis.decodeBase2n === "undefined") {
-                throw new LoaderError("Base2n decoder not initialized");
+                throw new LoaderError("Base2n decoder not loaded");
             } else if (typeof globalThis.table === "undefined") {
                 throw new LoaderError("Base2n table not initialized");
             }
@@ -3695,66 +3705,68 @@ const Patches = {
     },
 
     patchMsgReply: () => {
-        const originalReply = globalThis.msg.reply;
+        let originalReply = globalThis.msg.reply,
+            customReply;
 
-        /*
-        const customReply = (text, reply) => {
-            let content = null;
+        if (true) {
+            customReply = (text, reply) => {
+                let content = null;
 
-            if (LoaderUtils.isObject(text)) {
-                reply = text;
+                if (LoaderUtils.isObject(text)) {
+                    reply = text;
 
-                content = String(reply.content || "");
-                delete reply.content;
-            } else {
-                reply ??= {};
-                content = String(text || "");
-            }
+                    content = String(reply.content || "");
+                    delete reply.content;
+                } else {
+                    reply ??= {};
+                    content = String(text || "");
+                }
 
-            const file = reply?.file;
-
-            if (!LoaderUtils.isObject(file)) {
                 originalReply(content, reply);
-                return exit();
-            } else delete reply.file;
+                exit();
+            };
+        } else {
+            customReply = (text, reply) => {
+                let content = null;
 
-            let fileName = file.name ?? "message.txt",
-                fileData = file.data;
+                if (LoaderUtils.isObject(text)) {
+                    reply = text;
 
-            const fileExt = fileName.includes(".") ? fileName.split(".").pop().toLowerCase() : "";
+                    content = String(reply.content || "");
+                    delete reply.content;
+                } else {
+                    reply ??= {};
+                    content = String(text || "");
+                }
 
-            if (typeof fileData === "string") {
-                fileData = LoaderTextEncoder.stringToUtf8(fileData);
-            } else if (!LoaderUtils.isArray(fileData)) {
-                fileData = LoaderTextEncoder.stringToBytes("Empty file");
-            }
+                const file = reply?.file;
 
-            const uploadUrl = UploadUtil.uploadToCatbox(fileData, fileExt, {
-                userhash: EncryptionUtil.caesarCipher("IKquOPtItGsJvIMuuMsPsOvNH", -16, 2)
-            });
+                if (!LoaderUtils.isObject(file)) {
+                    originalReply(content, reply);
+                    return exit();
+                } else delete reply.file;
 
-            content = `${content}\n${uploadUrl}`.trimStart();
-            originalReply(content, reply);
+                let fileName = file.name ?? "message.txt",
+                    fileData = file.data;
 
-            exit();
-        };
-        */
-        const customReply = (text, reply) => {
-            let content = null;
+                const fileExt = fileName.includes(".") ? fileName.split(".").pop().toLowerCase() : "";
 
-            if (LoaderUtils.isObject(text)) {
-                reply = text;
+                if (typeof fileData === "string") {
+                    fileData = LoaderTextEncoder.stringToUtf8(fileData);
+                } else if (!LoaderUtils.isArray(fileData)) {
+                    fileData = LoaderTextEncoder.stringToBytes("Empty file");
+                }
 
-                content = String(reply.content || "");
-                delete reply.content;
-            } else {
-                reply ??= {};
-                content = String(text || "");
-            }
+                const uploadUrl = UploadUtil.uploadToCatbox(fileData, fileExt, {
+                    userhash: EncryptionUtil.caesarCipher("IKquOPtItGsJvIMuuMsPsOvNH", -16, 2)
+                });
 
-            originalReply(content, reply);
-            exit();
-        };
+                content = `${content}\n${uploadUrl}`.trimStart();
+                originalReply(content, reply);
+
+                exit();
+            };
+        }
 
         globalThis.msg.reply = customReply;
     },
@@ -3778,12 +3790,9 @@ const Patches = {
             originalModule = Patches._origWasmModule;
 
         WebAssembly.instantiate = Benchmark.wrapFunction("wasm_instantiate", (bufferSource, importObject) => {
-            let wasmModule = null;
-
-            if (bufferSource instanceof WebAssembly.Module) wasmModule = bufferSource;
-            else wasmModule = new originalModule(bufferSource);
-
-            const instance = new WebAssembly.Instance(wasmModule, importObject);
+            const wasmModule =
+                    bufferSource instanceof WebAssembly.Module ? bufferSource : new originalModule(bufferSource),
+                instance = new WebAssembly.Instance(wasmModule, importObject);
 
             return Promise.resolve({
                 module: wasmModule,
@@ -3876,9 +3885,11 @@ const Patches = {
                 break;
             case "resvg":
                 break;
-            case "libvips":
-                break;
             case "lodepng":
+                break;
+            case "satori":
+                break;
+            case "babel":
                 break;
             default:
                 throw new LoaderError("Unknown library: " + library, library);
@@ -3890,27 +3901,29 @@ const Patches = {
     apply: (...patches) => {
         Benchmark.restartTiming("apply_patches");
 
-        const patchFuncs = patches.map(patch => {
-            const err = new LoaderError("Unknown patch: " + patch, patch);
+        try {
+            const patchFuncs = patches.map(patch => {
+                const err = new LoaderError("Unknown patch: " + patch, patch);
 
-            if (!Patches._patchPrefixes.some(prefix => patch.startsWith(prefix))) {
-                throw err;
-            }
+                if (!Patches._patchPrefixes.some(prefix => patch.startsWith(prefix))) {
+                    throw err;
+                }
 
-            const func = Patches[patch];
+                const func = Patches[patch];
 
-            if (typeof func !== "function" || func.length > 0) {
-                throw err;
-            }
+                if (typeof func !== "function" || func.length > 0) {
+                    throw err;
+                }
 
-            return func;
-        });
+                return func;
+            });
 
-        Patches.clearLoadedPatches();
-        patchFuncs.forEach(func => func());
-        Patches.addContextGlobals();
-
-        Benchmark.stopTiming("apply_patches");
+            Patches.clearLoadedPatches();
+            patchFuncs.forEach(func => func());
+            Patches.addContextGlobals();
+        } finally {
+            Benchmark.stopTiming("apply_patches");
+        }
     },
 
     applyAll: (library = config.loadLibrary) => {
@@ -3920,54 +3933,53 @@ const Patches = {
             timeKey += `_${library.toLowerCase()}`;
         }
 
+        Patches.clearLoadedPatches();
         Benchmark.restartTiming(timeKey);
 
-        Patches.clearLoadedPatches();
+        try {
+            Patches.polyfillConsole();
+            Patches.polyfillTimers();
 
-        Patches.polyfillConsole();
-        Patches.polyfillTimers();
-
-        switch (library) {
-            case "none":
-                break;
-            case "canvaskit":
-                Patches.polyfillPromise();
-                break;
-            case "resvg":
-                Patches.polyfillPromise();
-                Patches.polyfillBuffer();
-                Patches.polyfillTextEncoderDecoder();
-                break;
-            case "libvips":
-                Patches.polyfillPromise();
-                Patches.polyfillBuffer();
-                Patches.polyfillTextEncoderDecoder();
-                Patches.polyfillBlob();
-                Patches.polyfillXHR();
-                Patches.polyfillEvent();
-                Patches.polyfillWebWorker();
-                break;
-            case "lodepng":
-                if (config.useWasmBase2nDecoder) {
+            switch (library) {
+                case "none":
+                    break;
+                case "canvaskit":
                     Patches.polyfillPromise();
-                }
+                    break;
+                case "resvg":
+                    Patches.polyfillPromise();
+                    Patches.polyfillBuffer();
+                    Patches.polyfillTextEncoderDecoder();
+                    break;
+                case "lodepng":
+                    if (config.useWasmBase2nDecoder) {
+                        Patches.polyfillPromise();
+                    }
 
-                Patches.polyfillImageData();
-                break;
-            default:
-                Benchmark.stopTiming(timeKey, null);
-                throw new LoaderError("Unknown library: " + library, library);
+                    Patches.polyfillImageData();
+                    break;
+                case "satori":
+                    Patches.polyfillPromise();
+                    Patches.polyfillBuffer();
+                    Patches.polyfillTextEncoderDecoder();
+                    break;
+                case "babel":
+                    break;
+                default:
+                    Benchmark.stopTiming(timeKey, null);
+                    throw new LoaderError("Unknown library: " + library, library);
+            }
+
+            Patches.addContextGlobals();
+            Patches.addGlobalObjects(library);
+
+            Patches.patchMsgReply();
+
+            Patches.patchWasmModule();
+            Patches.patchWasmInstantiate();
+        } finally {
+            Benchmark.stopTiming(timeKey);
         }
-
-        Patches.addContextGlobals();
-        Patches.addGlobalObjects(library);
-
-        Patches.patchMsgReply();
-
-        Patches.patchWasmModule();
-        Patches.patchWasmInstantiate();
-
-        Benchmark.stopTiming(timeKey);
     },
 
     checkGlobalPolyfill(name, msg) {
@@ -4009,25 +4021,28 @@ const Patches = {
 // misc loader
 function loadBase64Utils() {
     if (typeof globalThis.Base64 !== "undefined") return;
+
     Benchmark.startTiming("load_base64");
+    let Base64;
 
-    const Base64 = ModuleLoader.loadModule(
-        null,
-        tags.Base64TagName,
+    try {
+        Base64 = ModuleLoader.loadModuleFromTag(
+            tags.Base64TagName,
 
-        {
-            cache: false /*,
+            {
+                cache: false /*,
                 breakpoint: config.enableDebugger */
-        }
-    );
+            }
+        );
 
-    if (!Base64) {
+        if (!Base64) {
+            throw new LoaderError("Base64 couldn't be loaded");
+        }
+    } finally {
         Benchmark.stopTiming("load_base64");
-        throw new LoaderError("Base64 couldn't be loaded");
     }
 
     Patches.patchGlobalContext({ Base64 });
-    Benchmark.stopTiming("load_base64");
 }
 
 let wasmBase2nLoaded = false;
@@ -4035,60 +4050,63 @@ let wasmBase2nLoaded = false;
 function loadBase2nDecoder() {
     function loadJsBase2nDecoder(charset = "normal") {
         if (typeof globalThis.decodeBase2n !== "undefined") return;
+
         Benchmark.startTiming("load_base2n");
+        let base2n, patchedDecode, table;
 
-        let base2n = ModuleLoader.loadModule(
-            null,
-            tags.Base2nTagName,
+        try {
+            base2n = ModuleLoader.loadModuleFromTag(
+                tags.Base2nTagName,
 
-            {
-                /* breakpoint: config.enableDebugger */
+                {
+                    /* breakpoint: config.enableDebugger */
+                }
+            );
+
+            if (!base2n) {
+                throw new LoaderError("Base2n couldn't be loaded");
+            } else ({ base2n } = base2n);
+
+            let charsetRanges,
+                sortRanges = true;
+
+            switch (charset) {
+                case "normal":
+                    charsetRanges = String.fromCodePoint(
+                        0x0021,
+                        0xd7ff,
+                        0xe000,
+                        0xe000 - (0xd7ff - 0x0021 + 1) + 2 ** 20 - 1
+                    );
+                    break;
+                case "linear":
+                    charsetRanges = charset = String.fromCodePoint(0x10000, 0x10000 + 2 ** 20 - 1);
+                    break;
+                case "base64":
+                    charsetRanges = "AZaz09++//";
+                    sortRanges = false;
+                    break;
+                default:
+                    throw new LoaderError("Unknown charset: " + charset, charset);
             }
-        );
 
-        if (!base2n) {
-            Benchmark.stopTiming("load_base2n");
-            throw new LoaderError("Base2n couldn't be loaded");
-        } else ({ base2n } = base2n);
+            table = base2n.Base2nTable.generate(charsetRanges, {
+                tableType: base2n.Base2nTableTypes.typedarray,
+                generateTables: [base2n.Base2nTableNames.decode],
+                sortRanges
+            });
 
-        let charsetRanges,
-            sortRanges = true;
-
-        switch (charset) {
-            case "normal":
-                charsetRanges = String.fromCodePoint(
-                    0x0021,
-                    0xd7ff,
-                    0xe000,
-                    0xe000 - (0xd7ff - 0x0021 + 1) + 2 ** 20 - 1
-                );
-                break;
-            case "linear":
-                charsetRanges = charset = String.fromCodePoint(0x10000, 0x10000 + 2 ** 20 - 1);
-                break;
-            case "base64":
-                charsetRanges = "AZaz09++//";
-                sortRanges = false;
-                break;
-            default:
-                throw new LoaderError("Unknown charset: " + charset, charset);
-        }
-
-        const table = base2n.Base2nTable.generate(charsetRanges, {
-            tableType: base2n.Base2nTableTypes.typedarray,
-            generateTables: [base2n.Base2nTableNames.decode],
-            sortRanges
-        });
-
-        const originalDecode = base2n.decodeBase2n,
+            const originalDecode = base2n.decodeBase2n;
             patchedDecode = Benchmark.wrapFunction("decode", originalDecode);
+        } finally {
+            Benchmark.stopTiming("load_base2n");
+        }
 
         Patches.patchGlobalContext({
             ...base2n,
             decodeBase2n: patchedDecode,
             table
         });
-        Benchmark.stopTiming("load_base2n");
     }
 
     function unloadJsBase2nDecoder() {
@@ -4105,52 +4123,53 @@ function loadBase2nDecoder() {
     function loadWasmBase2nDecoder() {
         if (typeof globalThis.fastDecodeBase2n !== "undefined") return;
         Patches.checkGlobalPolyfill("Promise", "Can't load WASM Base2n decoder.");
+
         Benchmark.startTiming("load_base2n_wasm");
+        let patchedDecode;
 
-        const Base2nWasmDec = ModuleLoader.loadModule(
-            null,
-            tags.Base2nWasmWrapperTagName,
+        try {
+            const Base2nWasmDec = ModuleLoader.loadModuleFromTag(
+                tags.Base2nWasmWrapperTagName,
 
-            {
-                scope: {
-                    CustomError
-                },
+                {
+                    scope: {
+                        CustomError
+                    },
 
-                cache: false /*,
+                    cache: false /*,
                 breakpoint: config.enableDebugger */
-            }
-        );
+                }
+            );
 
-        const DecoderInit = ModuleLoader.loadModule(
-            null,
-            tags.Base2nWasmInitTagName,
+            const DecoderInit = ModuleLoader.loadModuleFromTag(
+                tags.Base2nWasmInitTagName,
 
-            {
-                cache: false /*,
+                {
+                    cache: false /*,
                 breakpoint: config.enableDebugger */
-            }
-        );
+                }
+            );
 
-        console.replyWithLogs("warn");
-        if (!DecoderInit) {
+            console.replyWithLogs("warn");
+            if (!Base2nWasmDec | !DecoderInit) {
+                throw new LoaderError("Couldn't load WASM Base2n decoder");
+            }
+
+            const decoderWasm = ModuleLoader.getModuleCodeFromTag(tags.Base2nWasmWasmTagName, FileDataTypes.binary, {
+                encoded: true,
+                cache: false
+            });
+
+            Base2nWasmDec.init(DecoderInit, decoderWasm);
+            console.replyWithLogs("warn");
+
+            const originalDecode = Base2nWasmDec.decodeBase2n.bind(Base2nWasmDec);
+            patchedDecode = Benchmark.wrapFunction("decode", originalDecode);
+        } finally {
             Benchmark.stopTiming("load_base2n_wasm");
-            throw new LoaderError("Couldn't load WASM Base2n decoder");
         }
 
-        const decoderWasm = ModuleLoader.getModuleCode(null, tags.Base2nWasmWasmTagName, FileDataTypes.binary, {
-            encoded: true,
-            cache: false
-        });
-
-        Base2nWasmDec.init(DecoderInit, decoderWasm);
-
-        const originalDecode = Base2nWasmDec.decodeBase2n.bind(Base2nWasmDec),
-            patchedDecode = Benchmark.wrapFunction("decode", originalDecode);
-
-        console.replyWithLogs("warn");
-
         Patches.patchGlobalContext({ fastDecodeBase2n: patchedDecode });
-        Benchmark.stopTiming("load_base2n_wasm");
         wasmBase2nLoaded = true;
     }
 
@@ -4166,80 +4185,114 @@ function loadBase2nDecoder() {
 
 function loadXzDecompressor() {
     if (typeof globalThis.XzDecompressor !== "undefined") return;
+
     Benchmark.startTiming("load_xz_decompressor");
+    let XzDecompressor;
 
-    const XzDecompressor = ModuleLoader.loadModule(
-        null,
-        tags.XzDecompressorTagName,
+    try {
+        XzDecompressor = ModuleLoader.loadModuleFromTag(
+            tags.XzDecompressorTagName,
 
-        {
-            cache: false /*,
+            {
+                cache: false /*,
             breakpoint: config.enableDebugger */
-        }
-    );
+            }
+        );
 
-    if (!XzDecompressor) {
+        console.replyWithLogs("warn");
+        if (!XzDecompressor) {
+            throw new LoaderError("Couldn't load XZ decompressor");
+        }
+
+        const xzWasm = ModuleLoader.getModuleCodeFromTag(tags.XzWasmTagName, FileDataTypes.binary, {
+            encoded: true,
+            buf_size: 13 * 1024,
+            cache: false
+        });
+
+        XzDecompressor.loadWasm(xzWasm);
+        console.replyWithLogs("warn");
+
+        const originalDecompress = XzDecompressor.decompress,
+            patchedDecompress = Benchmark.wrapFunction("xz_decompress", originalDecompress);
+
+        XzDecompressor.decompress = patchedDecompress;
+    } finally {
         Benchmark.stopTiming("load_xz_decompressor");
-        throw new LoaderError("Couldn't load XZ decompressor");
     }
 
-    const xzWasm = ModuleLoader.getModuleCode(null, tags.XzWasmTagName, FileDataTypes.binary, {
-        encoded: true,
-        buf_size: 13 * 1024,
-        cache: false
-    });
-
-    XzDecompressor.loadWasm(xzWasm);
-
-    const originalDecompress = XzDecompressor.decompress,
-        patchedDecompress = Benchmark.wrapFunction("xz_decompress", originalDecompress);
-    XzDecompressor.decompress = patchedDecompress;
-
     Patches.patchGlobalContext({ XzDecompressor });
-    Benchmark.stopTiming("load_xz_decompressor");
 }
 
 function loadZstdDecompressor() {
     if (typeof globalThis.ZstdDecompressor !== "undefined") return;
+
     Benchmark.startTiming("load_zstd_decompressor");
+    let ZstdDecompressor;
 
-    const ZstdDecompressor = ModuleLoader.loadModule(
-        null,
-        tags.ZstdDecompressorTagName,
+    try {
+        ZstdDecompressor = ModuleLoader.loadModuleFromTag(
+            tags.ZstdDecompressorTagName,
 
-        {
-            cache: false /*,
+            {
+                cache: false /*,
             breakpoint: config.enableDebugger */
-        }
-    );
+            }
+        );
 
-    if (!ZstdDecompressor) {
+        console.replyWithLogs("warn");
+        if (!ZstdDecompressor) {
+            throw new LoaderError("Couldn't load Zstd decompressor");
+        }
+
+        const zstdWasm = ModuleLoader.getModuleCodeFromTag(tags.ZstdWasmTagName, FileDataTypes.binary, {
+            encoded: true,
+            buf_size: 50 * 1024,
+            cache: false
+        });
+
+        ZstdDecompressor.loadWasm(zstdWasm);
+        console.replyWithLogs("warn");
+
+        const originalDecompress = ZstdDecompressor.decompress,
+            patchedDecompress = Benchmark.wrapFunction("zstd_decompress", originalDecompress);
+
+        ZstdDecompressor.decompress = patchedDecompress;
+    } finally {
         Benchmark.stopTiming("load_zstd_decompressor");
-        throw new LoaderError("Couldn't load zstd decompressor");
     }
 
-    const zstdWasm = ModuleLoader.getModuleCode(null, tags.ZstdWasmTagName, FileDataTypes.binary, {
-        encoded: true,
-        buf_size: 50 * 1024,
-        cache: false
-    });
-
-    ZstdDecompressor.loadWasm(zstdWasm);
-
-    const originalDecompress = ZstdDecompressor.decompress,
-        patchedDecompress = Benchmark.wrapFunction("zstd_decompress", originalDecompress);
-    ZstdDecompressor.decompress = patchedDecompress;
-
     Patches.patchGlobalContext({ ZstdDecompressor });
-    Benchmark.stopTiming("load_zstd_decompressor");
 }
 
-function decompress(data) {
-    let decompressor = null;
+function decompress(data, type) {
+    if (ModuleLoader.loadSource !== "tag") return data;
 
-    if (features.useXzDecompressor) decompressor = XzDecompressor;
-    else if (features.useZstdDecompressor) decompressor = ZstdDecompressor;
-    else return data;
+    const decompressors = {
+        xz: globalThis.XzDecompressor,
+        zstd: globalThis.ZstdDecompressor
+    };
+
+    let decompressor;
+
+    if (type === null) {
+        decompressor = Object.values(decompressors).find(Boolean);
+
+        if (typeof decompressor === "undefined") {
+            throw new LoaderError("No decompressors loaded");
+        }
+    } else {
+        if (!Object.keys(decompressors).includes(type)) {
+            throw new LoaderError("Invalid decompressor type: " + type, type);
+        }
+
+        decompressor = decompressors[type];
+
+        if (typeof decompressor === "undefined") {
+            const typeStr = type.length <= 2 ? type.toUpperCase() : LoaderUtils.capitalize(type);
+            throw new LoaderError(`${typeStr} decompressor not loaded.`, type);
+        }
+    }
 
     return decompressor.decompress(data);
 }
@@ -4247,206 +4300,266 @@ function decompress(data) {
 // canvaskit loader
 function loadCanvasKit() {
     if (typeof globalThis.CanvasKit !== "undefined") return;
+
     Benchmark.startTiming("load_canvaskit");
+    let CanvasKit;
 
-    const CanvasKitInit = ModuleLoader.loadModule(
-        urls.CanvasKitLoaderUrl,
-        tags.CanvasKitLoaderTagName,
+    try {
+        const CanvasKitInit = ModuleLoader.loadModule(
+            urls.CanvasKitLoaderUrl,
+            tags.CanvasKitLoaderTagName,
 
-        {
-            cache: false,
-            breakpoint: config.enableDebugger
+            {
+                cache: false,
+                breakpoint: config.enableDebugger
+            }
+        );
+
+        console.replyWithLogs("warn");
+        if (!CanvasKitInit) {
+            throw new LoaderError("Couldn't load CanvasKit");
         }
-    );
 
-    console.replyWithLogs("warn");
-    if (!CanvasKitInit) {
+        let wasmTagName, buf_size;
+
+        if (features.useXzDecompressor) {
+            wasmTagName = tags.CanvasKitWasm1TagName;
+            buf_size = 2100 * 1024;
+        } else if (features.useZstdDecompressor) {
+            wasmTagName = tags.CanvasKitWasm2TagName;
+            buf_size = 2300 * 1024;
+        }
+
+        let wasm = ModuleLoader.getModuleCode(urls.CanvasKitWasmUrl, wasmTagName, FileDataTypes.binary, {
+            encoded: true,
+            buf_size,
+            cache: false
+        });
+        wasm = decompress(wasm, "zstd");
+
+        Benchmark.startTiming("canvaskit_init");
+
+        CanvasKitInit({
+            wasmBinary: wasm
+        })
+            .then(ck => (CanvasKit = ck))
+            .catch(err => console.error("Error occured while loading CanvasKit:", err));
+
+        Benchmark.stopTiming("canvaskit_init");
+        console.replyWithLogs("warn");
+
+        if (!CanvasKit) {
+            throw new LoaderError("Couldn't load CanvasKit");
+        }
+    } finally {
         Benchmark.stopTiming("load_canvaskit");
-        throw new LoaderError("Couldn't load CanvasKit");
-    }
-
-    let wasmTagName, buf_size;
-
-    if (features.useXzDecompressor) {
-        wasmTagName = tags.CanvasKitWasm1TagName;
-        buf_size = 2100 * 1024;
-    } else if (features.useZstdDecompressor) {
-        wasmTagName = tags.CanvasKitWasm2TagName;
-        buf_size = 2300 * 1024;
-    }
-
-    let wasm = ModuleLoader.getModuleCode(urls.CanvasKitWasmUrl, wasmTagName, FileDataTypes.binary, {
-        encoded: true,
-        buf_size,
-        cache: false
-    });
-    if (ModuleLoader.loadSource === "tag") wasm = decompress(wasm);
-
-    Benchmark.startTiming("canvaskit_init");
-    let CanvasKit = null;
-    CanvasKitInit({
-        wasmBinary: wasm
-    })
-        .then(ck => (CanvasKit = ck))
-        .catch(err => console.error("Error occured while loading CanvasKit:", err));
-    Benchmark.stopTiming("canvaskit_init");
-
-    console.replyWithLogs("warn");
-    if (!CanvasKit) {
-        Benchmark.stopTiming("load_canvaskit");
-        throw new LoaderError("Couldn't load CanvasKit");
     }
 
     Patches.patchGlobalContext({ CanvasKit });
-    Benchmark.stopTiming("load_canvaskit");
 }
 
 // resvg loader
 function loadResvg() {
     if (typeof globalThis.Resvg !== "undefined") return;
+
     Benchmark.startTiming("load_resvg");
+    let Resvg;
 
-    const ResvgInit = ModuleLoader.loadModule(
-        urls.ResvgLoaderUrl,
-        tags.ResvgLoaderTagName,
-
-        {
-            cache: false,
-            breakpoint: config.enableDebugger
-        }
-    );
-
-    console.replyWithLogs("warn");
-    if (!ResvgInit) {
-        Benchmark.stopTiming("load_resvg");
-        throw new LoaderError("Couldn't load resvg");
-    }
-
-    let wasm = ModuleLoader.getModuleCode(urls.ResvgWasmUrl, tags.ResvgWasmTagName, FileDataTypes.binary, {
-        encoded: true,
-        buf_size: 700 * 1024,
-        cache: false
-    });
-    if (ModuleLoader.loadSource === "tag") wasm = decompress(wasm);
-
-    Benchmark.startTiming("resvg_init");
     try {
-        ResvgInit.initWasm(wasm);
-    } catch (err) {
-        console.error("Error occured while loading resvg:", err);
-    }
-    Benchmark.stopTiming("resvg_init");
+        const ResvgInit = ModuleLoader.loadModule(
+            urls.ResvgLoaderUrl,
+            tags.ResvgLoaderTagName,
 
-    console.replyWithLogs("warn");
+            {
+                cache: false,
+                breakpoint: config.enableDebugger
+            }
+        );
 
-    Patches.patchGlobalContext({ Resvg: ResvgInit.Resvg });
-    Benchmark.stopTiming("load_resvg");
-}
-
-// libvips loader
-function loadLibVips() {
-    if (typeof globalThis.vips !== "undefined") return;
-    Benchmark.startTiming("load_libvips");
-
-    const initCode = ModuleLoader.getModuleCode(urls.LibVipsLoaderUrl, tags.LibVipsLoaderTagName);
-
-    const LibVipsInit = ModuleLoader.loadModuleFromSource(
-        initCode,
-
-        {
-            navigator: {
-                hardwareConcurrency: 1
-            },
-            document: {},
-            self: {
-                location: {
-                    href: new Blob(initCode)
-                }
-            },
-            clearInterval: _ => 1
-        },
-
-        config.enableDebugger,
-        {
-            cache: false
+        console.replyWithLogs("warn");
+        if (!ResvgInit) {
+            throw new LoaderError("Couldn't load resvg");
         }
-    );
 
-    console.replyWithLogs("warn");
-    if (!LibVipsInit) {
-        Benchmark.stopTiming("load_libvips");
-        throw new LoaderError("Couldn't load LibVips");
+        let wasm = ModuleLoader.getModuleCode(urls.ResvgWasmUrl, tags.ResvgWasmTagName, FileDataTypes.binary, {
+            encoded: true,
+            buf_size: 700 * 1024,
+            cache: false
+        });
+        wasm = decompress(wasm, "xz");
+
+        Benchmark.startTiming("resvg_init");
+
+        try {
+            ResvgInit.initWasm(wasm);
+        } catch (err) {
+            console.error("Error occured while loading resvg:", err);
+        }
+
+        Benchmark.stopTiming("resvg_init");
+        console.replyWithLogs("warn");
+
+        Resvg = ResvgInit.Resvg;
+        if (!Resvg) {
+            throw new LoaderError("Couldn't load resvg");
+        }
+    } finally {
+        Benchmark.stopTiming("load_resvg");
     }
 
-    let wasm = ModuleLoader.getModuleCode(urls.LibVipsWasmUrl, tags.LibVipsWasmTagName, FileDataTypes.binary, {
-        encoded: true
-    });
-    if (ModuleLoader.loadSource === "tag") wasm = decompress(wasm);
-
-    Benchmark.startTiming("libvips_init");
-    let vips = null;
-    LibVipsInit({
-        wasmBinary: wasm,
-        dynamicLibraries: []
-    })
-        .then(lib => (vips = lib))
-        .catch(err => console.error("Error occured while loading LibVips:", err));
-    Benchmark.stopTiming("libvips_init");
-
-    console.replyWithLogs("warn");
-    if (!vips) {
-        Benchmark.stopTiming("load_libvips");
-        throw new LoaderError("Couldn't load LibVips");
-    }
-
-    Patches.patchGlobalContext({ vips });
-    Benchmark.stopTiming("load_libvips");
+    Patches.patchGlobalContext({ Resvg });
 }
 
 // lodepng loader
 function loadLodepng() {
     if (typeof globalThis.lodepng !== "undefined") return;
+
     Benchmark.startTiming("load_lodepng");
+    let lodepng;
 
-    const wasm = ModuleLoader.getModuleCode(urls.LodepngWasmUrl, tags.LodepngWasmTagName, FileDataTypes.binary, {
-        encoded: true
-    });
+    try {
+        const wasm = ModuleLoader.getModuleCode(urls.LodepngWasmUrl, tags.LodepngWasmTagName, FileDataTypes.binary, {
+            encoded: true,
+            cache: false
+        });
 
-    const fakeRequire = ModuleRequireUtil.createFakeRequire({
-        path: {
-            join: (...args) => {}
-        },
-
-        fs: {
-            readFileSync: (path, options) => wasm
-        },
-
-        "@canvas/image-data": globals.ImageData
-    });
-
-    const lodepng = ModuleLoader.loadModule(
-        urls.LodepngInitUrl,
-        tags.LodepngInitTagName,
-
-        {
-            scope: {
-                require: fakeRequire,
-                __dirname: ""
+        const fakeRequire = ModuleRequireUtil.createFakeRequire({
+            path: {
+                join: (...args) => {}
             },
 
-            cache: false,
-            breakpoint: config.enableDebugger
-        }
-    );
+            fs: {
+                readFileSync: (path, options) => wasm
+            },
 
-    console.replyWithLogs("warn");
-    if (!lodepng) {
+            "@canvas/image-data": globals.ImageData
+        });
+
+        try {
+            lodepng = ModuleLoader.loadModule(
+                urls.LodepngInitUrl,
+                tags.LodepngInitTagName,
+
+                {
+                    scope: {
+                        require: fakeRequire,
+                        __dirname: ""
+                    },
+
+                    cache: false,
+                    breakpoint: config.enableDebugger
+                }
+            );
+        } catch (err) {
+            console.error("Error occured while loading lodepng:", err);
+        }
+
+        console.replyWithLogs("warn");
+        if (!lodepng) {
+            Benchmark.stopTiming("load_lodepng");
+            throw new LoaderError("Couldn't load lodepng");
+        }
+    } finally {
         Benchmark.stopTiming("load_lodepng");
-        throw new LoaderError("Couldn't load lodepng");
     }
 
     Patches.patchGlobalContext({ lodepng });
-    Benchmark.stopTiming("load_lodepng");
+}
+
+// satori loader
+function loadSatori() {
+    if (typeof globalThis.satori !== "undefined") return;
+
+    Benchmark.startTiming("load_satori");
+    let Satori;
+
+    try {
+        let code = null;
+
+        if (ModuleLoader.loadSource === "tag") {
+            code = ModuleLoader.getModuleCodeFromTag(tags.SatoriLoaderTagName, FileDataTypes.binary, {
+                encoded: true,
+                cache: false
+            });
+            code = ModuleLoader._parseModuleCode(decompress(code, "xz"), FileDataTypes.module);
+        } else {
+            code = ModuleLoader.getModuleCodeFromUrl(urls.SatoriLoaderUrl, FileDataTypes.module, {
+                cache: false
+            });
+        }
+
+        const SatoriInit = ModuleLoader.loadModuleFromSource(
+            code,
+            {
+                process: { env: {} }
+            },
+            config.enableDebugger,
+            {
+                cache: false
+            }
+        );
+
+        console.replyWithLogs("warn");
+        if (!SatoriInit) {
+            throw new LoaderError("Couldn't load Satori");
+        }
+
+        const wasm = ModuleLoader.getModuleCode(urls.SatoriWasmUrl, tags.SatoriWasmTagName, FileDataTypes.binary, {
+            encoded: true,
+            cache: false
+        });
+
+        Benchmark.startTiming("satori_init");
+
+        SatoriInit.init(wasm)
+            .then(() => (Satori = SatoriInit.default))
+            .catch(err => console.error("Error occured while loading Satori:", err));
+
+        Benchmark.stopTiming("satori_init");
+        console.replyWithLogs("warn");
+
+        if (!Satori) {
+            throw new LoaderError("Couldn't load Satori");
+        }
+    } finally {
+        Benchmark.stopTiming("load_satori");
+    }
+
+    Patches.patchGlobalContext({ Satori });
+}
+
+// babel loader
+function loadBabelStandalone() {
+    if (typeof globalThis.Babel !== "undefined") return;
+
+    Benchmark.startTiming("load_babel");
+    let BabelStandalone;
+
+    try {
+        let code = ModuleLoader.getModuleCode(
+            urls.BabelStandaloneUrl,
+            tags.BabelStandaloneTagName,
+            FileDataTypes.module,
+            {
+                encoded: true,
+                cache: false
+            }
+        );
+        code = decompress(code, "xz");
+
+        BabelStandalone = ModuleLoader.loadModuleFromSource(code, null, config.enableDebugger, {
+            cache: false
+        });
+
+        console.replyWithLogs("warn");
+        if (!BabelStandalone) {
+            throw new LoaderError("Couldn't load Babel");
+        }
+    } finally {
+        Benchmark.stopTiming("load_babel");
+    }
+
+    Patches.patchGlobalContext({ Babel: BabelStandalone });
 }
 
 // main
@@ -4462,34 +4575,36 @@ function mainPatch(loadLibrary) {
 
 const loadFuncLibs = ["none"];
 
-function mainLoadMisc(loadLibrary) {
-    function decideMiscConfig(library) {
-        switch (library) {
-            case "none":
-                break;
-            case "canvaskit":
-                features.useBase2nDecoder = true;
+function decideMiscConfig(library) {
+    switch (library) {
+        case "none":
+            break;
+        case "canvaskit":
+            features.useBase2nDecoder = true;
 
-                if (config.forceXzDecompressor) features.useXzDecompressor = true;
-                else features.useZstdDecompressor = true;
+            if (config.forceXzDecompressor) features.useXzDecompressor = true;
+            else features.useZstdDecompressor = true;
 
-                break;
-            case "resvg":
-                features.useBase2nDecoder = true;
-                features.useXzDecompressor = true;
-                break;
-            case "libvips":
-                features.useBase2nDecoder = true;
-                features.useXzDecompressor = true;
-                break;
-            case "lodepng":
-                features.useBase2nDecoder = true;
-                break;
-            default:
-                throw new LoaderError("Unknown library: " + library, library);
-        }
+            break;
+        case "resvg":
+            features.useBase2nDecoder = true;
+            features.useXzDecompressor = true;
+            break;
+        case "lodepng":
+            features.useBase2nDecoder = true;
+            break;
+        case "satori":
+            features.useBase2nDecoder = true;
+            features.useXzDecompressor = true;
+            break;
+        case "babel":
+            break;
+        default:
+            throw new LoaderError("Unknown library: " + library, library);
     }
+}
 
+function mainLoadMisc(loadLibrary) {
     if (Array.isArray(loadLibrary)) {
         if (loadLibrary.every(library => loadFuncLibs.includes(library))) {
             features.useLoadFuncs = true;
@@ -4508,48 +4623,55 @@ function mainLoadMisc(loadLibrary) {
     }
 }
 
-function mainLoadLibrary(loadLibrary) {
-    function subLoadLibrary(library) {
-        switch (library) {
-            case "none":
-                break;
-            case "canvaskit":
-                loadCanvasKit();
-                break;
-            case "resvg":
-                loadResvg();
-                break;
-            case "libvips":
-                loadLibVips();
-                break;
-            case "lodepng":
-                loadLodepng();
-                break;
-            default:
-                throw new LoaderError("Unknown library: " + library, library);
-        }
+function subLoadLibrary(library) {
+    switch (library) {
+        case "none":
+            break;
+        case "canvaskit":
+            loadCanvasKit();
+            break;
+        case "resvg":
+            loadResvg();
+            break;
+        case "lodepng":
+            loadLodepng();
+            break;
+        case "satori":
+            loadSatori();
+            break;
+        case "babel":
+            loadBabelStandalone();
+            break;
+        default:
+            throw new LoaderError("Unknown library: " + library, library);
     }
+}
 
+function mainLoadLibrary(loadLibrary) {
     if (Array.isArray(loadLibrary)) loadLibrary.forEach(subLoadLibrary);
     else subLoadLibrary(loadLibrary);
 }
 
-function addLoadFuncs() {
-    const wrapLoadFunc = func => {
-        return function (library) {
-            ModuleLoader.useDefault(() => func(library));
-        };
+function wrapLoadFunc(func) {
+    return function (library) {
+        ModuleLoader.useDefault(() => func(library));
     };
+}
 
+function addLoadFuncs() {
     const loadFuncs = {
         loadBase64Utils: wrapLoadFunc(loadBase64Utils),
         loadBase2nDecoder: wrapLoadFunc(loadBase2nDecoder),
         loadXzDecompressor: wrapLoadFunc(loadXzDecompressor),
-        loadZstdDecompressor: wrapLoadFunc(loadZstdDecompressor),
-        loadLibrary: wrapLoadFunc(mainLoad)
+        loadZstdDecompressor: wrapLoadFunc(loadZstdDecompressor)
     };
 
-    Patches.patchGlobalContext(loadFuncs);
+    const wrapperFuncs = {
+        loadLibrary: wrapLoadFunc(mainLoad),
+        decompress
+    };
+
+    Patches.patchGlobalContext({ ...loadFuncs, ...wrapperFuncs });
 }
 
 function mainLoad(loadLibrary) {

@@ -98,8 +98,7 @@ const main = (() => {
         let wasm = ModuleLoader.getModuleCode(urls.QalculatorWasm, tags.QalculatorWasm, FileDataTypes.binary, {
             encoded: true
         });
-
-        if (loadSource === "tag") wasm = ZstdDecompressor.decompress(wasm);
+        wasm = decompress(wasm, "zstd");
 
         let Qalc;
         QalcInit({
@@ -129,8 +128,7 @@ const main = (() => {
         let wasm = ModuleLoader.getModuleCode(urls.GnuplotWasm, tags.GnuplotWasm, FileDataTypes.binary, {
             encoded: true
         });
-
-        if (loadSource === "tag") wasm = ZstdDecompressor.decompress(wasm);
+        wasm = decompress(wasm, "zstd");
 
         let Gnuplot;
         GnuplotInit({
@@ -269,9 +267,6 @@ try {
     main();
 } catch (err) {
     // output
-    if (err instanceof ExitError) {
-        err.message;
-    } else {
-        throw err;
-    }
+    if (err instanceof ExitError) err.message;
+    else throw err;
 }

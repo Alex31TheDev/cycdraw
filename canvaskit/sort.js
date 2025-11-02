@@ -637,9 +637,6 @@ try {
     main();
 } catch (err) {
     // output
-    if (err instanceof ExitError) {
-        err.message;
-    } else {
-        throw err;
-    }
+    if (err instanceof ExitError) err.message;
+    else throw err;
 }

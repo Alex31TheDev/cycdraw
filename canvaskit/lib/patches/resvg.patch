@@ -1,5 +1,3 @@
---- "a/.\\canvaskit\\libs\\js\\original\\resvg.js"
-+++ "b/.\\canvaskit\\libs\\js\\new\\resvg.js"
 @@ -435,29 +435,10 @@ var Resvg = class {
      }
    }

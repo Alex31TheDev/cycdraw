@@ -5,7 +5,9 @@ if (!tag.args) msg.reply("width height");
 let [width, height] = tag.args.split(" ");
 [width, height] = [Number.parseInt(width, 10), Number.parseInt(height, 10)];
 
-if (Number.isNaN(width) || Number.isNaN(height) || width <= 0 || height <= 0) msg.reply("width height");
+if (Number.isNaN(width) || Number.isNaN(height) || width <= 0 || height <= 0) {
+    msg.reply("width height");
+}
 
 util.loadLibrary = "lodepng";
 util._isolateGlobals = false;
@@ -36,13 +38,18 @@ for (let y = 0; y < height; y++) {
     }
 }
 
-msg.reply({
-    file: {
-        name: "garmin.png",
-        data: lodepng.encode({
-            width,
-            height,
-            data: pixels
-        })
-    }
-});
+try {
+    msg.reply({
+        file: {
+            name: "garmin.png",
+            data: lodepng.encode({
+                width,
+                height,
+                data: pixels
+            })
+        }
+    });
+} catch (err) {
+    if (err instanceof ExitError) err.message;
+    else throw err;
+}
