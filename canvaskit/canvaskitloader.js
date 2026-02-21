@@ -174,7 +174,7 @@ class Logger {
 
         this.level = options.level ?? "info";
 
-        this._objIndentation = options.objIndentation ?? 4;
+        this._objIndent = options.objIndentation ?? 4;
 
         if (typeof options.formatLog === "function") {
             this._formatLog = options.formatLog.bind(this);
@@ -293,11 +293,21 @@ class Logger {
     }
 
     _formatObject(obj) {
+        switch (typeof obj) {
+            case "bigint":
+            case "number":
+                return obj.toString(10);
+            case "boolean":
+                return obj.toString();
+            case "string":
+                return obj;
+        }
+
         if (Array.isArray(obj)) return `[${obj.join(", ")}]`;
         else if (obj instanceof Error) return `${obj.message}\n${obj.stack}`;
         else {
-            const properties = Object.getOwnPropertyNames(obj);
-            return JSON.stringify(obj, properties, this._objIndentation);
+            const props = Object.getOwnPropertyNames(obj);
+            return JSON.stringify(obj, props, this._objIndent);
         }
     }
 
@@ -1567,7 +1577,10 @@ let LoaderUtils = {
             match = code.match(LoaderUtils._funcArgsRegex);
 
         if (!match) return [];
-        return match[1].split(", ").map(arg => arg.trim());
+        return match[1]
+            .split(",")
+            .map(arg => arg.trim())
+            .filter(Boolean);
     },
 
     getArgumentPositions: (func, names) => {
@@ -1605,7 +1618,8 @@ let LoaderUtils = {
     },
 
     parseRanges: (str, base = 16) => {
-        return str.split(" ").map(range => {
+        const split = str.split(/\s+/).filter(Boolean);
+        return split.map(range => {
             const [first, last] = range.split("-").map(x => LoaderUtils.parseInt(x, base));
             return [first, last ?? first];
         });
@@ -1627,7 +1641,7 @@ let LoaderUtils = {
         }
 
         const check = val => {
-            if (val === null) return false;
+            if (val == null) return true;
             return Number.isNaN(val) || val < min || val > max;
         };
 
@@ -1693,7 +1707,7 @@ let LoaderUtils = {
     },
 
     reverseObject: obj => {
-        return Object.fromEntriesObject.fromEntries(Object.entries(obj).map(([key, value]) => [value, key]));
+        return Object.fromEntries(Object.entries(obj).map(([key, value]) => [value, key]));
     },
 
     _validPropOptions: ["both", "enum", "nonenum", "keys"],
@@ -2807,15 +2821,22 @@ class ModuleCacheManager {
     }
 
     addModule(module, newName, reload = false) {
-        const name = module.name;
+        const name = module.name,
+            existing = this.getModuleByName(name);
 
-        if (!reload && this.getModuleById(name) !== null) {
+        if (!reload && existing !== null && existing.id !== module.id) {
             throw new LoaderError(`Module ${name} already exists`, name);
         }
 
         this._cache.set(name, module);
 
         if (newName != null) {
+            const alias = this.getModuleByName(newName);
+
+            if (!reload && alias !== null && alias.id !== module.id) {
+                throw new LoaderError(`Module ${newName} already exists`, newName);
+            }
+
             const newModule = new Module(module, newName);
             this._cache.set(newName, newModule);
         }
@@ -2871,6 +2892,11 @@ class ModuleGlobalsUtil {
     }
 
     static _globalsProxyHandler = {
+        get(target, prop, reciever) {
+            const value = Reflect.get(target, prop, reciever);
+            return value === null ? undefined : value;
+        },
+
         set(target, prop, value, reciever) {
             if (value == null) return false;
 
@@ -2957,8 +2983,10 @@ class ModuleStackTraceUtil {
     static errLocationExp = /<anonymous>:(\d+):(\d+)\)$/;
 
     static getLocation(stackFrame) {
-        const match = stackFrame.match(this.errLocationExp),
-            lineNum = match[1] ? match[1] - ModuleTemplateUtil.moduleCodeStartLine : 0,
+        const match = stackFrame.match(this.errLocationExp);
+        if (!match) return [0, 0];
+
+        const lineNum = match[1] ? match[1] - ModuleTemplateUtil.moduleCodeStartLine : 0,
             columnNum = match[2] ?? 0;
 
         return [lineNum, columnNum];
@@ -3022,7 +3050,7 @@ class ModuleLoader {
         }
 
         for (const name of vars) {
-            if (!(name in config) || (!name) in this) {
+            if (!(name in config) || !(name in this)) {
                 throw new LoaderError(`Variable ${name} doesn't exist`);
             }
 
@@ -3037,8 +3065,11 @@ class ModuleLoader {
         }
 
         if (useCb) {
-            cb();
-            Object.assign(this, old);
+            try {
+                return cb();
+            } finally {
+                Object.assign(this, old);
+            }
         }
     }
 
@@ -3047,14 +3078,14 @@ class ModuleLoader {
             throw new LoaderError("Invalid URL");
         }
 
-        const name = options.name ?? url,
-            cache = this.enableCache && (options.cache ?? true),
+        const codename = `${options.name ?? url}:${returnType}`;
+
+        const returnRes = options.returnResponse ?? false,
+            cache = this.enableCache && (options.cache ?? true) && !returnRes,
             forceReload = options.forceReload ?? false;
 
-        const returnRes = options.returnResponse ?? false;
-
         if (cache && !forceReload) {
-            const foundCode = this._Cache.getCodeByName(name);
+            const foundCode = this._Cache.getCodeByName(codename);
             if (foundCode !== null) return foundCode.code;
         }
 
@@ -3069,7 +3100,7 @@ class ModuleLoader {
         }
 
         if (cache) {
-            const code = new ModuleCode(name, moduleCode, returnType);
+            const code = new ModuleCode(codename, moduleCode, returnType);
             this._Cache.addCode(code, forceReload);
         }
 
@@ -3081,12 +3112,13 @@ class ModuleLoader {
             throw new LoaderError("Invalid tag name");
         }
 
-        const name = options.name ?? tagName,
-            cache = this.enableCache && (options.cache ?? true),
+        const codename = `${options.name ?? tagName}:${returnType}`;
+
+        const cache = this.enableCache && (options.cache ?? true),
             forceReload = options.forceReload ?? false;
 
         if (cache && !forceReload) {
-            const foundCode = this._Cache.getCodeByName(name);
+            const foundCode = this._Cache.getCodeByName(codename);
             if (foundCode !== null) return foundCode.code;
         }
 
@@ -3100,7 +3132,7 @@ class ModuleLoader {
         moduleCode = this._parseModuleCode(moduleCode, returnType);
 
         if (cache) {
-            const code = new ModuleCode(name, moduleCode, returnType);
+            const code = new ModuleCode(codename, moduleCode, returnType);
             this._Cache.addCode(code, forceReload);
         }
 
@@ -3110,13 +3142,13 @@ class ModuleLoader {
     static getModuleCode(url, tagName, ...args) {
         switch (this.loadSource) {
             case "url":
-                if (url === null) {
+                if (url == null) {
                     return;
                 }
 
                 return this.getModuleCodeFromUrl(url, ...args);
             case "tag":
-                if (tagName === null) {
+                if (tagName == null) {
                     return;
                 }
 
@@ -3139,7 +3171,9 @@ class ModuleLoader {
             if (foundModule !== null) return foundModule.exports;
         }
 
-        moduleCode = moduleCode.trim();
+        if (typeof moduleCode !== "string") {
+            throw new LoaderError("Invalid module code");
+        } else moduleCode = moduleCode.trim();
 
         if (!LoaderUtils.nonemptyString(moduleCode)) {
             throw new LoaderError("Invalid module code");
@@ -3234,12 +3268,14 @@ class ModuleLoader {
             loadArgs = Object.values(scopeObj);
 
         const cleanup = () => {
-            if (isolateGlobals) {
-                Patches.removeFromGlobalContext("nondefault");
-                Patches.patchGlobalContext(originalGlobal);
+            try {
+                if (isolateGlobals) {
+                    Patches.removeFromGlobalContext("nondefault");
+                    Patches.patchGlobalContext(originalGlobal);
+                }
+            } finally {
+                if (cache && !module.loaded) this._Cache.deleteModule(module);
             }
-
-            if (cache && !module.loaded) this._Cache.deleteModule(module);
         };
 
         if (wrapErrors) {
@@ -4151,7 +4187,7 @@ function loadBase2nDecoder() {
             );
 
             console.replyWithLogs("warn");
-            if (!Base2nWasmDec | !DecoderInit) {
+            if (!Base2nWasmDec || !DecoderInit) {
                 throw new LoaderError("Couldn't load WASM Base2n decoder");
             }
 
@@ -4275,7 +4311,7 @@ function decompress(data, type) {
 
     let decompressor;
 
-    if (type === null) {
+    if (type == null) {
         decompressor = Object.values(decompressors).find(Boolean);
 
         if (typeof decompressor === "undefined") {
@@ -4320,14 +4356,16 @@ function loadCanvasKit() {
             throw new LoaderError("Couldn't load CanvasKit");
         }
 
-        let wasmTagName, buf_size;
+        let wasmTagName, buf_size, decompType;
 
         if (features.useXzDecompressor) {
             wasmTagName = tags.CanvasKitWasm1TagName;
             buf_size = 2100 * 1024;
+            decompType = "xz";
         } else if (features.useZstdDecompressor) {
             wasmTagName = tags.CanvasKitWasm2TagName;
             buf_size = 2300 * 1024;
+            decompType = "zstd";
         }
 
         let wasm = ModuleLoader.getModuleCode(urls.CanvasKitWasmUrl, wasmTagName, FileDataTypes.binary, {
@@ -4335,7 +4373,7 @@ function loadCanvasKit() {
             buf_size,
             cache: false
         });
-        wasm = decompress(wasm, "zstd");
+        wasm = decompress(wasm, decompType);
 
         Benchmark.startTiming("canvaskit_init");
 

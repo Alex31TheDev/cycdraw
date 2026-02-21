@@ -50,7 +50,7 @@ const main = (() => {
                         throw new ExitError(out);
                     }
 
-                    const scale = Number.parseInt(scaleStr, 10);
+                    scale = Number.parseInt(scaleStr, 10);
 
                     if (Number.isNaN(scale) || scale < 1 || scale > maxScale) {
                         const out = `:warning: Invalid pixel scale provided: \`${scaleStr}\`\n${usage}`;
