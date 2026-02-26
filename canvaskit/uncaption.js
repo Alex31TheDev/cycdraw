@@ -117,13 +117,7 @@ const main = (() => {
 
     function loadCycdraw() {
         Benchmark.restartTiming("load_libraries");
-
-        Benchmark.startTiming("load_cycdraw");
-        const cycdraw = ModuleLoader.loadModuleFromTag(tags.Cycdraw);
-        Benchmark.stopTiming("load_cycdraw");
-
-        Patches.patchGlobalContext(cycdraw);
-
+        loadLibrary("cycdraw");
         Benchmark.stopTiming("load_libraries");
 
         bgColor = new Color(...bgColor);
@@ -135,13 +129,7 @@ const main = (() => {
         }
 
         Benchmark.restartTiming("load_libraries");
-
-        Benchmark.startTiming("load_gifenc");
-        const gifenc = ModuleLoader.loadModuleFromTag(tags.GifEncoder);
-        Benchmark.stopTiming("load_gifenc");
-
-        Patches.patchGlobalContext({ gifenc });
-
+        loadLibrary("gifenc");
         Benchmark.stopTiming("load_libraries");
     }
 

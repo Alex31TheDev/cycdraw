@@ -72,9 +72,9 @@ const main = () => {
     const { text, targetMsg } = parseArgs();
     const lineHeight = Number.parseInt(text, 10);
     if (!Number.isFinite(lineHeight) || lineHeight <= 0) exit(":warning: Invalid line width provided.\n" + usage);
-    Patches.patchGlobalContext(ModuleLoader.loadModuleFromTag(tags.Cycdraw));
+    loadLibrary("cycdraw");
     ({ image, width, height, isGif } = loadImage());
-    if (isGif) Patches.patchGlobalContext({ gifenc: ModuleLoader.loadModuleFromTag(tags.GifEncoder) });
+    if (isGif) loadLibrary("gifenc");
     else if (targetMsg.attachInfo.ext === ".png") image = Image.fromImageData(image);
     else image = Image.fromCanvaskitImage(image, true);
     addLinesMain(lineHeight);

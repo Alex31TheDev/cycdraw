@@ -62,9 +62,9 @@ const main = () => {
         isolateGlobals: false
     });
     const { targetMsg } = parseArgs();
-    Patches.patchGlobalContext(ModuleLoader.loadModuleFromTag(tags.Cycdraw));
+    loadLibrary("cycdraw");
     ({ image, width, height, isGif } = loadImage());
-    if (isGif) Patches.patchGlobalContext({ gifenc: ModuleLoader.loadModuleFromTag(tags.GifEncoder) });
+    if (isGif) loadLibrary("gifenc");
     else if (targetMsg.attachInfo.ext === ".png") image = Image.fromImageData(image);
     else image = Image.fromCanvaskitImage(image, true);
     addLinesMain();

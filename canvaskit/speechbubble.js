@@ -310,15 +310,10 @@ const main = (() => {
     }
 
     function loadLodepng() {
-        loadLibrary("lodepng");
-
         Benchmark.startTiming("load_libraries");
 
-        Benchmark.startTiming("load_cycdraw");
-        const cycdraw = ModuleLoader.loadModuleFromTag(tags.Cycdraw);
-        Benchmark.stopTiming("load_cycdraw");
-
-        Patches.patchGlobalContext(cycdraw);
+        loadLibrary("cycdraw");
+        loadLibrary("lodepng");
 
         Benchmark.stopTiming("load_libraries");
     }

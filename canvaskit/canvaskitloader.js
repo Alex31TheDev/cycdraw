@@ -35,11 +35,14 @@ const urls = {
     CanvasKitLoaderUrl: "https://unpkg.com/canvaskit-wasm@0.39.1/bin/canvaskit.js",
     CanvasKitWasmUrl: "https://unpkg.com/canvaskit-wasm@0.39.1/bin/canvaskit.wasm",
 
+    CycdrawUrl: "https://raw.githubusercontent.com/Alex31TheDev/cycdraw/refs/heads/main/canvaskit/cycdraw.js",
+
     ResvgLoaderUrl: "https://files.catbox.moe/5fiy8q.js",
     ResvgWasmUrl: "https://cdn.jsdelivr.net/npm/@resvg/resvg-wasm@2.6.2/index_bg.wasm",
 
     LodepngInitUrl: "https://cdn.jsdelivr.net/npm/@cwasm/lodepng@0.1.7/index.js",
     LodepngWasmUrl: "https://cdn.jsdelivr.net/npm/@cwasm/lodepng@0.1.7/lodepng.wasm",
+    GifEncoderUrl: "https://cdn.jsdelivr.net/npm/gifenc@1.0.3/dist/gifenc.js",
 
     SatoriLoaderUrl: "https://files.catbox.moe/c2xoqd.js",
     SatoriWasmUrl: "https://files.catbox.moe/jw8hmm.wasm",
@@ -70,11 +73,14 @@ const tags = {
     CanvasKitWasm1TagName: /^ck_wasm\d+$/,
     CanvasKitWasm2TagName: /^ck_wasm_new\d+$/,
 
+    CycdrawTagName: "ck_cycdraw",
+
     ResvgLoaderTagName: "ck_resvg_init",
     ResvgWasmTagName: /^ck_resvg_wasm\d+$/,
 
     LodepngInitTagName: "ck_lodepng_init",
     LodepngWasmTagName: "ck_lodepng_wasm",
+    GifEncoderTagName: "ck_gifenc",
 
     SatoriLoaderTagName: /^ck_satori_init\d+$/,
     SatoriWasmTagName: /^ck_satori_wasm\d+$/,
@@ -3919,9 +3925,13 @@ const Patches = {
                 break;
             case "canvaskit":
                 break;
+            case "cycdraw":
+                break;
             case "resvg":
                 break;
             case "lodepng":
+                break;
+            case "gifenc":
                 break;
             case "satori":
                 break;
@@ -3982,6 +3992,8 @@ const Patches = {
                 case "canvaskit":
                     Patches.polyfillPromise();
                     break;
+                case "cycdraw":
+                    break;
                 case "resvg":
                     Patches.polyfillPromise();
                     Patches.polyfillBuffer();
@@ -3993,6 +4005,8 @@ const Patches = {
                     }
 
                     Patches.polyfillImageData();
+                    break;
+                case "gifenc":
                     break;
                 case "satori":
                     Patches.polyfillPromise();
@@ -4396,6 +4410,35 @@ function loadCanvasKit() {
     Patches.patchGlobalContext({ CanvasKit });
 }
 
+// cycdraw loader
+function loadCycdraw() {
+    if (typeof globalThis.f_1 !== "undefined") return;
+
+    Benchmark.startTiming("load_cycdraw");
+    let cycdraw;
+
+    try {
+        cycdraw = ModuleLoader.loadModule(
+            urls.CycdrawUrl,
+            tags.CycdrawTagName,
+
+            {
+                cache: false,
+                breakpoint: config.enableDebugger
+            }
+        );
+
+        console.replyWithLogs("warn");
+        if (!cycdraw) {
+            throw new LoaderError("Couldn't load cycdraw");
+        }
+    } finally {
+        Benchmark.stopTiming("load_cycdraw");
+    }
+
+    Patches.patchGlobalContext(cycdraw);
+}
+
 // resvg loader
 function loadResvg() {
     if (typeof globalThis.Resvg !== "undefined") return;
@@ -4502,6 +4545,35 @@ function loadLodepng() {
     }
 
     Patches.patchGlobalContext({ lodepng });
+}
+
+// gifenc loader
+function loadGifEncoder() {
+    if (typeof globalThis.gifenc !== "undefined") return;
+
+    Benchmark.startTiming("load_gifenc");
+    let gifenc;
+
+    try {
+        gifenc = ModuleLoader.loadModule(
+            urls.GifEncoderUrl,
+            tags.GifEncoderTagName,
+
+            {
+                cache: false,
+                breakpoint: config.enableDebugger
+            }
+        );
+
+        console.replyWithLogs("warn");
+        if (!gifenc) {
+            throw new LoaderError("Couldn't load gifenc");
+        }
+    } finally {
+        Benchmark.stopTiming("load_gifenc");
+    }
+
+    Patches.patchGlobalContext({ gifenc });
 }
 
 // satori loader
@@ -4624,12 +4696,16 @@ function decideMiscConfig(library) {
             else features.useZstdDecompressor = true;
 
             break;
+        case "cycdraw":
+            break;
         case "resvg":
             features.useBase2nDecoder = true;
             features.useXzDecompressor = true;
             break;
         case "lodepng":
             features.useBase2nDecoder = true;
+            break;
+        case "gifenc":
             break;
         case "satori":
             features.useBase2nDecoder = true;
@@ -4668,11 +4744,17 @@ function subLoadLibrary(library) {
         case "canvaskit":
             loadCanvasKit();
             break;
+        case "cycdraw":
+            loadCycdraw();
+            break;
         case "resvg":
             loadResvg();
             break;
         case "lodepng":
             loadLodepng();
+            break;
+        case "gifenc":
+            loadGifEncoder();
             break;
         case "satori":
             loadSatori();
