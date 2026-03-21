@@ -1,5 +1,5 @@
 "use strict";
-/* global decodeBase2n:readonly, table:readonly, fastDecodeBase2n:readonly */
+/* global decodeBase2n:readonly, table:readonly, fastDecodeBase2n:readonly, fastDecodeBase127:readonly */
 
 // config
 const config = {
@@ -17,7 +17,9 @@ const config = {
 const features = {};
 
 function resetFeatures() {
+    features.useBase64Utils = false;
     features.useBase2nDecoder = false;
+    features.useBase127Decoder = false;
     features.useXzDecompressor = false;
     features.useZstdDecompressor = false;
     features.useLoadFuncs = false;
@@ -62,6 +64,9 @@ const tags = {
     Base2nWasmWrapperTagName: "ck_base2nwasm_dec",
     Base2nWasmInitTagName: "ck_base2nwasm_init",
     Base2nWasmWasmTagName: "ck_base2nwasm_wasm",
+
+    Base127WasmWrapperTagName: "ck_base127wasm_dec",
+    Base127WasmWasmTagName: "ck_base127wasm_wasm",
 
     XzDecompressorTagName: "ck_xz_decomp",
     XzWasmTagName: "ck_xz_wasm",
@@ -1967,11 +1972,11 @@ const LoaderTextEncoder = Object.freeze({
         return bytes;
     },
 
-    bytesToString: bytes => {
+    bytesToString: data => {
         let str = "";
 
-        for (let i = 0; i < bytes.length; i++) {
-            str += String.fromCharCode(bytes[i]);
+        for (let i = 0; i < data.length; i += 0x40) {
+            str += String.fromCharCode(...data.subarray(i, i + 0x40));
         }
 
         return str;
@@ -3155,7 +3160,10 @@ class ModuleLoader {
             buf_size = options.buf_size;
 
         let moduleCode = this._fetchTagBody(tagName, owner, options);
-        if (encoded) moduleCode = this._decodeModuleCode(moduleCode, buf_size);
+        if (encoded) {
+            const encoder = encoded === true ? "base2n" : encoded;
+            moduleCode = this._decodeModuleCode(moduleCode, encoder, buf_size);
+        }
 
         moduleCode = this._parseModuleCode(moduleCode, returnType);
 
@@ -3541,7 +3549,27 @@ class ModuleLoader {
 
     static _wasmBase2nMult = 5 / 3;
 
-    static _decodeModuleCode(moduleCode, buf_size) {
+    static _decodeBase64Code(moduleCode) {
+        if (typeof moduleCode !== "string") {
+            throw new LoaderError("Base64 decoder expects a string");
+        }
+
+        if (
+            typeof globalThis.Base64 !== "undefined" &&
+            LoaderUtils.isObject(globalThis.Base64) &&
+            typeof globalThis.Base64.decode === "function"
+        ) {
+            return globalThis.Base64.decode(moduleCode);
+        } else if (typeof globalThis.Buffer !== "undefined") {
+            return Uint8Array.from(globalThis.Buffer.from(moduleCode, "base64"));
+        } else if (typeof globalThis.atob === "function") {
+            return LoaderTextEncoder.stringToBytes(atob(moduleCode));
+        } else {
+            throw new LoaderError("No base64 decoder available");
+        }
+    }
+
+    static _decodeBase2nCode(moduleCode, buf_size) {
         if (wasmBase2nLoaded) {
             if (typeof globalThis.fastDecodeBase2n === "undefined") {
                 throw new LoaderError("WASM Base2n decoder not loaded");
@@ -3559,6 +3587,31 @@ class ModuleLoader {
             return decodeBase2n(moduleCode, table, {
                 predictSize: true
             });
+        }
+    }
+
+    static _decodeBase127Code(moduleCode) {
+        if (typeof globalThis.fastDecodeBase127 === "undefined") {
+            throw new LoaderError("WASM Base127 decoder not loaded");
+        }
+
+        return fastDecodeBase127(moduleCode);
+    }
+
+    static _decodeModuleCode(moduleCode, encoder, buf_size) {
+        if (typeof encoder !== "string") {
+            throw new LoaderError("Invalid encoder: " + encoder, encoder);
+        }
+
+        switch (encoder.toLowerCase()) {
+            case "base64":
+                return this._decodeBase64Code(moduleCode);
+            case "base2n":
+                return this._decodeBase2nCode(moduleCode, buf_size);
+            case "base127":
+                return this._decodeBase127Code(moduleCode);
+            default:
+                throw new LoaderError("Unknown encoder: " + encoder, encoder);
         }
     }
 
@@ -4263,6 +4316,44 @@ function loadBase2nDecoder() {
     }
 }
 
+function loadBase127Decoder() {
+    if (typeof globalThis.fastDecodeBase127 !== "undefined") return;
+
+    Benchmark.startTiming("load_base127_wasm");
+    let patchedDecode;
+
+    try {
+        const Base127Wasm = ModuleLoader.loadModuleFromTag(
+            tags.Base127WasmWrapperTagName,
+
+            {
+                cache: false /*,
+                breakpoint: config.enableDebugger */
+            }
+        );
+
+        console.replyWithLogs("warn");
+        if (!Base127Wasm) {
+            throw new LoaderError("Couldn't load WASM Base127 decoder");
+        }
+
+        const decoderWasm = ModuleLoader.getModuleCodeFromTag(tags.Base127WasmWasmTagName, FileDataTypes.binary, {
+            encoded: "base64",
+            cache: false
+        });
+
+        Base127Wasm.loadWasm(decoderWasm);
+        console.replyWithLogs("warn");
+
+        const originalDecode = Base127Wasm.decode.bind(Base127Wasm);
+        patchedDecode = Benchmark.wrapFunction("decode_base127", originalDecode);
+    } finally {
+        Benchmark.stopTiming("load_base127_wasm");
+    }
+
+    Patches.patchGlobalContext({ fastDecodeBase127: patchedDecode });
+}
+
 function loadXzDecompressor() {
     if (typeof globalThis.XzDecompressor !== "undefined") return;
 
@@ -4822,6 +4913,8 @@ function decideMiscConfig(library) {
         default:
             throw new LoaderError("Unknown library: " + library, library);
     }
+
+    if (features.useBase127Decoder) features.useBase64Utils = true;
 }
 
 function mainLoadMisc(libraries) {
@@ -4834,7 +4927,9 @@ function mainLoadMisc(libraries) {
     libraries.forEach(decideMiscConfig);
 
     if (ModuleLoader.loadSource === "tag") {
+        if (features.useBase64Utils) loadBase64Utils();
         if (features.useBase2nDecoder) loadBase2nDecoder();
+        if (features.useBase127Decoder) loadBase127Decoder();
         if (features.useXzDecompressor) loadXzDecompressor();
         if (features.useZstdDecompressor) loadZstdDecompressor();
     }
@@ -4862,6 +4957,7 @@ function addLoadFuncs() {
     const loadFuncs = {
         loadBase64Utils: wrapLoadFunc(loadBase64Utils),
         loadBase2nDecoder: wrapLoadFunc(loadBase2nDecoder),
+        loadBase127Decoder: wrapLoadFunc(loadBase127Decoder),
         loadXzDecompressor: wrapLoadFunc(loadXzDecompressor),
         loadZstdDecompressor: wrapLoadFunc(loadZstdDecompressor)
     };
