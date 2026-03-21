@@ -1,5 +1,5 @@
 "use strict";
-/* global CanvasKitUtil:readonly, gifenc:readonly, Image:readonly, Color:readonly */
+/* global CanvasKitUtil:readonly */
 
 // config
 const sliceWidth = 10,

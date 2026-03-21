@@ -14,13 +14,14 @@ const config = {
     tagOwner: "883072834790916137"
 };
 
-const features = {
-    useBase2nDecoder: false,
-    useXzDecompressor: false,
-    useZstdDecompressor: false,
+const features = {};
 
-    useLoadFuncs: false
-};
+function resetFeatures() {
+    features.useBase2nDecoder = false;
+    features.useXzDecompressor = false;
+    features.useZstdDecompressor = false;
+    features.useLoadFuncs = false;
+}
 
 const consoleOpts = {};
 
@@ -42,7 +43,11 @@ const urls = {
 
     LodepngInitUrl: "https://cdn.jsdelivr.net/npm/@cwasm/lodepng@0.1.7/index.js",
     LodepngWasmUrl: "https://cdn.jsdelivr.net/npm/@cwasm/lodepng@0.1.7/lodepng.wasm",
+
     GifEncoderUrl: "https://cdn.jsdelivr.net/npm/gifenc@1.0.3/dist/gifenc.js",
+
+    H264MP4EncoderLoaderUrl: "https://litter.catbox.moe/uuzdh4tgsewoztvh.js",
+    H264MP4EncoderWasmUrl: "https://litter.catbox.moe/qhrviwvae3eps80a.wasm",
 
     SatoriLoaderUrl: "https://files.catbox.moe/c2xoqd.js",
     SatoriWasmUrl: "https://files.catbox.moe/jw8hmm.wasm",
@@ -80,7 +85,11 @@ const tags = {
 
     LodepngInitTagName: "ck_lodepng_init",
     LodepngWasmTagName: "ck_lodepng_wasm",
+
     GifEncoderTagName: "ck_gifenc",
+
+    H264MP4EncoderLoaderTagName: "",
+    H264MP4EncoderWasmTagName: "",
 
     SatoriLoaderTagName: /^ck_satori_init\d+$/,
     SatoriWasmTagName: /^ck_satori_wasm\d+$/,
@@ -157,7 +166,6 @@ class LoaderError extends ReferenceError {
         "dumpTags",
         "fetchMessage",
         "fetchMessages",
-        "findTags",
         "executeTag"
     ];
 
@@ -1604,6 +1612,10 @@ let LoaderUtils = {
         return Array.isArray(arr) || ArrayBuffer.isView(arr);
     },
 
+    isTypedArray: arr => {
+        return ArrayBuffer.isView(arr) && !(arr instanceof DataView);
+    },
+
     isClass: obj => {
         if (typeof obj !== "function") return false;
         else if (obj.toString().startsWith("class")) return true;
@@ -1686,6 +1698,18 @@ let LoaderUtils = {
     bufferIsGif: buf => {
         const header = LoaderTextEncoder.bytesToString(buf.slice(0, 6));
         return ["GIF87a", "GIF89a"].includes(header);
+    },
+
+    asUint8Array: data => {
+        if (data instanceof Uint8Array) {
+            return data;
+        } else if (LoaderUtils.isTypedArray(data)) {
+            return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+        } else if (data instanceof ArrayBuffer) {
+            return new Uint8Array(data);
+        } else {
+            throw new LoaderError("Invalid input binary");
+        }
     },
 
     filterObject: (obj, keyFunc, valFunc) => {
@@ -2271,9 +2295,7 @@ let UploadUtil = {
             otherFields = options.fields ?? {},
             contentType = options.contentType ?? HttpUtil.getContentType(ext);
 
-        if (!(data instanceof Uint8Array)) {
-            throw new UtilError("Invalid input data");
-        }
+        data = LoaderUtils.asUint8Array(data);
 
         const formBoundary = HttpUtil.getFormBoundary(),
             formMeta = [];
@@ -3750,6 +3772,8 @@ const Patches = {
         let originalReply = globalThis.msg.reply,
             customReply;
 
+        if (originalReply?.patched === true) return;
+
         if (true) {
             customReply = (text, reply) => {
                 let content = null;
@@ -3810,11 +3834,12 @@ const Patches = {
             };
         }
 
+        customReply.patched = true;
         globalThis.msg.reply = customReply;
     },
 
     patchWasmModule: () => {
-        if (WebAssembly.patchedModule === true) return;
+        if (WebAssembly.Module.patched === true) return;
 
         const original = WebAssembly.Module;
 
@@ -3822,11 +3847,11 @@ const Patches = {
         WebAssembly.Module.prototype = original.prototype;
 
         Patches._origWasmModule = original;
-        WebAssembly.patchedModule = true;
+        WebAssembly.Module.patched = true;
     },
 
     patchWasmInstantiate: () => {
-        if (WebAssembly.patchedInstantiate === true) return;
+        if (WebAssembly.instantiate.patched === true) return;
 
         const original = WebAssembly.instantiate,
             originalModule = Patches._origWasmModule;
@@ -3843,7 +3868,7 @@ const Patches = {
         });
 
         Patches._origWasmInstantiate = original;
-        WebAssembly.patchedInstantiate = true;
+        WebAssembly.instantiate.patched = true;
     },
 
     patchGlobalContext: objs => {
@@ -3933,6 +3958,8 @@ const Patches = {
                 break;
             case "gifenc":
                 break;
+            case "h264":
+                break;
             case "satori":
                 break;
             case "babel":
@@ -4007,6 +4034,9 @@ const Patches = {
                     Patches.polyfillImageData();
                     break;
                 case "gifenc":
+                    break;
+                case "h264":
+                    Patches.polyfillPromise();
                     break;
                 case "satori":
                     Patches.polyfillPromise();
@@ -4332,7 +4362,7 @@ function decompress(data, type) {
             throw new LoaderError("No decompressors loaded");
         }
     } else {
-        if (!Object.keys(decompressors).includes(type)) {
+        if (!(type in decompressors)) {
             throw new LoaderError("Invalid decompressor type: " + type, type);
         }
 
@@ -4537,7 +4567,6 @@ function loadLodepng() {
 
         console.replyWithLogs("warn");
         if (!lodepng) {
-            Benchmark.stopTiming("load_lodepng");
             throw new LoaderError("Couldn't load lodepng");
         }
     } finally {
@@ -4576,6 +4605,70 @@ function loadGifEncoder() {
     Patches.patchGlobalContext({ gifenc });
 }
 
+// h264 loader
+function loadH264MP4Encoder() {
+    if (typeof globalThis.H264MP4Encoder !== "undefined") return;
+
+    Benchmark.startTiming("load_h264");
+    let hme, H264MP4Encoder;
+
+    try {
+        const H264MP4EncoderInit = ModuleLoader.loadModule(
+            urls.H264MP4EncoderLoaderUrl,
+            tags.H264MP4EncoderLoaderTagName,
+
+            {
+                cache: false,
+                breakpoint: config.enableDebugger
+            }
+        );
+
+        console.replyWithLogs("warn");
+        if (!H264MP4EncoderInit) {
+            throw new LoaderError("Couldn't load H264MP4Encoder");
+        }
+
+        let wasm = ModuleLoader.getModuleCode(
+            urls.H264MP4EncoderWasmUrl,
+            tags.H264MP4EncoderWasmTagName,
+            FileDataTypes.binary,
+            {
+                encoded: true,
+                buf_size: 0,
+                cache: false
+            }
+        );
+        wasm = decompress(wasm, "zstd");
+
+        Benchmark.startTiming("h264_init");
+
+        H264MP4EncoderInit({
+            wasmBinary: wasm
+        })
+            .then(h264 => (hme = h264))
+            .catch(err => console.error("Error occured while loading H264MP4Encoder:", err));
+
+        Benchmark.stopTiming("h264_init");
+        console.replyWithLogs("warn");
+
+        if (!hme) {
+            throw new LoaderError("Couldn't load H264MP4Encoder");
+        }
+
+        H264MP4Encoder = {
+            createH264MP4Encoder: () => {
+                const encoder = new hme.H264MP4Encoder();
+                encoder.FS = hme.FS;
+                return encoder;
+            }
+        };
+    } finally {
+        Benchmark.stopTiming("load_h264");
+    }
+
+    Patches.patchGlobalContext({ H264MP4Encoder });
+}
+
 // satori loader
 function loadSatori() {
     if (typeof globalThis.satori !== "undefined") return;
@@ -4591,6 +4684,7 @@ function loadSatori() {
                 encoded: true,
                 cache: false
             });
+
             code = ModuleLoader._parseModuleCode(decompress(code, "xz"), FileDataTypes.module);
         } else {
             code = ModuleLoader.getModuleCodeFromUrl(urls.SatoriLoaderUrl, FileDataTypes.module, {
@@ -4672,18 +4766,26 @@ function loadBabelStandalone() {
     Patches.patchGlobalContext({ Babel: BabelStandalone });
 }
 
+const libraryLoaderFuncs = Object.freeze({
+    none: () => {},
+    canvaskit: loadCanvasKit,
+    cycdraw: loadCycdraw,
+    resvg: loadResvg,
+    lodepng: loadLodepng,
+    gifenc: loadGifEncoder,
+    h264: loadH264MP4Encoder,
+    satori: loadSatori,
+    babel: loadBabelStandalone
+});
+
 // main
-function mainPatch(loadLibrary) {
-    if (Array.isArray(loadLibrary)) {
-        loadLibrary.forEach(Patches.applyAll);
-    } else {
-        Patches.applyAll(loadLibrary);
-    }
+function mainPatch(libraries) {
+    libraries.forEach(Patches.applyAll);
 
     Patches.clearLoadedPatches();
 }
 
-const loadFuncLibs = ["none"];
+const loadFuncLibs = new Set(["none"]);
 
 function decideMiscConfig(library) {
     switch (library) {
@@ -4707,6 +4809,10 @@ function decideMiscConfig(library) {
             break;
         case "gifenc":
             break;
+        case "h264":
+            features.useBase2nDecoder = true;
+            features.useZstdDecompressor = true;
+            break;
         case "satori":
             features.useBase2nDecoder = true;
             features.useXzDecompressor = true;
@@ -4718,17 +4824,14 @@ function decideMiscConfig(library) {
     }
 }
 
-function mainLoadMisc(loadLibrary) {
-    if (Array.isArray(loadLibrary)) {
-        if (loadLibrary.every(library => loadFuncLibs.includes(library))) {
-            features.useLoadFuncs = true;
-        }
+function mainLoadMisc(libraries) {
+    resetFeatures();
 
-        loadLibrary.forEach(decideMiscConfig);
-    } else {
-        if (loadFuncLibs.includes(loadLibrary)) features.useLoadFuncs = true;
-        decideMiscConfig(loadLibrary);
+    if (libraries.length > 0 && libraries.every(library => loadFuncLibs.has(library))) {
+        features.useLoadFuncs = true;
     }
+
+    libraries.forEach(decideMiscConfig);
 
     if (ModuleLoader.loadSource === "tag") {
         if (features.useBase2nDecoder) loadBase2nDecoder();
@@ -4737,39 +4840,16 @@ function mainLoadMisc(loadLibrary) {
     }
 }
 
-function subLoadLibrary(library) {
-    switch (library) {
-        case "none":
-            break;
-        case "canvaskit":
-            loadCanvasKit();
-            break;
-        case "cycdraw":
-            loadCycdraw();
-            break;
-        case "resvg":
-            loadResvg();
-            break;
-        case "lodepng":
-            loadLodepng();
-            break;
-        case "gifenc":
-            loadGifEncoder();
-            break;
-        case "satori":
-            loadSatori();
-            break;
-        case "babel":
-            loadBabelStandalone();
-            break;
-        default:
-            throw new LoaderError("Unknown library: " + library, library);
-    }
-}
+function mainLoadLibrary(libraries) {
+    libraries.forEach(library => {
+        const loader = libraryLoaderFuncs[library];
 
-function mainLoadLibrary(loadLibrary) {
-    if (Array.isArray(loadLibrary)) loadLibrary.forEach(subLoadLibrary);
-    else subLoadLibrary(loadLibrary);
+        if (typeof loader === "undefined") {
+            throw new LoaderError("Unknown library: " + library, library);
+        }
+
+        loader();
+    });
 }
 
 function wrapLoadFunc(func) {
@@ -4796,10 +4876,11 @@ function addLoadFuncs() {
 
 function mainLoad(loadLibrary) {
     Benchmark.restartTiming("load_total");
+    const libraries = LoaderUtils.guaranteeArray(loadLibrary);
 
-    mainPatch(loadLibrary);
-    mainLoadMisc(loadLibrary);
-    mainLoadLibrary(loadLibrary);
+    mainPatch(libraries);
+    mainLoadMisc(libraries);
+    mainLoadLibrary(libraries);
 
     Benchmark.stopTiming("load_total");
 }

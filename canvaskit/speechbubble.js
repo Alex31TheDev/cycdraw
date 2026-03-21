@@ -1,5 +1,5 @@
 "use strict";
-/* globals Image:readonly, Color:readonly, getMessageWindow:readonly, capture:readonly */
+/* globals getMessageWindow:readonly, capture:readonly */
 
 // config
 const nomiServerId = "927050775073534012",

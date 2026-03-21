@@ -50,6 +50,18 @@
         "CanvasKit": "writable",
         "Resvg": "writable",
         "lodepng": "writable",
+        "gifenc": "writable",
+
+        "Color": "writable",
+        "Point": "writable",
+        "Grid": "writable",
+        "Font": "writable",
+        "Colors": "writable",
+        "f_1": "writable",
+        "DigitFont": "writable",
+        "Image": "writable",
+
+        "H264MP4Encoder": "writable",
 
         "loadLibrary": "writable",
         "loadBase2nDecoder": "writable",

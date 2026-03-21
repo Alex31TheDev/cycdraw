@@ -1,5 +1,5 @@
 "use strict";
-/* global CanvasKitUtil:readonly, gifenc:readonly, Image:readonly, Color:readonly */
+/* global CanvasKitUtil:readonly */
 
 const lineHeight = 2,
     lineColor = [255, 255, 255];

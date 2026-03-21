@@ -1,5 +1,4 @@
 "use strict";
-/* globals gifenc:readonly, Image:readonly, Color:readonly, Colors:readonly, Font:readonly, f_1:readonly */
 
 // config
 const width = 400,

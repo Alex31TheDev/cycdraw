@@ -142,4 +142,5 @@ split/
 # Other
 .VSCodeCounter
 output*.*
+output/
 amongus1.png

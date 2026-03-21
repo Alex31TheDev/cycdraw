@@ -1,5 +1,5 @@
 "use strict";
-/* global CanvasKitUtil:readonly, gifenc:readonly, Image:readonly, DiscordHttpClient:readonly, DiscordConstants:readonly */
+/* global CanvasKitUtil:readonly, DiscordHttpClient:readonly, DiscordConstants:readonly */
 
 // config
 const maxWidth = 1000,
