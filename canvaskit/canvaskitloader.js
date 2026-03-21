@@ -48,8 +48,8 @@ const urls = {
 
     GifEncoderUrl: "https://cdn.jsdelivr.net/npm/gifenc@1.0.3/dist/gifenc.js",
 
-    H264MP4EncoderLoaderUrl: "https://litter.catbox.moe/uuzdh4tgsewoztvh.js",
-    H264MP4EncoderWasmUrl: "https://litter.catbox.moe/qhrviwvae3eps80a.wasm",
+    H264MP4EncoderLoaderUrl: "https://litter.catbox.moe/rm64ryry8k2yn7yx.js",
+    H264MP4EncoderWasmUrl: "https://litter.catbox.moe/21fy4nilwzy2c2al.wasm",
 
     SatoriLoaderUrl: "https://files.catbox.moe/c2xoqd.js",
     SatoriWasmUrl: "https://files.catbox.moe/jw8hmm.wasm",
@@ -93,8 +93,8 @@ const tags = {
 
     GifEncoderTagName: "ck_gifenc",
 
-    H264MP4EncoderLoaderTagName: "",
-    H264MP4EncoderWasmTagName: "",
+    H264MP4EncoderLoaderTagName: /^ck_h264_mp4_enc\d+$/,
+    H264MP4EncoderWasmTagName: /^ck_h264_mp4_wasm\d+$/,
 
     SatoriLoaderTagName: /^ck_satori_init\d+$/,
     SatoriWasmTagName: /^ck_satori_wasm\d+$/,
@@ -4724,8 +4724,7 @@ function loadH264MP4Encoder() {
             tags.H264MP4EncoderWasmTagName,
             FileDataTypes.binary,
             {
-                encoded: true,
-                buf_size: 0,
+                encoded: "base127",
                 cache: false
             }
         );
@@ -4901,6 +4900,7 @@ function decideMiscConfig(library) {
         case "gifenc":
             break;
         case "h264":
+            features.useBase127Decoder = true;
             features.useBase2nDecoder = true;
             features.useZstdDecompressor = true;
             break;
