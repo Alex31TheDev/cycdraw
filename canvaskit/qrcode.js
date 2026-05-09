@@ -43,17 +43,17 @@ const main = (() => {
 
             switch (option) {
                 case scaleOption:
-                    const scaleStr = split[1];
+                    const scaleText = split[1];
 
-                    if (typeof scaleStr === "undefined") {
+                    if (typeof scaleText === "undefined") {
                         const out = ":warning: No pixel scale provided.\n" + usage;
                         throw new ExitError(out);
                     }
 
-                    scale = Number.parseInt(scaleStr, 10);
+                    scale = Number.parseInt(scaleText, 10);
 
                     if (Number.isNaN(scale) || scale < 1 || scale > maxScale) {
-                        const out = `:warning: Invalid pixel scale provided: \`${scaleStr}\`\n${usage}`;
+                        const out = `:warning: Invalid pixel scale provided: \`${scaleText}\`\n${usage}`;
                         throw new ExitError(out);
                     }
 

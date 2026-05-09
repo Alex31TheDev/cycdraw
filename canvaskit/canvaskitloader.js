@@ -207,7 +207,7 @@ class Logger {
     }
 
     clearLogs() {
-        this.log_str = "";
+        this.logText = "";
         this.logs.length = 0;
     }
 
@@ -234,7 +234,7 @@ class Logger {
 
     getLogs(level, last) {
         if (LoaderUtils.empty(this.logs)) return "";
-        else if (level == null && last == null) return this.log_str.slice(0, -1);
+        else if (level == null && last == null) return this.logText.slice(0, -1);
 
         let logs = this.logs;
 
@@ -251,10 +251,10 @@ class Logger {
     }
 
     replyWithLogs(level, last) {
-        const log_str = this.getLogs(level, last);
-        if (LoaderUtils.empty(log_str)) return;
+        const logText = this.getLogs(level, last);
+        if (LoaderUtils.empty(logText)) return;
 
-        const codeBlock = LoaderUtils.codeBlock(log_str);
+        const codeBlock = LoaderUtils.codeBlock(logText);
         msg.reply(codeBlock);
     }
 
@@ -297,7 +297,7 @@ class Logger {
         this.logs.push(info);
 
         const format = this._formatLog(info);
-        this.log_str += format + "\n";
+        this.logText += format + "\n";
     }
 
     _formatLog(info) {
@@ -2184,10 +2184,10 @@ const HttpUtil = Object.freeze({
         if (util.env && res?.ok === false) return res.status;
         else if (reqErr == null) return null;
 
-        const statusStr = reqErr?.message;
-        if (typeof statusStr !== "string") return -1;
+        const statusText = reqErr?.message;
+        if (typeof statusText !== "string") return -1;
 
-        const statusMatch = statusStr.match(HttpUtil._statusRegex);
+        const statusMatch = statusText.match(HttpUtil._statusRegex);
         return LoaderUtils.parseInt(statusMatch?.[1], 10, -1);
     },
 
@@ -4460,8 +4460,8 @@ function decompress(data, type) {
         decompressor = decompressors[type];
 
         if (typeof decompressor === "undefined") {
-            const typeStr = type.length <= 2 ? type.toUpperCase() : LoaderUtils.capitalize(type);
-            throw new LoaderError(`${typeStr} decompressor not loaded.`, type);
+            const typeText = type.length <= 2 ? type.toUpperCase() : LoaderUtils.capitalize(type);
+            throw new LoaderError(`${typeText} decompressor not loaded.`, type);
         }
     }
 
