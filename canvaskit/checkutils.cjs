@@ -47,6 +47,8 @@ function parseUtilFuncs(text) {
 
     const functions = new Map();
 
+    funcStartRegex.lastIndex = 0;
+
     for (const startMatch of objContent.matchAll(funcStartRegex)) {
         const [funcName, header] = startMatch.slice(1),
             startIdx = startMatch.index + startMatch[0].indexOf(header);
@@ -56,6 +58,7 @@ function parseUtilFuncs(text) {
 
         const endIdx = startIdx + endMatch.index + endMatch[0].length;
 
+        utilNameRegex.lastIndex = 0;
         let funcBody = " ".repeat(4) + objContent.slice(startIdx, endIdx);
         funcBody = funcBody.replace(utilNameRegex, "MAIN_UTIL");
         funcBody = funcBody.endsWith(",") ? funcBody.slice(0, -1) : funcBody;

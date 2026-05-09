@@ -644,6 +644,8 @@ let LoaderUtils = {
 
     _camelToWordsRegex: /([a-z])([A-Z])/g,
     camelCaseToWords: str => {
+        LoaderUtils._camelToWordsRegex.lastIndex = 0;
+
         const words = str.replace(LoaderUtils._camelToWordsRegex, "$1 $2");
         return words.toLowerCase();
     },
@@ -651,6 +653,7 @@ let LoaderUtils = {
     _wordsToCamelRegex: /(?:^\w|[A-Z]|\b\w|\s+)/g,
     wordsToCamelCase: str => {
         str = str.toLowerCase();
+        LoaderUtils._wordsToCamelRegex.lastIndex = 0;
 
         const camel = str.replace(LoaderUtils._wordsToCamelRegex, (match, i) =>
             match[`to${i ? "Upper" : "Lower"}Case`]()
@@ -785,6 +788,7 @@ let LoaderUtils = {
             const escaped = sep.map(item => LoaderUtils.escapeRegex(item)),
                 exp = new RegExp(escaped.join("|"), "g");
 
+            exp.lastIndex = 0;
             if (n <= 1) {
                 const match = exp.exec(str);
 
@@ -1283,11 +1287,13 @@ let LoaderUtils = {
 
     _regexEscapeRegex: /[.*+?^${}()|[\]\\]/g,
     escapeRegex: str => {
+        LoaderUtils._regexEscapeRegex.lastIndex = 0;
         return str.replace(LoaderUtils._regexEscapeRegex, "\\$&");
     },
 
     _charClassExcapeRegex: /[-\\\]^]/g,
     escapeCharClass: str => {
+        LoaderUtils._charClassExcapeRegex.lastIndex = 0;
         return str.replace(LoaderUtils._charClassExcapeRegex, "\\$&");
     },
 
@@ -1312,6 +1318,8 @@ let LoaderUtils = {
 
     _templateReplaceRegex: /(?<!\\){{(.*?)}}(?!\\)/g,
     templateReplace: (template, strings) => {
+        LoaderUtils._templateReplaceRegex.lastIndex = 0;
+
         return template.replace(LoaderUtils._templateReplaceRegex, (match, key) => {
             key = key.trim();
             return strings[key] ?? match;
@@ -1331,12 +1339,16 @@ let LoaderUtils = {
 
     _userIdRegex: /\d{17,20}/g,
     findUserIds: str => {
+        LoaderUtils._userIdRegex.lastIndex = 0;
+
         const matches = Array.from(str.matchAll(LoaderUtils._userIdRegex));
         return matches.map(match => match[0]);
     },
 
     _mentionRegex: /<@(\d{17,20})>/g,
     findMentions: str => {
+        LoaderUtils._mentionRegex.lastIndex = 0;
+
         const matches = Array.from(str.matchAll(LoaderUtils._mentionRegex));
         return matches.map(match => match[1]);
     },
@@ -1344,6 +1356,8 @@ let LoaderUtils = {
     codeblockRegex: /(?<!\\)(?:`{3}([\S]+\n)?([\s\S]*?)`{3}|`([^`\n]+)`)/g,
 
     findCodeblocks: str => {
+        LoaderUtils.codeblockRegex.lastIndex = 0;
+
         const matches = str.matchAll(LoaderUtils.codeblockRegex);
         return Array.from(matches).map(match => [match.index, match.index + match[0].length]);
     },
@@ -1492,7 +1506,14 @@ let LoaderUtils = {
         const all = util.dumpTags();
 
         if (search != null) {
-            return all.filter(name => (search instanceof RegExp ? search.test(name) : name.includes(search)));
+            return all.filter(name => {
+                if (search instanceof RegExp) {
+                    search.lastIndex = 0;
+                    return search.test(name);
+                } else {
+                    return name.includes(search);
+                }
+            });
         } else return all;
     },
 
@@ -1506,13 +1527,27 @@ let LoaderUtils = {
 
         const isAllowed = tag => {
             if (search) {
-                return search instanceof RegExp ? search.test(tag.name) : tag.name.includes(search);
+                if (search instanceof RegExp) {
+                    search.lastIndex = 0;
+                    return search.test(tag.name);
+                }
+
+                return tag.name.includes(search);
             }
 
             if (tag.owner === config.tagOwner) return false;
 
             if (enableNameBlacklist) {
-                if (excludedNames.some(bl => (bl instanceof RegExp ? bl.test(tag.name) : bl === tag.name)))
+                if (
+                    excludedNames.some(bl => {
+                        if (bl instanceof RegExp) {
+                            bl.lastIndex = 0;
+                            return bl.test(tag.name);
+                        }
+
+                        return bl === tag.name;
+                    })
+                )
                     return false;
             }
 
@@ -2147,6 +2182,8 @@ const HttpUtil = Object.freeze({
 
             result.push(part);
         }
+
+        HttpUtil.paramSlashRegex.lastIndex = 0;
 
         let str = result.join("/");
         str = str.replace(HttpUtil.paramSlashRegex, "$1");

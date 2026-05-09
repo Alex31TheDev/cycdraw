@@ -238,6 +238,8 @@ set output '/output'`;
     }
 
     function fixOutput(out) {
+        intervalRegex.lastIndex = 0;
+
         out = out.replace(intervalRegex, (_, g1) => g1);
         out = LoaderUtils.escapeMarkdown(out);
 

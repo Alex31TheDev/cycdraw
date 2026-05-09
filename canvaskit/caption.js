@@ -280,7 +280,9 @@ const main = (() => {
         [customEmojis, hasCustomEmojis] = (() => {
             const customEmojis = [];
 
+            customEmojiRegex.lastIndex = 0;
             let match;
+
             while ((match = customEmojiRegex.exec(text)) !== null) {
                 const [name, id] = match.slice(1),
                     idx = match.index;
@@ -291,7 +293,6 @@ const main = (() => {
                 customEmojiRegex.lastIndex = idx + 1;
             }
 
-            customEmojiRegex.lastIndex = 0;
             text = text.trim();
 
             const hasCustomEmojis = customEmojis.length > 0;
@@ -326,6 +327,7 @@ const main = (() => {
 
             Benchmark.stopTiming("fetch_custom_emojis");
 
+            customEmojiRegex.lastIndex = 0;
             text = text.replace(customEmojiRegex, customEmojiReplacement);
             return [customEmojis, hasCustomEmojis];
         })();
