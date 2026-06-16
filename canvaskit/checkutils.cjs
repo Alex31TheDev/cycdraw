@@ -1,5 +1,5 @@
-const path = require("path");
 const fs = require("fs");
+const path = require("path");
 
 const utilNameRegex = /\b(\w*Utils?|TypeTester)\b/g;
 

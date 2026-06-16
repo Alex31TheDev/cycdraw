@@ -8,6 +8,8 @@ const config = {
     enableDebugger: util.inspectorEnabled ?? false,
 
     isolateGlobals: util._isolateGlobals ?? true,
+    integrityChecks: util._integrityChecks ?? false,
+
     useWasmBase2nDecoder: util._useWasmBase2nDecoder ?? true,
     forceXzDecompressor: util._forceXzDecompressor ?? false,
 
@@ -156,8 +158,7 @@ class LoaderError extends ReferenceError {
     }
 }
 
-// delete config props
-(function deleteConfigProps() {
+function deleteConfigProps() {
     const defaultUtilProps = [
         "version",
         "env",
@@ -174,10 +175,12 @@ class LoaderError extends ReferenceError {
         "executeTag"
     ];
 
-    for (const key of Object.keys(util)) {
-        if (!defaultUtilProps.includes(key)) delete util[key];
+    if (globalThis.util) {
+        for (const key of Object.keys(globalThis.util)) {
+            if (!defaultUtilProps.includes(key)) delete globalThis.util[key];
+        }
     }
-})();
+}
 
 // classes
 class Logger {
@@ -734,8 +737,6 @@ let LoaderUtils = {
     splitAt: (str, sep = " ") => {
         const idx = str.indexOf(sep);
 
-        let first, second;
-
         if (idx === -1) {
             first = str;
             second = "";
@@ -766,8 +767,6 @@ let LoaderUtils = {
         if (LoaderUtils.empty(sep)) {
             return [lowercaseFirst ? str.toLowerCase() : str, ""];
         } else sep = LoaderUtils.guaranteeArray(sep);
-
-        let first, second;
 
         let idx = -1,
             sepLength;
@@ -813,6 +812,8 @@ let LoaderUtils = {
             }
         }
 
+        let first, second;
+
         if (idx === -1) {
             first = str;
             second = "";
@@ -839,14 +840,14 @@ let LoaderUtils = {
 
         if (chars !== null) {
             if (showDiff) {
-                let suffix, trimmed;
-
                 const getSuffix = limit => {
                     const diff = chars - limit,
                         s = diff > 1 ? "s" : "";
 
                     return ` ... (${diff} more character${s})`;
                 };
+
+                let suffix, trimmed;
 
                 if (tight) {
                     let newLimit = charLimit;
@@ -863,7 +864,6 @@ let LoaderUtils = {
                     trimmed = str.slice(0, charLimit);
                     suffix = getSuffix(charLimit);
                 }
-
                 return (trimmed + suffix).trim();
             } else {
                 const newLimit = tight ? LoaderUtils.clamp(charLimit - 3, 0) : charLimit,
@@ -1995,6 +1995,800 @@ let LoaderUtils = {
 
     LoaderUtils = Object.freeze(LoaderUtils);
 }
+
+const IntegrityChecker = (() => {
+    let originalUtil = null,
+        originalMsg = null,
+        originalVm = null,
+        originalHttp = null,
+        originalTag = null;
+
+    let initialized = false;
+
+    let fnToString = null,
+        objHasOwn = null,
+        reflectOwnKeys = null,
+        reflectGetProto = null,
+        getProtoDesc = null,
+        dateToString = null,
+        mapHas = null;
+
+    let nativeRegex = null;
+
+    let allowedHostFunctionRefs = null,
+        allowedConstructors = null,
+        failures = null;
+
+    const acceptedShapes = [
+        /^\(\.\.\.args\)\s*=>\s*\{\s*return\s+\$0\.applySync\(undefined,\s*args,\s*\{\s*arguments:\s*\{\s*copy:\s*true\s*\}\s*\}\);\s*\}/,
+        /^\(\.\.\.args\)\s*=>\s*\{\s*return\s+\$0\.applySyncPromise\(undefined,\s*args,\s*\{\s*arguments:\s*\{\s*copy:\s*true\s*\}\s*\}\);\s*\}/,
+        /^\(\.\.\.args\)\s*=>\s*\{\s*const\s+res\s*=\s*\$0\.applySync\(undefined,\s*args,\s*\{\s*arguments:\s*\{\s*copy:\s*true\s*\}\s*\}\);;\s*throw\s+new\s+ManevraError__[a-zA-Z0-9]{16}\(res\);\s*\}/,
+        /^\(\.\.\.args\)\s*=>\s*\{\s*return\s+executeTag\(\.\.\.args\);\s*\}/,
+        /^\(\.\.\.args\)\s*=>\s*\{\s*return\s+executeTagSafe\(\.\.\.args\);\s*\}/
+    ];
+
+    const customReplyShape = /^\(text,\s*reply\)\s*=>\s*\{/;
+
+    const expectedFunctions = [
+        "util.delay",
+        "util.fetchTag",
+        "util.findTags",
+        "util.dumpTags",
+        "util.fetchMessage",
+        "util.fetchMessages",
+        "util.findUserById",
+        "util.findUsers",
+        "util.executeTag",
+        "util.executeTagSafe",
+        "vm.getCpuTime",
+        "vm.getWallTime",
+        "vm.timeElapsed",
+        "vm.timeRemaining",
+        "http.request",
+        "msg.reply"
+    ];
+
+    const coreRoots = [
+        globalThis.Object,
+        globalThis.Function,
+        globalThis.Array,
+        globalThis.Number,
+        globalThis.String,
+        globalThis.Boolean,
+        globalThis.Symbol,
+        globalThis.Date,
+        globalThis.RegExp,
+        globalThis.Error,
+        globalThis.EvalError,
+        globalThis.RangeError,
+        globalThis.ReferenceError,
+        globalThis.SyntaxError,
+        globalThis.TypeError,
+        globalThis.URIError,
+        globalThis.Math,
+        globalThis.JSON,
+        globalThis.Reflect,
+        globalThis.Proxy,
+        globalThis.Map,
+        globalThis.Set,
+        globalThis.WeakMap,
+        globalThis.WeakSet,
+        globalThis.ArrayBuffer,
+        globalThis.SharedArrayBuffer,
+        globalThis.DataView,
+        globalThis.Int8Array,
+        globalThis.Uint8Array,
+        globalThis.Uint8ClampedArray,
+        globalThis.Int16Array,
+        globalThis.Uint16Array,
+        globalThis.Int32Array,
+        globalThis.Uint32Array,
+        globalThis.Float32Array,
+        globalThis.Float64Array,
+        globalThis.BigInt64Array,
+        globalThis.BigUint64Array,
+        globalThis.BigInt,
+        globalThis.Promise,
+        globalThis.WebAssembly,
+        globalThis.eval,
+        globalThis.parseInt,
+        globalThis.parseFloat,
+        globalThis.isNaN,
+        globalThis.isFinite,
+        globalThis.decodeURI,
+        globalThis.decodeURIComponent,
+        globalThis.encodeURI,
+        globalThis.encodeURIComponent
+    ];
+
+    function fail(msg) {
+        failures.push(msg);
+    }
+
+    function stringIncludes(str, pat) {
+        if (pat.length > str.length) return false;
+
+        for (let startIndex = 0; startIndex <= str.length - pat.length; startIndex++) {
+            let match = true;
+
+            for (let offset = 0; offset < pat.length; offset++) {
+                if (str[startIndex + offset] !== pat[offset]) {
+                    match = false;
+                    break;
+                }
+            }
+
+            if (match) return true;
+        }
+
+        return false;
+    }
+
+    function primitiveSplit(str, delim) {
+        const arr = [];
+
+        let current = "";
+
+        for (let charIndex = 0; charIndex < str.length; charIndex++) {
+            const char = str[charIndex];
+
+            if (char === delim) {
+                arr.push(current);
+                current = "";
+            } else current += char;
+        }
+
+        arr.push(current);
+        return arr;
+    }
+
+    function verifyToStringNative() {
+        const backupPrepare = Error.prepareStackTrace;
+        delete Error.prepareStackTrace;
+
+        try {
+            Function.prototype.toString.call({});
+            return false;
+        } catch (err) {
+            if (backupPrepare != null) Error.prepareStackTrace = backupPrepare;
+
+            const stack = err.stack || "",
+                lines = primitiveSplit(stack, "\n");
+
+            if (lines[1] == null || lines[2] == null) return false;
+            if (!stringIncludes(lines[1], "toString")) return false;
+            if (!stringIncludes(lines[2], "verifyToStringNative")) return false;
+
+            return true;
+        }
+    }
+
+    function checkPrx(val) {
+        if (typeof val !== "object" && typeof val !== "function") return false;
+        if (val == null) return false;
+
+        const backupPrepare = Error.prepareStackTrace;
+        delete Error.prepareStackTrace;
+
+        try {
+            dateToString.call(val);
+        } catch (err) {
+            if (backupPrepare != null) Error.prepareStackTrace = backupPrepare;
+
+            const stack = err.stack || "";
+            if (stringIncludes(stack, "Proxy.")) return true;
+        }
+
+        try {
+            mapHas.call(val);
+        } catch (err) {
+            if (backupPrepare != null) Error.prepareStackTrace = backupPrepare;
+
+            const stack = err.stack || "";
+            if (stringIncludes(stack, "Proxy.")) return true;
+        }
+
+        return false;
+    }
+
+    function isNativeFunction(fn) {
+        if (typeof fn !== "function") return false;
+        if (fn !== Function.prototype && objHasOwn.call(fn, "toString")) return false;
+
+        const str = fnToString.call(fn);
+
+        if (!nativeRegex.test(str)) return false;
+        if (checkPrx(fn)) return false;
+
+        let isWasmConstructor = false;
+
+        if (globalThis.WebAssembly != null) {
+            const keys = reflectOwnKeys(globalThis.WebAssembly);
+
+            for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+                const key = keys[keyIndex];
+
+                if (fn === globalThis.WebAssembly[key]) {
+                    isWasmConstructor = true;
+                    break;
+                }
+            }
+        }
+
+        if (!allowedConstructors.has(fn) && !isWasmConstructor) {
+            if (str.startsWith("class ")) return true;
+            else if ("prototype" in fn) return false;
+        }
+
+        return true;
+    }
+
+    function checkFunctionShape(fn, name) {
+        const str = fnToString.call(fn);
+
+        let matched = false;
+
+        for (let shapeIndex = 0; shapeIndex < acceptedShapes.length; shapeIndex++) {
+            const acceptedShape = acceptedShapes[shapeIndex];
+
+            if (acceptedShape.test(str)) {
+                matched = true;
+                break;
+            }
+        }
+
+        if (!matched) {
+            fail("Function " + name + " does not match any accepted shapes: " + str);
+        }
+    }
+
+    function verifyDeepEqual(live, original, path, phase) {
+        const typeL = typeof live,
+            typeO = typeof original;
+
+        if (live === original) return;
+
+        if (typeL !== typeO) {
+            fail("Type mismatch at " + path);
+        }
+
+        if (typeL !== "object" || live == null || original == null) {
+            fail("Value mismatch at " + path);
+        }
+
+        const keysL = reflectOwnKeys(live),
+            keysO = reflectOwnKeys(original);
+
+        let expectedKeys = keysO;
+
+        if (path === "util") {
+            expectedKeys = [
+                "version",
+                "env",
+                "timeLimit",
+                "inspectorEnabled",
+                "outCharLimit",
+                "outLineLimit",
+                "findUsers",
+                "fetchTag",
+                "findTags",
+                "dumpTags",
+                "fetchMessage",
+                "fetchMessages",
+                "executeTag"
+            ];
+        }
+
+        if (keysL.length !== expectedKeys.length) {
+            fail("Keys length mismatch at " + path);
+        }
+
+        for (let expectedIndex = 0; expectedIndex < expectedKeys.length; expectedIndex++) {
+            const expectedKey = expectedKeys[expectedIndex];
+
+            let found = false;
+
+            for (let liveIndex = 0; liveIndex < keysL.length; liveIndex++) {
+                if (keysL[liveIndex] === expectedKey) {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found) {
+                fail("Missing property " + String(expectedKey) + " at " + path);
+            }
+
+            if (!(path === "msg" && expectedKey === "reply" && phase === "after"))
+                verifyDeepEqual(live[expectedKey], original[expectedKey], path + "." + String(expectedKey), phase);
+        }
+    }
+
+    function traverse(val, path, visited) {
+        if (val == null) return;
+
+        const type = typeof val;
+        if (type !== "object" && type !== "function") return;
+
+        if (visited.has(val)) {
+            const firstPath = visited.get(val);
+            if (firstPath !== path) {
+                fail('Duplicate reference detected: path "' + path + '" shares reference with "' + firstPath + '"');
+            }
+            return;
+        }
+
+        visited.set(val, path);
+
+        if (checkPrx(val)) {
+            fail("Proxy detected at path: " + path);
+        }
+
+        const proto = reflectGetProto(val);
+
+        if (type === "function") {
+            if (proto !== Function.prototype) {
+                fail("Invalid prototype on function at path: " + path);
+            }
+        } else {
+            if (proto !== Object.prototype && proto !== Array.prototype && proto !== null) {
+                fail("Invalid prototype on object/array at path: " + path);
+            }
+        }
+
+        const keys = reflectOwnKeys(val);
+
+        for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+            const key = keys[keyIndex],
+                propPath = path ? path + "." + String(key) : String(key);
+
+            const desc = getProtoDesc(val, key);
+
+            if (desc == null) continue;
+
+            if (desc.get || desc.set) {
+                fail("Property getter/setter detected at path: " + propPath);
+            }
+
+            if ("value" in desc) {
+                const propVal = desc.value;
+                if (typeof propVal === "function" && !allowedHostFunctionRefs.has(propVal)) {
+                    fail("Unauthorized function found at path: " + propPath);
+                }
+                traverse(propVal, propPath, visited);
+            }
+        }
+    }
+
+    function walkCore(obj, path, coreVisited, phase) {
+        if (obj == null) return;
+        if (coreVisited.has(obj)) return;
+        coreVisited.add(obj);
+
+        const keys = reflectOwnKeys(obj);
+
+        for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+            const key = keys[keyIndex],
+                propPath = path ? path + "." + String(key) : String(key);
+
+            let value;
+
+            try {
+                const desc = getProtoDesc(obj, key);
+                if (desc == null) continue;
+
+                if (desc.get) {
+                    checkCoreVal(desc.get, propPath + " <getter>", coreVisited, phase);
+                    walkCore(desc.get, propPath + " <getter>", coreVisited, phase);
+                }
+
+                if (desc.set) {
+                    checkCoreVal(desc.set, propPath + " <setter>", coreVisited, phase);
+                    walkCore(desc.set, propPath + " <setter>", coreVisited, phase);
+                }
+
+                if ("value" in desc) value = desc.value;
+                else continue;
+            } catch (err) {
+                continue;
+            }
+
+            checkCoreVal(value, propPath, coreVisited, phase);
+        }
+    }
+
+    function checkCoreVal(value, path, coreVisited, phase) {
+        if (typeof value === "function") {
+            if (allowedHostFunctionRefs.has(value)) return;
+
+            if (phase === "after" && (path === "WebAssembly.Module" || path === "WebAssembly.instantiate")) {
+                if (value.patched !== true || checkPrx(value)) {
+                    fail("WebAssembly patch has been tampered with at path: " + path);
+                }
+                return;
+            }
+
+            if (phase === "after" && (path.startsWith("Promise") || path.includes("Promise"))) {
+                if (checkPrx(value)) {
+                    fail("Polyfilled Promise has been proxied/tampered at path: " + path);
+                }
+                return;
+            }
+
+            if (!isNativeFunction(value)) {
+                fail("Non-native function found at path: " + path);
+            }
+
+            walkCore(value, path, coreVisited, phase);
+        } else if (typeof value === "object" && value != null) walkCore(value, path, coreVisited, phase);
+    }
+
+    function getRootName(root) {
+        if (root === globalThis.WebAssembly) return "WebAssembly";
+        if (root === globalThis.Math) return "Math";
+        if (root === globalThis.JSON) return "JSON";
+        if (root === globalThis.Reflect) return "Reflect";
+
+        return root.name || "coreRoot";
+    }
+
+    function verifyBootstrap() {
+        const bootstrapHelpers = [
+            fnToString,
+            objHasOwn,
+            reflectOwnKeys,
+            reflectGetProto,
+            getProtoDesc,
+            dateToString,
+            mapHas
+        ];
+
+        for (let helperIndex = 0; helperIndex < bootstrapHelpers.length; helperIndex++) {
+            const helper = bootstrapHelpers[helperIndex];
+
+            if (checkPrx(helper)) {
+                fail("Bootstrap helper is proxied!");
+            }
+
+            if (helper !== fnToString && objHasOwn.call(helper, "toString")) {
+                fail("Bootstrap helper has own toString!");
+            }
+
+            const str = fnToString.call(helper);
+
+            if (!nativeRegex.test(str)) {
+                fail("Bootstrap helper is not native: " + str);
+            }
+        }
+    }
+
+    function verifyProvidedProperties(phase) {
+        const msg = globalThis.msg,
+            tag = globalThis.tag;
+
+        if (originalUtil != null) verifyDeepEqual(globalThis.util, originalUtil, "util", phase);
+        if (globalThis.vm != null || originalVm != null)
+            verifyDeepEqual(globalThis.vm || originalVm, originalVm, "vm", phase);
+        if (globalThis.http != null || originalHttp != null)
+            verifyDeepEqual(globalThis.http || originalHttp, originalHttp, "http", phase);
+
+        if (msg != null) {
+            const author = msg.author,
+                channel = msg.channel,
+                guild = msg.guild,
+                mentions = msg.mentions;
+
+            if (author == null || typeof author !== "object") {
+                fail("msg.author is missing or invalid");
+            }
+
+            if (channel == null || typeof channel !== "object") {
+                fail("msg.channel is missing or invalid");
+            }
+
+            if (msg.authorId !== author.id) {
+                fail("msg.authorId mismatch with author.id");
+            }
+
+            if (msg.authorId !== author.userId) {
+                fail("msg.authorId mismatch with author.userId");
+            }
+
+            if (msg.channelId !== channel.id) {
+                fail("msg.channelId mismatch with channel.id");
+            }
+
+            if (guild != null && typeof guild !== "object") {
+                fail("msg.guild is invalid");
+            }
+
+            if (msg.guildId != null || (guild != null && guild.id != null)) {
+                if (guild == null || msg.guildId !== guild.id) {
+                    fail("msg.guildId mismatch with guild.id");
+                }
+            }
+
+            if (msg.guildId != null || author.guildId != null) {
+                if (author.guildId !== msg.guildId) {
+                    fail("author.guildId mismatch with msg.guildId");
+                }
+            }
+
+            if (msg.cleanContent !== msg.content) {
+                fail("msg.cleanContent mismatch with msg.content");
+            }
+
+            if (author.tag != null && !stringIncludes(author.tag, author.username)) {
+                fail("author.tag is invalid");
+            }
+
+            if (author.avatar != null && author.avatarURL != null && !stringIncludes(author.avatarURL, author.avatar)) {
+                fail("author.avatarURL is invalid");
+            }
+
+            if (
+                author.avatar != null &&
+                author.displayAvatarURL != null &&
+                !stringIncludes(author.displayAvatarURL, author.avatar)
+            ) {
+                fail("author.displayAvatarURL is invalid");
+            }
+
+            if (author.banner != null && author.bannerURL != null && !stringIncludes(author.bannerURL, author.banner)) {
+                fail("author.bannerURL is invalid");
+            }
+
+            if (mentions != null && typeof mentions === "object") {
+                if (Array.isArray(mentions.members) && Array.isArray(mentions.users)) {
+                    for (let memberIndex = 0; memberIndex < mentions.members.length; memberIndex++) {
+                        const member = mentions.members[memberIndex];
+                        if (member == null || typeof member !== "object") continue;
+
+                        if (member.userId !== member.id) {
+                            fail("Mention member userId mismatch with id");
+                        }
+
+                        if (guild != null && member.guildId !== guild.id) {
+                            fail("Mention member guildId mismatch");
+                        }
+
+                        let found = false;
+
+                        for (let userIndex = 0; userIndex < mentions.users.length; userIndex++) {
+                            const user = mentions.users[userIndex];
+
+                            if (user != null && user.id === member.id) {
+                                found = true;
+                                break;
+                            }
+                        }
+
+                        if (!found) {
+                            fail("Mention member lacks corresponding mention user");
+                        }
+                    }
+                }
+            }
+
+            if (originalMsg != null) {
+                if (msg.id !== originalMsg.id) {
+                    fail("msg.id has been modified");
+                }
+                if (msg.channelId !== originalMsg.channelId) {
+                    fail("msg.channelId has been modified");
+                }
+                if (msg.guildId !== originalMsg.guildId) {
+                    fail("msg.guildId has been modified");
+                }
+                if (msg.createdTimestamp !== originalMsg.createdTimestamp) {
+                    fail("msg.createdTimestamp has been modified");
+                }
+                if (msg.type !== originalMsg.type) {
+                    fail("msg.type has been modified");
+                }
+                if (msg.system !== originalMsg.system) {
+                    fail("msg.system has been modified");
+                }
+                if (msg.content !== originalMsg.content) {
+                    fail("msg.content has been modified");
+                }
+                if (msg.authorId !== originalMsg.authorId) {
+                    fail("msg.authorId has been modified");
+                }
+                if (msg.pinned !== originalMsg.pinned) {
+                    fail("msg.pinned has been modified");
+                }
+                if (msg.tts !== originalMsg.tts) {
+                    fail("msg.tts has been modified");
+                }
+                if (msg.nonce !== originalMsg.nonce) {
+                    fail("msg.nonce has been modified");
+                }
+                if (msg.position !== originalMsg.position) {
+                    fail("msg.position has been modified");
+                }
+                if (msg.webhookId !== originalMsg.webhookId) {
+                    fail("msg.webhookId has been modified");
+                }
+                if (msg.applicationId !== originalMsg.applicationId) {
+                    fail("msg.applicationId has been modified");
+                }
+                if (msg.flags !== originalMsg.flags) {
+                    fail("msg.flags has been modified");
+                }
+                if (msg.cleanContent !== originalMsg.cleanContent) {
+                    fail("msg.cleanContent has been modified");
+                }
+            }
+        }
+
+        if (tag != null) {
+            if (originalTag != null) {
+                if (tag.name !== originalTag.name) {
+                    fail("tag.name has been modified");
+                }
+                if (tag.body !== originalTag.body) {
+                    fail("tag.body has been modified");
+                }
+                if (tag.owner !== originalTag.owner) {
+                    fail("tag.owner has been modified");
+                }
+                if (tag.args !== originalTag.args) {
+                    fail("tag.args has been modified");
+                }
+            }
+        }
+
+        const visited = new Map();
+
+        if (globalThis.util != null || originalUtil != null) traverse(globalThis.util || originalUtil, "util", visited);
+        if (globalThis.msg != null || originalMsg != null) traverse(globalThis.msg || originalMsg, "msg", visited);
+        if (globalThis.vm != null || originalVm != null) traverse(globalThis.vm || originalVm, "vm", visited);
+        if (globalThis.http != null || originalHttp != null) traverse(globalThis.http || originalHttp, "http", visited);
+        if (globalThis.tag != null || originalTag != null) traverse(globalThis.tag || originalTag, "tag", visited);
+    }
+
+    function verifyProvidedFunctions(phase) {
+        allowedHostFunctionRefs = new Set();
+
+        const rootObjects = {
+            util: originalUtil,
+            msg: globalThis.msg || originalMsg,
+            vm: globalThis.vm || originalVm,
+            http: globalThis.http || originalHttp,
+            tag: globalThis.tag || originalTag
+        };
+
+        for (let functionIndex = 0; functionIndex < expectedFunctions.length; functionIndex++) {
+            const path = expectedFunctions[functionIndex],
+                parts = primitiveSplit(path, "."),
+                rootName = parts[0],
+                funcName = parts[1];
+
+            const rootObj = rootObjects[rootName];
+            if (rootObj == null) continue;
+
+            const fn = rootObj[funcName];
+
+            if (typeof fn !== "function") {
+                fail("Expected function at: " + path);
+                continue;
+            }
+
+            if (phase === "after" && path === "msg.reply") {
+                if (fn.patched !== true || checkPrx(fn)) {
+                    fail("msg.reply has been tampered with or is missing expected patch");
+                }
+
+                const str = fnToString.call(fn);
+
+                if (!customReplyShape.test(str)) {
+                    fail("msg.reply shape is tampered");
+                }
+            } else checkFunctionShape(fn, path);
+
+            allowedHostFunctionRefs.add(fn);
+        }
+    }
+
+    function verifyCoreRoots(phase) {
+        const coreVisited = new Set();
+
+        for (let rootIndex = 0; rootIndex < coreRoots.length; rootIndex++) {
+            const root = coreRoots[rootIndex];
+
+            if (root != null) checkCoreVal(root, getRootName(root), coreVisited, phase);
+        }
+    }
+
+    return Object.freeze({
+        init() {
+            if (initialized) return;
+
+            originalUtil = globalThis.util ? { ...globalThis.util } : null;
+            originalMsg = globalThis.msg ? { ...globalThis.msg } : null;
+            originalVm = globalThis.vm ? { ...globalThis.vm } : null;
+            originalHttp = globalThis.http ? { ...globalThis.http } : null;
+            originalTag = globalThis.tag ? { ...globalThis.tag } : null;
+
+            fnToString = Function.prototype.toString;
+            objHasOwn = Object.prototype.hasOwnProperty;
+            reflectOwnKeys = Reflect.ownKeys;
+            reflectGetProto = Reflect.getPrototypeOf;
+            getProtoDesc = Object.getOwnPropertyDescriptor;
+            dateToString = Date.prototype.toString;
+            mapHas = Map.prototype.has;
+
+            nativeRegex = /^(function|class)\s*[^()]*\s*(\(\))?\s*\{\s*\[native code\]\s*\}$/;
+
+            allowedConstructors = new Set([
+                globalThis.Object,
+                globalThis.Function,
+                globalThis.Array,
+                globalThis.Number,
+                globalThis.String,
+                globalThis.Boolean,
+                globalThis.Symbol,
+                globalThis.Date,
+                globalThis.RegExp,
+                globalThis.Error,
+                globalThis.EvalError,
+                globalThis.RangeError,
+                globalThis.ReferenceError,
+                globalThis.SyntaxError,
+                globalThis.TypeError,
+                globalThis.URIError,
+                globalThis.Proxy,
+                globalThis.Map,
+                globalThis.Set,
+                globalThis.WeakMap,
+                globalThis.WeakSet,
+                globalThis.ArrayBuffer,
+                globalThis.SharedArrayBuffer,
+                globalThis.DataView,
+                globalThis.Int8Array,
+                globalThis.Uint8Array,
+                globalThis.Uint8ClampedArray,
+                globalThis.Int16Array,
+                globalThis.Uint16Array,
+                globalThis.Int32Array,
+                globalThis.Uint32Array,
+                globalThis.Float32Array,
+                globalThis.Float64Array,
+                globalThis.BigInt64Array,
+                globalThis.BigUint64Array,
+                globalThis.BigInt,
+                globalThis.Promise,
+                globalThis.WebAssembly
+            ]);
+
+            initialized = true;
+            deleteConfigProps();
+        },
+
+        check(phase, label) {
+            failures = [];
+
+            if (!verifyToStringNative()) {
+                fail("Function.prototype.toString has been tampered with!");
+            }
+
+            verifyBootstrap();
+            verifyProvidedFunctions(phase);
+            verifyProvidedProperties(phase);
+            verifyCoreRoots(phase);
+
+            if (failures.length > 0) {
+                const msg = label == null ? "Integrity check failed" : "Integrity check failed at " + label;
+
+                if (config.enableDebugger) exit(msg + ":\n" + failures.join("\n"));
+                else exit(msg);
+            }
+        }
+    });
+})();
+
+IntegrityChecker.init();
 
 const LoaderTextEncoder = Object.freeze({
     stringToBytes: str => {
@@ -3383,6 +4177,10 @@ class ModuleLoader {
             } finally {
                 cleanup();
             }
+        }
+
+        if (config.integrityChecks) {
+            IntegrityChecker.check("after", Benchmark.getCount("module_load"));
         }
 
         return module.exports;
@@ -5024,8 +5822,10 @@ function main() {
 }
 
 function insideEval() {
+    if (config.loadLibrary === "none") return true;
+
     const evalExp = new RegExp(
-        util.env
+        globalThis.util && globalThis.util.env
             ? `^.+\\n\\s+at\\s${insideEval.name}\\s\\(eval\\sat\\s.+\\)\\n\\s+at eval\\s\\(eval at\\s.+\\)`
             : `^.+\\n\\s+at\\s${insideEval.name}\\s\\(eval\\sat\\s.+?\\(eval\\sat\\s.+\\)\\n\\s+at\\seval\\s\\(eval\\sat\\s.+?\\(eval\\sat\\s.+\\)`
     );
@@ -5038,6 +5838,7 @@ function insideEval() {
 }
 
 try {
+    if (config.integrityChecks) IntegrityChecker.check("before");
     if (config.enableDebugger) debugger;
 
     // eval check
