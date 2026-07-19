@@ -56,6 +56,9 @@ const urls = {
     SatoriLoaderUrl: "https://files.catbox.moe/c2xoqd.js",
     SatoriWasmUrl: "https://files.catbox.moe/jw8hmm.wasm",
 
+    DropflowLoaderUrl: "file:///D:/projects/nodejs/dropflow/dist/index.cjs",
+    DropflowWasmUrl: "file:///D:/projects/nodejs/dropflow/dist/dropflow.wasm",
+
     BabelStandaloneUrl: "https://cdn.jsdelivr.net/npm/@babel/standalone@7.28.5/babel.min.js"
 };
 
@@ -100,6 +103,9 @@ const tags = {
 
     SatoriLoaderTagName: /^ck_satori_init\d+$/,
     SatoriWasmTagName: /^ck_satori_wasm\d+$/,
+
+    DropflowLoaderTagName: /^ck_dropflow_init\d+$/,
+    DropflowWasmTagName: /^ck_dropflow_wasm\d+$/,
 
     BabelStandaloneTagName: /^ck_babel_standalone\d+$/
 };
@@ -736,6 +742,8 @@ let LoaderUtils = {
 
     splitAt: (str, sep = " ") => {
         const idx = str.indexOf(sep);
+
+        let first, second;
 
         if (idx === -1) {
             first = str;
@@ -3869,7 +3877,9 @@ class ModuleStackTraceUtil {
     }
 
     static rewriteStackTrace(err, randomNames, moduleName) {
-        if (typeof err.stack !== "string") return err.stack;
+        if (err == null || typeof err.stack !== "string") {
+            return err ? err.stack : undefined;
+        }
 
         let stackFrames = err.stack.split("\n"),
             msgLine;
@@ -4105,7 +4115,7 @@ class ModuleLoader {
             originalGlobal = LoaderUtils.shallowClone(globalThis, "enum");
 
             patchedGlobal = LoaderUtils.shallowClone(ModuleGlobalsUtil.cleanGlobal);
-            Object.assign(patchedGlobal, filteredGlobals);
+            LoaderUtils.assign(patchedGlobal, filteredGlobals, "enum");
         } else {
             patchedGlobal = LoaderUtils.makeMirrorObject(globalThis, filteredGlobals);
         }
@@ -4155,17 +4165,28 @@ class ModuleLoader {
                 loadErr = err;
             }
 
+            let loaded = false;
+
             if (loaderFn !== null) {
-                let loaded;
-                [loaded, loadErr] = loaderFn.apply(loadScopeThis, loadArgs);
+                try {
+                    [loaded, loadErr] = loaderFn.apply(loadScopeThis, loadArgs);
+                } catch (err) {
+                    loaded = false;
+                    loadErr = err;
+                }
 
                 module.loaded = loaded;
             }
 
             cleanup();
 
-            if (loadErr !== null) {
-                loadErr.stack = ModuleStackTraceUtil.rewriteStackTrace(loadErr, randomNames, module.name);
+            if (!loaded) {
+                if (loadErr && typeof loadErr === "object") {
+                    try {
+                        loadErr.stack = ModuleStackTraceUtil.rewriteStackTrace(loadErr, randomNames, module.name);
+                    } catch (stackErr) {}
+                }
+
                 throw new LoaderError(`Error occured while loading module ${module.name}.`, loadErr);
             }
         } else {
@@ -4852,6 +4873,8 @@ const Patches = {
                 break;
             case "babel":
                 break;
+            case "dropflow":
+                break;
             default:
                 throw new LoaderError("Unknown library: " + library, library);
         }
@@ -4933,6 +4956,12 @@ const Patches = {
                     break;
                 case "babel":
                     break;
+                case "dropflow":
+                    Patches.polyfillPromise();
+                    Patches.polyfillBuffer();
+                    Patches.polyfillTextEncoderDecoder();
+                    break;
+
                 default:
                     Benchmark.stopTiming(timeKey, null);
                     throw new LoaderError("Unknown library: " + library, library);
@@ -5606,11 +5635,12 @@ function loadSatori() {
 
         if (ModuleLoader.loadSource === "tag") {
             code = ModuleLoader.getModuleCodeFromTag(tags.SatoriLoaderTagName, FileDataTypes.binary, {
-                encoded: true,
+                encoded: "base127",
                 cache: false
             });
 
-            code = ModuleLoader._parseModuleCode(decompress(code, "xz"), FileDataTypes.module);
+            code = decompress(code, "xz");
+            code = ModuleLoader._parseModuleCode(code, FileDataTypes.module);
         } else {
             code = ModuleLoader.getModuleCodeFromUrl(urls.SatoriLoaderUrl, FileDataTypes.module, {
                 cache: false
@@ -5634,7 +5664,7 @@ function loadSatori() {
         }
 
         const wasm = ModuleLoader.getModuleCode(urls.SatoriWasmUrl, tags.SatoriWasmTagName, FileDataTypes.binary, {
-            encoded: true,
+            encoded: "base127",
             cache: false
         });
 
@@ -5665,16 +5695,21 @@ function loadBabelStandalone() {
     let BabelStandalone;
 
     try {
-        let code = ModuleLoader.getModuleCode(
-            urls.BabelStandaloneUrl,
-            tags.BabelStandaloneTagName,
-            FileDataTypes.module,
-            {
+        let code;
+
+        if (ModuleLoader.loadSource === "tag") {
+            code = ModuleLoader.getModuleCodeFromTag(tags.BabelStandaloneTagName, FileDataTypes.binary, {
                 encoded: true,
                 cache: false
-            }
-        );
-        code = decompress(code, "xz");
+            });
+
+            code = decompress(code, "xz");
+            code = ModuleLoader._parseModuleCode(code, FileDataTypes.module);
+        } else {
+            code = ModuleLoader.getModuleCodeFromUrl(urls.BabelStandaloneUrl, FileDataTypes.module, {
+                cache: false
+            });
+        }
 
         BabelStandalone = ModuleLoader.loadModuleFromSource(code, null, config.enableDebugger, {
             cache: false
@@ -5691,6 +5726,71 @@ function loadBabelStandalone() {
     Patches.patchGlobalContext({ Babel: BabelStandalone });
 }
 
+// dropflow loader
+function loadDropflow() {
+    if (typeof globalThis.dropflow !== "undefined") return;
+
+    Benchmark.startTiming("load_dropflow");
+    let dropflow;
+
+    try {
+        let code = null;
+
+        if (ModuleLoader.loadSource === "tag") {
+            code = ModuleLoader.getModuleCodeFromTag(tags.DropflowLoaderTagName, FileDataTypes.binary, {
+                encoded: "base127",
+                cache: false
+            });
+
+            code = decompress(code, "zstd");
+            code = ModuleLoader._parseModuleCode(code, FileDataTypes.module);
+        } else {
+            code = ModuleLoader.getModuleCodeFromUrl(urls.DropflowLoaderUrl, FileDataTypes.module, {
+                cache: false
+            });
+        }
+
+        const DropflowInit = ModuleLoader.loadModuleFromSource(
+            code,
+            {
+                process: { env: {} }
+            },
+            config.enableDebugger,
+            {
+                cache: false
+            }
+        );
+
+        console.replyWithLogs("warn");
+        if (!DropflowInit) {
+            throw new LoaderError("Couldn't load dropflow");
+        }
+
+        let wasm = ModuleLoader.getModuleCode(urls.DropflowWasmUrl, tags.DropflowWasmTagName, FileDataTypes.binary, {
+            encoded: "base127",
+            cache: false
+        });
+        wasm = decompress(wasm, "zstd");
+
+        Benchmark.startTiming("dropflow_init");
+
+        DropflowInit.createDropflow(wasm)
+            .then(flow => (dropflow = flow))
+            .catch(err => console.error("Error occured while loading dropflow:", err));
+
+        Benchmark.stopTiming("dropflow_init");
+        console.replyWithLogs("warn");
+
+        if (!dropflow) {
+            throw new LoaderError("Couldn't load dropflow");
+        }
+    } finally {
+        Benchmark.stopTiming("load_dropflow");
+    }
+
+    Patches.patchGlobalContext({ dropflow });
+}
+
 const libraryLoaderFuncs = Object.freeze({
     none: () => {},
     canvaskit: loadCanvasKit,
@@ -5700,7 +5800,8 @@ const libraryLoaderFuncs = Object.freeze({
     gifenc: loadGifEncoder,
     h264: loadH264MP4Encoder,
     satori: loadSatori,
-    babel: loadBabelStandalone
+    babel: loadBabelStandalone,
+    dropflow: loadDropflow
 });
 
 // main
@@ -5740,10 +5841,17 @@ function decideMiscConfig(library) {
             features.useZstdDecompressor = true;
             break;
         case "satori":
+            features.useBase127Decoder = true;
             features.useBase2nDecoder = true;
             features.useXzDecompressor = true;
             break;
         case "babel":
+            features.useBase2nDecoder = true;
+            break;
+        case "dropflow":
+            features.useBase127Decoder = true;
+            features.useBase2nDecoder = true;
+            features.useZstdDecompressor = true;
             break;
         default:
             throw new LoaderError("Unknown library: " + library, library);
@@ -5868,7 +5976,7 @@ try {
     main();
 
     if (config.enableDebugger) debugger;
-    else exit(".");
+    exit(".");
 } catch (err) {
     // output
     if (err instanceof ExitError) err.message;
