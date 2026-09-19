@@ -1544,6 +1544,43 @@ const ArrayUtil = Object.freeze({
         });
     },
 
+    groupBy: (array, callback) => {
+        const getValue = ArrayUtil._valueFunc(callback),
+            groups = Object.create(null);
+
+        let i = 0;
+
+        for (const item of array) {
+            const key = getValue(item, i++);
+
+            groups[key] ??= [];
+            groups[key].push(item);
+        }
+
+        return groups;
+    },
+
+    groupByMap: (array, callback) => {
+        const getValue = ArrayUtil._valueFunc(callback),
+            groups = new Map();
+
+        let i = 0;
+
+        for (const item of array) {
+            const key = getValue(item, i++);
+            let group = groups.get(key);
+
+            if (typeof group === "undefined") {
+                group = [];
+                groups.set(key, group);
+            }
+
+            group.push(item);
+        }
+
+        return groups;
+    },
+
     split: (array, callback) => {
         return array.reduce(
             (acc, item, i) => {
@@ -2343,6 +2380,10 @@ const ObjectUtil = Object.freeze({
 
     reverseObject: obj => {
         return Object.fromEntries(Object.entries(obj).map(([key, value]) => [value, key]));
+    },
+
+    groupBy: (items, callback) => {
+        return ArrayUtil.groupBy(items, callback);
     },
 
     guaranteeObject: (obj, fallback = {}) => {
@@ -3645,9 +3686,10 @@ let UploadUtil = {
             method: "POST",
             headers,
             data: formData,
-            responseType: ModuleLoader._returnTypeToRes(returnType, true),
-            errorType: "value"
+            responseType: ModuleLoader._returnTypeToRes(returnType, true)
         };
+
+        if (util.env) config.errorType = "value";
 
         let res = null,
             reqErr = null;
@@ -4580,12 +4622,7 @@ class ModuleLoader {
     }
 
     static getModuleCode(url, tagName, ...args) {
-        const loadSource = TypeTester.normalizeEnum(
-            this.loadSource,
-            this._loadSources,
-            "load source",
-            LoaderError
-        );
+        const loadSource = TypeTester.normalizeEnum(this.loadSource, this._loadSources, "load source", LoaderError);
 
         switch (loadSource) {
             case "url":
@@ -4832,12 +4869,7 @@ class ModuleLoader {
     }
 
     static loadModule(url, tagName, options) {
-        const loadSource = TypeTester.normalizeEnum(
-            this.loadSource,
-            this._loadSources,
-            "load source",
-            LoaderError
-        );
+        const loadSource = TypeTester.normalizeEnum(this.loadSource, this._loadSources, "load source", LoaderError);
 
         switch (loadSource) {
             case "url":
@@ -4901,9 +4933,10 @@ class ModuleLoader {
             url,
             method,
             responseType: this._returnTypeToRes(returnType),
-            ...optionsConfig,
-            errorType: "value"
+            ...optionsConfig
         };
+
+        if (util.env) config.errorType = "value";
 
         let res = null,
             reqErr = null;
