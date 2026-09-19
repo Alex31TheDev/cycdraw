@@ -40,7 +40,7 @@ const CanvasKitUtil = Object.freeze({
 
     downloadTypeface: url => {
         const fontData = http.request({
-            url: url,
+            url,
             responseType: "arraybuffer"
         }).data;
 

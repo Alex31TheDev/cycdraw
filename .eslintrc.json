@@ -25,47 +25,6 @@
         "msg": "writable",
         "util": "writable",
         "http": "writable",
-        "vm": "writable",
-
-        "CustomError": "writable",
-        "ExitError": "writable",
-
-        "Benchmark": "writable",
-        "LoaderUtils": "writable",
-        "EncryptionUtil": "writable",
-        "HttpUtil": "writable",
-        "UploadUtil": "writable",
-        "exit": "writable",
-        "FileDataTypes": "writable",
-        "ModuleLoader": "writable",
-        "Patches": "writable",
-
-        "loadSource": "writable",
-        "enableDebugger": "writable",
-
-        "XzDecompressor": "writable",
-        "ZstdDecompressor": "writable",
-        "decompress": "writable",
-
-        "CanvasKit": "writable",
-        "Resvg": "writable",
-        "lodepng": "writable",
-        "gifenc": "writable",
-
-        "Color": "writable",
-        "Point": "writable",
-        "Grid": "writable",
-        "Font": "writable",
-        "Colors": "writable",
-        "f_1": "writable",
-        "DigitFont": "writable",
-        "Image": "writable",
-
-        "H264MP4Encoder": "writable",
-
-        "loadLibrary": "writable",
-        "loadBase2nDecoder": "writable",
-        "loadXzDecompressor": "writable",
-        "loadZstdDecompressor": "writable"
+        "vm": "writable"
     }
 }

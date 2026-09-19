@@ -196,13 +196,20 @@ class Logger {
         error: 2
     };
 
+    static _defaultOptions = {
+        level: "info",
+        objIndentation: 4
+    };
+
     constructor(enabled = true, options = {}) {
+        options = ObjectUtil.setValuesWithDefaults({}, options, this.constructor._defaultOptions);
+
         this.enabled = enabled;
         this.options = options;
 
-        this.level = options.level ?? "info";
+        this.level = options.level;
 
-        this._objIndent = options.objIndentation ?? 4;
+        this._objIndent = options.objIndentation;
 
         if (typeof options.formatLog === "function") {
             this._formatLog = options.formatLog.bind(this);
@@ -312,7 +319,7 @@ class Logger {
     _formatLog(info) {
         let format = `${info.level}: ${info.msg}`;
 
-        if (info.objs.length > 0) {
+        if (!LoaderUtils.empty(info.objs)) {
             const objStrs = info.objs.map(obj => this._formatObject(obj));
             format += " " + objStrs.join(" ");
         }
@@ -364,6 +371,7 @@ const FileDataTypes = Object.freeze({
 });
 
 // source: http://www.myersdaily.org/joseph/javascript/md5.js
+/* eslint-disable */
 const md5 = (() => {
     function add32(a, b) {
         return (a + b) & 0xffffffff;
@@ -544,6 +552,7 @@ const md5 = (() => {
         return hex(md5_raw(str));
     };
 })();
+/* eslint-enable */
 
 let LoaderUtils = {
     md5,
@@ -624,17 +633,6 @@ let LoaderUtils = {
         return str.replace(/\s+/g, "");
     },
 
-    charType: char => {
-        if (char?.length !== 1) return "invalid";
-        const code = char.charCodeAt(0);
-
-        if (code === 32) return "space";
-        else if (code >= 48 && code <= 57) return "number";
-        else if (code >= 65 && code <= 90) return "uppercase";
-        else if (code >= 97 && code <= 122) return "lowercase";
-        else return "other";
-    },
-
     _leadingSpacesRegex: /^\s*/,
     _trailingSpacesRegex: /\s*$/,
     capitalize: str => {
@@ -659,6 +657,10 @@ let LoaderUtils = {
         return words.toLowerCase();
     },
 
+    camelCaseToKebab: str => {
+        return LoaderUtils.camelCaseToWords(str).replaceAll(" ", "-");
+    },
+
     _wordsToCamelRegex: /(?:^\w|[A-Z]|\b\w|\s+)/g,
     wordsToCamelCase: str => {
         str = str.toLowerCase();
@@ -671,6 +673,26 @@ let LoaderUtils = {
         return LoaderUtils.stripSpaces(camel);
     },
 
+    _camelSplitRegex: /(?<!^)(?=[A-Z])/,
+    splitCamelCase: str => {
+        str = String(str);
+        return str.split(LoaderUtils._camelSplitRegex);
+    },
+
+    hasDuplicates: (str, sep = "") => {
+        if (LoaderUtils.empty(str)) return false;
+
+        const split = sep === "" ? str : str.split(sep);
+        return new Set(split).size !== split.length;
+    },
+
+    unique: (str, sep = "") => {
+        if (LoaderUtils.empty(str)) return str;
+
+        const split = sep === "" ? str : str.split(sep);
+        return [...new Set(split)].join(sep);
+    },
+
     removeStringRange: (str, i, length = 1, end = false) => {
         const last = end ? length : i + length;
         return str.slice(0, i) + str.slice(last);
@@ -681,8 +703,76 @@ let LoaderUtils = {
         return str.slice(0, i) + replacement + str.slice(last);
     },
 
+    maskRanges: (str, ranges, mask = " ") => {
+        if (!LoaderUtils.nonemptyString(str) || LoaderUtils.empty(ranges) || !LoaderUtils.nonemptyString(mask)) {
+            return str;
+        }
+
+        const normalized = ranges
+            .filter(range => range.length >= 2)
+            .map(([start, end]) => {
+                start = LoaderUtils.clamp(Math.trunc(start), 0, str.length);
+                end = LoaderUtils.clamp(Math.trunc(end), 0, str.length);
+                return start <= end ? [start, end] : [end, start];
+            })
+            .filter(([start, end]) => end > start)
+            .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+
+        if (LoaderUtils.empty(normalized)) return str;
+
+        let out = [],
+            [maskStart, maskEnd] = normalized[0],
+            lastIndex = 0;
+
+        const pushMask = () => {
+            out.push(str.slice(lastIndex, maskStart));
+            out.push(mask.repeat(maskEnd - maskStart));
+            lastIndex = maskEnd;
+        };
+
+        for (let i = 1; i < normalized.length; i++) {
+            const [start, end] = normalized[i];
+
+            if (start <= maskEnd) {
+                maskEnd = Math.max(maskEnd, end);
+                continue;
+            }
+
+            pushMask();
+            maskStart = start;
+            maskEnd = end;
+        }
+
+        pushMask();
+        out.push(str.slice(lastIndex));
+
+        return out.join("");
+    },
+
     randomString: n => {
         return LoaderUtils.randomElement(LoaderUtils.alphanumeric, 0, LoaderUtils.alphanumeric.length, n).join("");
+    },
+
+    utf8ByteLength: str => {
+        let i = 0,
+            len = LoaderUtils.countChars(str);
+
+        let code,
+            length = 0;
+
+        for (; i < len; i++) {
+            code = str.codePointAt(i);
+
+            if (code <= 0x7f) length += 1;
+            else if (code <= 0x7ff) length += 2;
+            else if (code <= 0xffff) length += 3;
+            else {
+                length += 4;
+                i++;
+            }
+        }
+
+        return length;
     },
 
     countChars: str => {
@@ -756,25 +846,30 @@ let LoaderUtils = {
         return [first, second];
     },
 
+    _splitArgsDefaults: {
+        sep: [" ", "\n"],
+        n: 1
+    },
     splitArgs: (str, lowercase = false, options = {}) => {
         let multipleLowercase = Array.isArray(lowercase);
 
-        if (!multipleLowercase && LoaderUtils.isObject(lowercase)) {
-            options = lowercase;
+        if (!multipleLowercase && TypeTester.isObject(lowercase)) {
+            options = ObjectUtil.guaranteeObject(lowercase);
 
             lowercase = options.lowercase ?? false;
             multipleLowercase = Array.isArray(lowercase);
         }
 
+        options = ObjectUtil.setValuesWithDefaults({}, options, LoaderUtils._splitArgsDefaults);
+
         const lowercaseFirst = multipleLowercase ? lowercase[0] ?? false : lowercase,
             lowercaseSecond = multipleLowercase ? lowercase[1] ?? false : false;
 
-        let sep = options.sep ?? [" ", "\n"],
-            n = options.n ?? 1;
+        let { sep, n } = options;
 
         if (LoaderUtils.empty(sep)) {
             return [lowercaseFirst ? str.toLowerCase() : str, ""];
-        } else sep = LoaderUtils.guaranteeArray(sep);
+        } else sep = ArrayUtil.guaranteeArray(sep);
 
         let idx = -1,
             sepLength;
@@ -792,7 +887,7 @@ let LoaderUtils = {
                 }
             }
         } else {
-            const escaped = sep.map(item => LoaderUtils.escapeRegex(item)),
+            const escaped = sep.map(item => RegexUtil.escapeRegex(item)),
                 exp = new RegExp(escaped.join("|"), "g");
 
             exp.lastIndex = 0;
@@ -833,11 +928,16 @@ let LoaderUtils = {
         return [lowercaseFirst ? first.toLowerCase() : first, lowercaseSecond ? second.toLowerCase() : second];
     },
 
+    _trimStringDefaults: {
+        tight: false,
+        showDiff: false
+    },
     trimString: (str, charLimit, lineLimit, options = {}) => {
         if (typeof str !== "string") return str;
 
-        const tight = options.tight ?? false,
-            showDiff = options.showDiff ?? false;
+        options = ObjectUtil.setValuesWithDefaults({}, options, LoaderUtils._trimStringDefaults);
+
+        const { tight, showDiff } = options;
 
         let oversized = options.oversized;
 
@@ -960,10 +1060,6 @@ let LoaderUtils = {
         return lengthFunc(val);
     },
 
-    maxLength: (array, lengthType = "string") => {
-        return Math.max(...array.map(x => LoaderUtils.getLength(x, lengthType)));
-    },
-
     nonemptyString: str => {
         return typeof str === "string" && str.length > 0;
     },
@@ -981,6 +1077,7 @@ let LoaderUtils = {
     },
 
     first: (val, start = 0, n = 1) => {
+        if (val == null) return n > 1 ? [] : undefined;
         return n > 1 ? val.slice(start, start + n) : val[start];
     },
 
@@ -1029,21 +1126,41 @@ let LoaderUtils = {
         return LoaderUtils.exceedsLimits(formatted) ? str : formatted;
     },
 
+    _escapeMarkdownDefaults: {
+        codeBlock: true,
+        inlineCode: true,
+        bold: true,
+        italic: true,
+        underline: true,
+        strikethrough: true,
+        spoiler: true,
+        codeBlockContent: true,
+        inlineCodeContent: true,
+        escape: true,
+        heading: true,
+        bulletedList: true,
+        numberedList: true,
+        maskedLink: true
+    },
     escapeMarkdown: (text, options = {}) => {
-        const codeBlock = options.codeBlock ?? true,
-            inlineCode = options.inlineCode ?? true,
-            bold = options.bold ?? true,
-            italic = options.italic ?? true,
-            underline = options.underline ?? true,
-            strikethrough = options.strikethrough ?? true,
-            spoiler = options.spoiler ?? true,
-            codeBlockContent = options.codeBlockContent ?? true,
-            inlineCodeContent = options.inlineCodeContent ?? true,
-            escape = options.escape ?? true,
-            heading = options.heading ?? true,
-            bulletedList = options.bulletedList ?? true,
-            numberedList = options.numberedList ?? true,
-            maskedLink = options.maskedLink ?? true;
+        options = ObjectUtil.setValuesWithDefaults({}, options, LoaderUtils._escapeMarkdownDefaults);
+
+        const {
+            codeBlock,
+            inlineCode,
+            bold,
+            italic,
+            underline,
+            strikethrough,
+            spoiler,
+            codeBlockContent,
+            inlineCodeContent,
+            escape,
+            heading,
+            bulletedList,
+            numberedList,
+            maskedLink
+        } = options;
 
         if (!codeBlockContent) {
             return text
@@ -1137,6 +1254,8 @@ let LoaderUtils = {
     },
 
     smallRound: (num, digits) => {
+        if (num === 0) return 0;
+
         const tresh = 1 / 10 ** digits;
         if (Math.abs(num) <= tresh) digits = -Math.floor(Math.log10(Math.abs(num)));
 
@@ -1158,12 +1277,120 @@ let LoaderUtils = {
         return Math.floor(log) + 1;
     },
 
+    numberToBytes: num => {
+        if (!Number.isSafeInteger(num) || num < 0) return null;
+
+        const bytes = new Uint8Array(num === 0 ? 0 : Math.ceil(LoaderUtils.countDigits(num, 2) / 8));
+
+        for (let i = 0; i < bytes.length; i++) {
+            bytes[i] = num % 0x100;
+            num = Math.floor(num / 0x100);
+        }
+
+        return bytes;
+    },
+
+    bytesToNumber: bytes => {
+        let num = 0,
+            place = 1;
+
+        for (let i = 0; i < bytes.length; i++) {
+            num += bytes[i] * place;
+            place *= 0x100;
+        }
+
+        return num;
+    },
+
+    urlRegex: /(\S*?):\/\/(?:([^/.]+)\.)?([^/.]+)\.([^/\s]+)\/?(\S*)?/,
+
+    validUrl: url => {
+        return LoaderUtils._validUrlRegex.test(url);
+    },
+
+    timeDelta: (d1, d2, div = 1) => {
+        let t1 = d1.getTime?.() ?? d1,
+            t2 = d2.getTime?.() ?? d2;
+
+        if ([typeof d1, typeof d2].includes("bigint")) {
+            t1 = BigInt(t1);
+            t2 = BigInt(t2);
+            div = BigInt(div);
+        } else {
+            t1 = Number(t1);
+            t2 = Number(t2);
+        }
+
+        return Math.round(Math.abs((t2 - t1) / div));
+    },
+
+    _durationDefaults: {
+        format: false,
+        largestOnly: false,
+        largestN: 0,
+        whitelist: [],
+        blacklist: ["milli"]
+    },
+    duration: (delta, options) => {
+        options = ObjectUtil.setValuesWithDefaults({}, options, LoaderUtils._durationDefaults);
+
+        const { format, largestOnly, largestN } = options,
+            whitelist = Array.isArray(options.whitelist) ? options.whitelist : [],
+            blacklist = Array.isArray(options.blacklist) ? options.blacklist : ["milli"];
+
+        const durationNames = Object.keys(LoaderUtils.durationSeconds).filter(name => {
+                const inWhitelist = LoaderUtils.empty(whitelist) || whitelist.includes(name),
+                    inBlacklist = blacklist.includes(name);
+
+                return inWhitelist && !inBlacklist;
+            }),
+            durations = {};
+
+        let seconds = delta * LoaderUtils.durationSeconds.milli;
+
+        if (seconds < 1 && durationNames.includes("second")) durations.second = seconds;
+        else {
+            let hitFirst = false,
+                n = 0;
+
+            for (const name of durationNames) {
+                const unitSeconds = LoaderUtils.durationSeconds[name],
+                    duration = Math.floor(seconds / unitSeconds);
+
+                if (duration > 0) {
+                    hitFirst = true;
+                    seconds -= duration * unitSeconds;
+                    durations[name] = duration;
+
+                    if (largestOnly) break;
+                }
+
+                if (hitFirst) n++;
+                if (largestN > 0 && n >= largestN) break;
+            }
+        }
+
+        if (!format) return durations;
+
+        return Object.entries(durations)
+            .map(([name, duration]) => {
+                const durationText = LoaderUtils.formatNumber(duration),
+                    suffix = duration !== 1 ? "s" : "";
+
+                return `${durationText} ${name}${suffix}`;
+            })
+            .join(", ");
+    }
+};
+
+const ArrayUtil = Object.freeze({
     withLength: (length, callback) => {
         return Array.from({ length }, (_, i) => callback(i));
     },
 
-    guaranteeArray: (val, length) => {
-        if (typeof length !== "number") return Array.isArray(val) ? val : [val];
+    guaranteeArray: (val, length, nullEmpty = false) => {
+        if (nullEmpty && val == null) return [];
+        else if (typeof length !== "number") return Array.isArray(val) ? val : [val];
 
         return Array.isArray(val)
             ? val.concat(new Array(LoaderUtils.clamp(length - val.length, 0)).fill())
@@ -1198,7 +1425,7 @@ let LoaderUtils = {
     },
 
     sum: (array, callback) => {
-        const getValue = LoaderUtils._valueFunc(callback);
+        const getValue = ArrayUtil._valueFunc(callback);
         return array.reduce((total, item) => total + getValue(item), 0);
     },
 
@@ -1207,7 +1434,7 @@ let LoaderUtils = {
     },
 
     frequency: (array, callback) => {
-        const getValue = LoaderUtils._valueFunc(callback);
+        const getValue = ArrayUtil._valueFunc(callback);
 
         return array.reduce((map, item) => {
             const val = getValue(item);
@@ -1217,8 +1444,15 @@ let LoaderUtils = {
         }, new Map());
     },
 
+    hasDuplicates: (array, callback) => {
+        const getValue = ArrayUtil._valueFunc(callback),
+            values = array.map(item => getValue(item));
+
+        return new Set(values).size !== values.length;
+    },
+
     unique: (array, callback) => {
-        const getValue = LoaderUtils._valueFunc(callback),
+        const getValue = ArrayUtil._valueFunc(callback),
             seen = new Set();
 
         return array.filter(item => {
@@ -1236,7 +1470,7 @@ let LoaderUtils = {
         if (arr1.length !== arr2.length) return false;
 
         if (strict) {
-            const getValue = LoaderUtils._valueFunc(callback);
+            const getValue = ArrayUtil._valueFunc(callback);
 
             return arr1.every((a, i) => {
                 const b = arr2[i];
@@ -1244,8 +1478,8 @@ let LoaderUtils = {
             });
         }
 
-        const aFreq = LoaderUtils.frequency(arr1, callback),
-            bFreq = LoaderUtils.frequency(arr2, callback);
+        const aFreq = ArrayUtil.frequency(arr1, callback),
+            bFreq = ArrayUtil.frequency(arr2, callback);
 
         if (aFreq.size !== bFreq.size) return false;
 
@@ -1256,8 +1490,44 @@ let LoaderUtils = {
         return true;
     },
 
+    diff: (oldArray, newArray, callback) => {
+        const getValue = ArrayUtil._valueFunc(callback),
+            counts = new Map();
+
+        const shared = [],
+            removed = [],
+            added = [];
+
+        for (const item of oldArray) {
+            const value = getValue(item);
+            counts.set(value, (counts.get(value) || 0) + 1);
+        }
+
+        for (const item of newArray) {
+            const value = getValue(item),
+                count = counts.get(value) || 0;
+
+            if (count > 0) {
+                counts.set(value, count - 1);
+                shared.push(item);
+            } else added.push(item);
+        }
+
+        for (const item of oldArray) {
+            const value = getValue(item),
+                count = counts.get(value) || 0;
+
+            if (count > 0) {
+                counts.set(value, count - 1);
+                removed.push(item);
+            }
+        }
+
+        return { shared, removed, added };
+    },
+
     sort: (array, callback) => {
-        const getValue = LoaderUtils._valueFunc(callback);
+        const getValue = ArrayUtil._valueFunc(callback);
 
         return array.sort((a, b) => {
             const a_val = getValue(a),
@@ -1293,105 +1563,195 @@ let LoaderUtils = {
         return Array.from({ length: len }, (_, i) => [arr1[i], arr2[i]]);
     },
 
+    maxLength: (array, lengthType = "string") => {
+        return Math.max(...array.map(x => LoaderUtils.getLength(x, lengthType)));
+    }
+});
+
+const RegexUtil = Object.freeze({
     _regexEscapeRegex: /[.*+?^${}()|[\]\\]/g,
     escapeRegex: str => {
-        LoaderUtils._regexEscapeRegex.lastIndex = 0;
-        return str.replace(LoaderUtils._regexEscapeRegex, "\\$&");
+        RegexUtil._regexEscapeRegex.lastIndex = 0;
+        return str.replace(RegexUtil._regexEscapeRegex, "\\$&");
     },
 
     _charClassExcapeRegex: /[-\\\]^]/g,
     escapeCharClass: str => {
-        LoaderUtils._charClassExcapeRegex.lastIndex = 0;
-        return str.replace(LoaderUtils._charClassExcapeRegex, "\\$&");
+        RegexUtil._charClassExcapeRegex.lastIndex = 0;
+        return str.replace(RegexUtil._charClassExcapeRegex, "\\$&");
+    },
+
+    flagsRegex: /^[gimsuy]*$/,
+
+    validFlags: flags => {
+        return RegexUtil.flagsRegex.test(flags) && !LoaderUtils.hasDuplicates(flags);
     },
 
     firstGroup: (match, name) => {
-        if (!match) return null;
+        if (!match || typeof match.groups === "undefined") return null;
 
-        const groups = Object.keys(match.groups).filter(key => typeof match.groups[key] !== "undefined"),
-            foundName = groups.find(key => key.startsWith(name));
+        const foundName = Object.entries(match.groups).find(
+            ([key, value]) => typeof value !== "undefined" && key.startsWith(name)
+        )?.[0];
 
         return foundName && match.groups[foundName];
     },
 
     wordStart: (str, idx) => {
         const char = str[idx - 1];
-        return idx === 0 || char === " " || !LoaderUtils.alphanumeric.includes(char);
+        return idx <= 0 || char === " " || !LoaderUtils.alphanumeric.includes(char);
     },
 
     wordEnd: (str, idx) => {
         const char = str[idx + 1];
-        return idx === str.length || char === " " || !LoaderUtils.alphanumeric.includes(char);
+        return idx >= str.length - 1 || char === " " || !LoaderUtils.alphanumeric.includes(char);
+    },
+
+    getWordRegex: (words, flags = "gu") => {
+        words = ArrayUtil.guaranteeArray(words, null, true);
+        const validWords = [...new Set(words.filter(word => typeof word === "string" && !LoaderUtils.empty(word)))];
+
+        if (LoaderUtils.empty(validWords)) return null;
+
+        const expFlags = LoaderUtils.unique(flags.includes("u") ? flags : flags + "u"),
+            patterns = validWords
+                .map(word => RegexUtil.escapeRegex(word))
+                .sort((a, b) => b.length - a.length || a.localeCompare(b));
+
+        return new RegExp(`(?<![\\p{L}\\p{N}])(?:${patterns.join("|")})(?![\\p{L}\\p{N}])`, expFlags);
+    },
+
+    getMergedRegex: exps => {
+        exps = Array.isArray(exps) ? exps.filter(TypeTester.isRegex) : [];
+        if (LoaderUtils.empty(exps)) return null;
+
+        const regexCtor = exps[0].constructor,
+            expText = `(?:${exps.map(exp => exp.source).join(")|(?:")})`,
+            expFlags = LoaderUtils.unique(exps.map(exp => exp.flags).join(""));
+
+        return new regexCtor(expText, expFlags);
+    },
+
+    multipleReplace: (str, ...rules) => {
+        if (LoaderUtils.empty(rules)) return str;
+
+        const regexCtor = rules[0][0].constructor,
+            matchInfo = [];
+
+        for (const [regex, replacement] of rules) {
+            const newFlags = LoaderUtils.unique(regex.flags + "g"),
+                globalRegex = new regexCtor(regex.source, newFlags);
+
+            globalRegex.lastIndex = 0;
+
+            for (const match of str.matchAll(globalRegex)) {
+                const start = match.index,
+                    end = match.index + match[0].length;
+
+                matchInfo.push({ regex, replacement, match, start, end });
+            }
+        }
+
+        matchInfo.sort((a, b) => a.start - b.start || b.end - a.end);
+
+        let out = [],
+            lastIndex = 0;
+
+        for (const info of matchInfo) {
+            if (info.start < lastIndex) continue;
+
+            out.push(str.slice(lastIndex, info.start));
+            lastIndex = info.end;
+
+            const fullMatch = info.match[0];
+            let replaced;
+
+            if (typeof info.replacement === "function") {
+                replaced = info.replacement(fullMatch, ...info.match.slice(1), info.start, str);
+            } else {
+                info.regex.lastIndex = 0;
+                replaced = fullMatch.replace(info.regex, info.replacement);
+            }
+
+            out.push(replaced ?? "");
+        }
+
+        out.push(str.slice(lastIndex));
+        return out.join("");
     },
 
     _templateReplaceRegex: /(?<!\\){{(.*?)}}(?!\\)/g,
     templateReplace: (template, strings) => {
-        LoaderUtils._templateReplaceRegex.lastIndex = 0;
+        RegexUtil._templateReplaceRegex.lastIndex = 0;
 
-        return template.replace(LoaderUtils._templateReplaceRegex, (match, key) => {
+        return template.replace(RegexUtil._templateReplaceRegex, (match, key) => {
             key = key.trim();
             return strings[key] ?? match;
         });
-    },
+    }
+});
 
-    urlRegex: /(\S*?):\/\/(?:([^/.]+)\.)?([^/.]+)\.([^/\s]+)\/?(\S*)?/,
-
-    validUrl: url => {
-        return LoaderUtils._validUrlRegex.test(url);
-    },
-
+let DiscordUtil = {
     _tagNameRegex: /^[A-Za-z0-9\-_]+$/,
     validTagName: name => {
-        return name.length > 0 && name.length <= 32 && LoaderUtils._tagNameRegex.test(name);
+        return name.length > 0 && name.length <= 32 && DiscordUtil._tagNameRegex.test(name);
     },
 
     _userIdRegex: /\d{17,20}/g,
     findUserIds: str => {
-        LoaderUtils._userIdRegex.lastIndex = 0;
+        DiscordUtil._userIdRegex.lastIndex = 0;
 
-        const matches = Array.from(str.matchAll(LoaderUtils._userIdRegex));
+        const matches = Array.from(str.matchAll(DiscordUtil._userIdRegex));
         return matches.map(match => match[0]);
     },
 
     _mentionRegex: /<@(\d{17,20})>/g,
     findMentions: str => {
-        LoaderUtils._mentionRegex.lastIndex = 0;
+        DiscordUtil._mentionRegex.lastIndex = 0;
 
-        const matches = Array.from(str.matchAll(LoaderUtils._mentionRegex));
+        const matches = Array.from(str.matchAll(DiscordUtil._mentionRegex));
         return matches.map(match => match[1]);
     },
 
     codeblockRegex: /(?<!\\)(?:`{3}([\S]+\n)?([\s\S]*?)`{3}|`([^`\n]+)`)/g,
 
     findCodeblocks: str => {
-        LoaderUtils.codeblockRegex.lastIndex = 0;
+        DiscordUtil.codeblockRegex.lastIndex = 0;
 
-        const matches = str.matchAll(LoaderUtils.codeblockRegex);
+        const matches = str.matchAll(DiscordUtil.codeblockRegex);
         return Array.from(matches).map(match => [match.index, match.index + match[0].length]);
+    },
+
+    maskCodeblocks: (str, mask = " ") => {
+        return LoaderUtils.maskRanges(str, DiscordUtil.findCodeblocks(str), mask);
     },
 
     _parseScriptResult: (body, isScript = false, lang = "") => ({ body, isScript, lang }),
     parseScript: script => {
-        const match = script.match(LoaderUtils._parseScriptRegex);
-        if (!match) return LoaderUtils._parseScriptResult(script);
+        const match = script.match(DiscordUtil._parseScriptRegex);
+        if (!match) return DiscordUtil._parseScriptResult(script);
 
         const body = (match[2] ?? match[3])?.trim(),
             lang = match[1]?.trim() ?? "";
 
         return typeof body === "undefined"
-            ? LoaderUtils._parseScriptResult(script)
-            : LoaderUtils._parseScriptResult(body, true, lang);
+            ? DiscordUtil._parseScriptResult(script)
+            : DiscordUtil._parseScriptResult(body, true, lang);
+    },
+
+    getMessageUrl: (serverId, channelId, messageId) => {
+        return `https://www.discord.com/channels/${serverId}/${channelId}/${messageId}`;
     },
 
     _msgUrlRegex:
-        /^(?:(https?:)\/\/)?(?:(www|ptb)\.)?discord\.com\/channels\/(?<sv_id>\d{18,19}|@me)\/(?<ch_id>\d{18,19})(?:\/(?<msg_id>\d{18,19}))$/,
-    parseMessageUrl: url => {
-        const match = url.match(LoaderUtils._msgUrlRegex);
+        /(?:(https?:)\/\/)?(?:(www|ptb)\.)?discord\.com\/channels\/(?<sv_id>\d{18,19}|@me)\/(?<ch_id>\d{18,19})(?:\/(?<msg_id>\d{18,19}))/gi,
+    _msgUrlMatchResult: match => {
         if (!match) return null;
 
         const groups = match.groups;
 
         return {
+            raw: match[0],
             protocol: match[1] ?? "",
             subdomain: match[2] ?? "",
 
@@ -1401,10 +1761,21 @@ let LoaderUtils = {
         };
     },
 
+    parseMessageUrl: url => {
+        const match = url.match(DiscordUtil._parseMessageUrlRegex);
+        return DiscordUtil._msgUrlMatchResult(match);
+    },
+
+    findMessageUrls: str => {
+        DiscordUtil._msgUrlRegex.lastIndex = 0;
+
+        const matches = Array.from(str.matchAll(DiscordUtil._msgUrlRegex));
+        return matches.map(match => DiscordUtil._msgUrlMatchResult(match));
+    },
+
     _attachUrlRegex:
-        /^(?<prefix>(?:(https?:)\/\/)?(cdn|media)\.discordapp\.(com|net)\/attachments\/(?<sv_id>\d+)\/(?<ch_id>\d+)\/(?<filename>.+?)(?<ext>\.[^.?]+)?(?=\?|$))\??(?:ex=(?<ex>[0-9a-f]+)&is=(?<is>[0-9a-f]+)&hm=(?<hm>[0-9a-f]+))?.*$/,
-    parseAttachmentUrl: url => {
-        const match = url.match(LoaderUtils._attachUrlRegex);
+        /(?<prefix>(?:(https?:)\/\/)?(cdn|media)\.discordapp\.(com|net)\/attachments\/(?<sv_id>\d+)\/(?<ch_id>\d+)\/(?<filename>.+?)(?<ext>\.[^.?]+)?(?=\?|\s|$))\??(?:ex=(?<ex>[0-9a-f]+)&is=(?<is>[0-9a-f]+)&hm=(?<hm>[0-9a-f]+))?/giu,
+    _attachUrlMatchResult: match => {
         if (!match) return null;
 
         const groups = match.groups;
@@ -1432,10 +1803,22 @@ let LoaderUtils = {
         };
     },
 
+    parseAttachmentUrl: url => {
+        const match = url.match(DiscordUtil._parseAttachmentUrlRegex);
+        return DiscordUtil._attachUrlMatchResult(match);
+    },
+
+    findAttachmentUrls: str => {
+        DiscordUtil._attachUrlRegex.lastIndex = 0;
+
+        const matches = Array.from(str.matchAll(DiscordUtil._attachUrlRegex));
+        return matches.map(match => DiscordUtil._attachUrlMatchResult(match));
+    },
+
     discordEpoch: 1420070400000,
 
     snowflakeFromDate: date => {
-        const timestamp = date.getTime() - LoaderUtils.discordEpoch,
+        const timestamp = date.getTime() - DiscordUtil.discordEpoch,
             snowflakeBits = BigInt(timestamp) << 22n;
 
         return snowflakeBits.toString(10);
@@ -1445,13 +1828,20 @@ let LoaderUtils = {
         const snowflakeBits = BigInt.asUintN(64, snowflake),
             timestamp = Number(snowflakeBits >> 22n);
 
-        return new Date(timestamp + LoaderUtils.discordEpoch);
+        return new Date(timestamp + DiscordUtil.discordEpoch);
     },
 
+    _fetchAttachmentDefaults: {
+        allowedContentType: [],
+        allowedContentTypes: [],
+        maxSize: Infinity
+    },
     fetchAttachment: (msg, returnType = FileDataTypes.text, options = {}) => {
-        const ctypes = [].concat(options.allowedContentType ?? [], options.allowedContentTypes ?? []);
+        options = ObjectUtil.setValuesWithDefaults({}, options, DiscordUtil._fetchAttachmentDefaults);
 
-        const maxSizeKb = Math.round(options.maxSize ?? Infinity),
+        const ctypes = [].concat(options.allowedContentType, options.allowedContentTypes);
+
+        const maxSizeKb = Math.round(options.maxSize),
             maxSize = maxSizeKb * LoaderUtils.dataBytes.kilobyte;
 
         const maxSizeError = attachSize =>
@@ -1464,10 +1854,10 @@ let LoaderUtils = {
             throw new UtilError("Message doesn't have any attachments");
         }
 
-        const attachInfo = msg.attachInfo ?? LoaderUtils.parseAttachmentUrl(url),
+        const attachInfo = msg.attachInfo ?? DiscordUtil.parseAttachmentUrl(url),
             contentType = attach?.contentType ?? HttpUtil.getContentType(attachInfo.ext);
 
-        const [extensions, ctypePrefs] = LoaderUtils.split(ctypes, type => type.startsWith("."));
+        const [extensions, ctypePrefs] = ArrayUtil.split(ctypes, type => type.startsWith("."));
 
         if (!LoaderUtils.empty(extensions)) {
             if (attachInfo == null || LoaderUtils.empty(attachInfo.ext)) {
@@ -1525,10 +1915,15 @@ let LoaderUtils = {
         } else return all;
     },
 
+    _fullDumpDefaults: {
+        excludedNames: [],
+        excludedUsers: [],
+        fixTags: true
+    },
     fullDump: (search, options = {}) => {
-        const excludedNames = options.excludedNames ?? [],
-            excludedUsers = options.excludedUsers ?? [],
-            fixTags = options.fixTags ?? true;
+        options = ObjectUtil.setValuesWithDefaults({}, options, DiscordUtil._fullDumpDefaults);
+
+        const { excludedNames, excludedUsers, fixTags } = options;
 
         const enableNameBlacklist = excludedNames.length > 0,
             enableUserBlacklist = excludedUsers.length > 0;
@@ -1570,7 +1965,7 @@ let LoaderUtils = {
         if (!fixTags) return tags;
 
         const validProps = tag => [tag.name, tag.body].every(prop => typeof prop === "string");
-        tags = tags.filter(tag => validProps(tag) && LoaderUtils.validTagName(tag.name));
+        tags = tags.filter(tag => validProps(tag) && DiscordUtil.validTagName(tag.name));
 
         for (const tag of tags) {
             tag.isAlias = tag.hops.length > 1;
@@ -1586,7 +1981,7 @@ let LoaderUtils = {
                 tag.aliasName = "";
                 tag.args = "";
 
-                const newBody = LoaderUtils.getTagBody(tag);
+                const newBody = DiscordUtil.getTagBody(tag);
                 tag.isScript = tag.body !== newBody;
 
                 tag.body = newBody;
@@ -1596,9 +1991,66 @@ let LoaderUtils = {
         return tags;
     },
 
+    _mdDelimiters: [
+        { pattern: "```", length: 3 },
+        { pattern: "**", length: 2 },
+        { pattern: "__", length: 2 },
+        { pattern: "~~", length: 2 },
+        { pattern: "||", length: 2 },
+        { pattern: "*", length: 1 },
+        { pattern: "_", length: 1 },
+        { pattern: "`", length: 1 }
+    ],
+    markdownTrimString: (str, charLimit, lineLimit) => {
+        let stack = [],
+            contentCount = 0,
+            i = 0,
+            isEscaped = false;
+
+        while (i < str.length && contentCount < charLimit) {
+            if (str[i] === "\\" && !isEscaped) {
+                isEscaped = true;
+                i++;
+
+                continue;
+            }
+
+            let mdFound = false;
+
+            if (!isEscaped) {
+                for (const { pattern, length } of DiscordUtil._mdDelimiters) {
+                    const part = str.slice(i, i + length);
+
+                    if (part === pattern) {
+                        const hasContentAfter = part.trim().length > 0;
+
+                        if (hasContentAfter) {
+                            stack[stack.length - 1] === pattern ? stack.pop() : stack.push(pattern);
+                        }
+
+                        i += length;
+                        mdFound = true;
+
+                        break;
+                    }
+                }
+            }
+
+            if (!mdFound) {
+                if (!isEscaped) contentCount++;
+
+                isEscaped = false;
+                i++;
+            }
+        }
+
+        const suffix = stack.reverse().join("");
+        return LoaderUtils.trimString(str, charLimit + 2 * suffix.length, lineLimit + 1) + suffix;
+    },
+
     _leveretScriptBodyRegex: /^`{3}([\S]+)?\n([\s\S]+)\n`{3}$/u,
     getTagBody: tag => {
-        const match = tag.body.match(LoaderUtils._leveretScriptBodyRegex);
+        const match = tag.body.match(DiscordUtil._leveretScriptBodyRegex);
         return match?.[2] ?? tag.body;
     },
 
@@ -1623,10 +2075,12 @@ let LoaderUtils = {
             default:
                 return out;
         }
-    },
+    }
+};
 
+const FunctionUtil = Object.freeze({
     bindArgs: (fn, boundArgs) => {
-        boundArgs = LoaderUtils.guaranteeArray(boundArgs);
+        boundArgs = ArrayUtil.guaranteeArray(boundArgs);
 
         return function (...args) {
             return fn.apply(this, boundArgs.concat(args));
@@ -1636,7 +2090,7 @@ let LoaderUtils = {
     _funcArgsRegex: /(?:\()(.+)+(?:\))/,
     functionArgumentNames: func => {
         const code = func.toString(),
-            match = code.match(LoaderUtils._funcArgsRegex);
+            match = code.match(FunctionUtil._funcArgsRegex);
 
         if (!match) return [];
         return match[1]
@@ -1646,12 +2100,14 @@ let LoaderUtils = {
     },
 
     getArgumentPositions: (func, names) => {
-        const argsNames = LoaderUtils.functionArgumentNames(func),
-            positions = names.map(name => argsNames.indexOf(name));
+        const argsNames = FunctionUtil.functionArgumentNames(func),
+            positions = ArrayUtil.guaranteeArray(names).map(name => argsNames.indexOf(name));
 
         return positions.filter(pos => pos !== -1);
-    },
+    }
+});
 
+const TypeTester = Object.freeze({
     isObject: obj => {
         return obj !== null && typeof obj === "object";
     },
@@ -1676,11 +2132,26 @@ let LoaderUtils = {
         return typeof obj?.then === "function";
     },
 
+    isRegex: exp => {
+        return TypeTester.isObject(exp) && typeof exp.source === "string" && typeof exp.flags === "string";
+    },
+
     className: obj => {
         if (obj == null) return "";
         else if (typeof obj === "function") obj = obj.prototype;
 
         return obj.constructor.name;
+    },
+
+    charType: char => {
+        if (char?.length !== 1) return "invalid";
+        const code = char.charCodeAt(0);
+
+        if (code === 32) return "space";
+        else if (code >= 48 && code <= 57) return "number";
+        else if (code >= 65 && code <= 90) return "uppercase";
+        else if (code >= 97 && code <= 122) return "lowercase";
+        else return "other";
     },
 
     parseRanges: (str, base = 16) => {
@@ -1719,25 +2190,105 @@ let LoaderUtils = {
         }
     },
 
+    _normalizeEnumValues(valid) {
+        if (valid instanceof Set) return valid;
+        else if (TypeTester.isArray(valid)) return new Set(valid);
+        else if (TypeTester.isObject(valid)) return new Set(Object.values(valid));
+        else return new Set();
+    },
+
+    _missingEnumMessage(input, name, options) {
+        const msg = options.missing ?? options.message ?? false;
+
+        if (typeof msg === "function") return msg(input);
+        else if (typeof msg === "boolean") return msg ? `No ${name} provided` : `Invalid ${name}`;
+        else return `${msg} ${name}`;
+    },
+
+    _unknownEnumMessage(input, name, options) {
+        let msg = options.unknown ?? options.message ?? false;
+
+        if (typeof msg === "function") return msg(input);
+        else if (typeof msg === "boolean") msg = msg ? "Unknown" : "Invalid";
+
+        const out = `${msg} ${name}`;
+        return options.ref === false ? out : `${out}: ${input}`;
+    },
+
+    _checkEnum(value, valid, options) {
+        const input = value,
+            allowEmpty = options.allowEmpty ?? false;
+
+        if (!allowEmpty && LoaderUtils.empty(value)) return { input, state: "missing" };
+        if (typeof options.normalize === "function") value = options.normalize(value);
+        if (!valid.has(value)) return { input, state: "unknown" };
+
+        return { input, value, state: null };
+    },
+
+    _throwEnum(res, name, errorClass, options) {
+        switch (res.state) {
+            case "missing":
+                throw new errorClass(TypeTester._missingEnumMessage(res.input, name, options), res.input);
+            case "unknown":
+                throw new errorClass(TypeTester._unknownEnumMessage(res.input, name, options), res.input);
+        }
+    },
+
+    normalizeEnum(value, valid, name = "value", errorClass = UtilError, options) {
+        options = ObjectUtil.guaranteeObject(options);
+        valid = TypeTester._normalizeEnumValues(valid);
+
+        const res = TypeTester._checkEnum(value, valid, options);
+        TypeTester._throwEnum(res, name, errorClass, options);
+
+        return res.value;
+    },
+
+    normalizeEnums(values, valid, name = "value", errorClass = UtilError, options) {
+        values = ArrayUtil.guaranteeArray(values);
+        options = ObjectUtil.guaranteeObject(options);
+        valid = TypeTester._normalizeEnumValues(valid);
+
+        const collectInvalid = options.collectInvalid ?? false;
+
+        const out = [],
+            invalid = [];
+
+        for (const value of values) {
+            const res = TypeTester._checkEnum(value, valid, options);
+
+            if (res.state === null) out.push(res.value);
+            else if (collectInvalid) invalid.push(res.input);
+            else TypeTester._throwEnum(res, name, errorClass, options);
+        }
+
+        if (!LoaderUtils.empty(invalid)) {
+            throw new errorClass(TypeTester._unknownEnumMessage(invalid[0], name, options), invalid);
+        }
+
+        return out;
+    },
+
     _validProp: (obj, expected) => {
         if (typeof expected === "string") {
-            return expected === "object" ? LoaderUtils.isObject(obj) : typeof obj === expected;
+            return expected === "object" ? TypeTester.isObject(obj) : typeof obj === expected;
         } else if (typeof expected === "function") {
             return obj instanceof expected;
-        } else if (LoaderUtils.isObject(expected)) {
-            return LoaderUtils.validateProps(obj, expected);
+        } else if (TypeTester.isObject(expected)) {
+            return TypeTester.validateProps(obj, expected);
         } else {
             throw new UtilError("Invalid expected type provided", expected);
         }
     },
     validateProps: (obj, requiredProps) => {
-        if (!LoaderUtils.isObject(obj)) return false;
+        if (!TypeTester.isObject(obj)) return false;
 
         for (const [name, expected] of Object.entries(requiredProps)) {
-            if (!(name in obj)) return false;
+            if (!Object.hasOwn(obj, name)) return false;
 
             const prop = obj[name];
-            if (!LoaderUtils._validProp(prop, expected)) return false;
+            if (!TypeTester._validProp(prop, expected)) return false;
         }
 
         return true;
@@ -1751,15 +2302,17 @@ let LoaderUtils = {
     asUint8Array: data => {
         if (data instanceof Uint8Array) {
             return data;
-        } else if (LoaderUtils.isTypedArray(data)) {
+        } else if (TypeTester.isTypedArray(data)) {
             return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
         } else if (data instanceof ArrayBuffer) {
             return new Uint8Array(data);
         } else {
             throw new LoaderError("Invalid input binary");
         }
-    },
+    }
+});
 
+const ObjectUtil = Object.freeze({
     filterObject: (obj, keyFunc, valFunc) => {
         keyFunc ??= () => true;
         valFunc ??= () => true;
@@ -1784,30 +2337,54 @@ let LoaderUtils = {
         return Object.fromEntries(Object.entries(obj).filter(([, value]) => value != null));
     },
 
+    removeUndefinedValues: obj => {
+        return ObjectUtil.filterObject(obj, null, value => typeof value !== "undefined");
+    },
+
     reverseObject: obj => {
         return Object.fromEntries(Object.entries(obj).map(([key, value]) => [value, key]));
     },
 
-    _validPropOptions: ["both", "enum", "nonenum", "keys"],
+    guaranteeObject: (obj, fallback = {}) => {
+        return TypeTester.isObject(obj) ? obj : fallback;
+    },
+
+    setValuesWithDefaults: (target, source, defaults = {}) => {
+        source = ObjectUtil.guaranteeObject(source);
+        const values = {};
+
+        for (const key of Object.keys(defaults)) {
+            if (source[key] != null) continue;
+
+            let defaultValue = defaults[key];
+            if (typeof defaultValue !== "function") defaultValue = structuredClone(defaultValue);
+
+            values[key] = defaultValue;
+        }
+
+        return Object.assign(target, source, values);
+    },
+
+    _validPropOptions: Object.freeze(["both", "enum", "nonenum", "keys"]),
     assign: (target, source, options, props) => {
         let enumerable, nonEnumerable, both, keys;
 
         if (options == null) {
-            options = [LoaderUtils._validPropOptions[0]];
+            options = [ObjectUtil._validPropOptions[0]];
             both = true;
         } else {
-            options = LoaderUtils.guaranteeArray(options);
-
-            if (!options.every(option => LoaderUtils._validPropOptions.includes(option))) {
-                throw new UtilError("Invalid property options", LoaderUtils._validPropOptions);
-            }
+            options = TypeTester.normalizeEnums(
+                ArrayUtil.guaranteeArray(options),
+                ObjectUtil._validPropOptions,
+                "property option"
+            );
 
             both = options.includes("both");
             keys = options.includes("keys");
         }
 
         if (options.length < 1) {
-            throw new UtilError("Invalid property options", LoaderUtils._validPropOptions);
+            throw new UtilError("Invalid property options", ObjectUtil._validPropOptions);
         } else if (keys) {
             return Object.assign(target, source);
         } else if (both) {
@@ -1830,7 +2407,7 @@ let LoaderUtils = {
             descriptors = allDescriptors.filter(([, desc]) => (enumerable ? desc.enumerable : !desc.enumerable));
         }
 
-        if (LoaderUtils.isObject(props)) {
+        if (TypeTester.isObject(props)) {
             descriptors = descriptors.map(([key, desc]) => [key, { ...desc, ...props }]);
         }
 
@@ -1840,9 +2417,9 @@ let LoaderUtils = {
         return target;
     },
 
-    shallowClone: (obj, options) => {
+    shallowClone: (obj, options = "keys") => {
         const clone = Object.create(Object.getPrototypeOf(obj));
-        return LoaderUtils.assign(clone, obj, options);
+        return ObjectUtil.assign(clone, obj, options);
     },
 
     defineProperty(obj, factory, ...args) {
@@ -1851,11 +2428,11 @@ let LoaderUtils = {
         for (const prop of props) {
             let { propName, desc } = prop;
 
-            if (!LoaderUtils.nonemptyString(propName) || !LoaderUtils.isObject(props)) {
+            if (!LoaderUtils.nonemptyString(propName) || !TypeTester.isObject(desc)) {
                 throw new UtilError("Invalid property recieved from factory", prop);
             }
 
-            desc = LoaderUtils.shallowClone(desc);
+            desc = ObjectUtil.shallowClone(desc);
             desc.enumerable ??= false;
             desc.configurable ??= false;
 
@@ -1878,7 +2455,7 @@ let LoaderUtils = {
         }
     },
     makeInfiniteObject: () => {
-        return new Proxy({}, LoaderUtils._infiniteProxyHandler);
+        return new Proxy({}, ObjectUtil._infiniteProxyHandler);
     },
 
     _nonConfigurableProxyHandler: {
@@ -1907,14 +2484,14 @@ let LoaderUtils = {
 
         Object.keys(obj).forEach(key =>
             Object.defineProperty(newObj, key, {
-                value: newObj[key],
+                value: obj[key],
                 writable: true,
                 enumerable: true,
                 configurable: false
             })
         );
 
-        return new Proxy(newObj, LoaderUtils._nonConfigurableProxyHandler);
+        return new Proxy(newObj, ObjectUtil._nonConfigurableProxyHandler);
     },
 
     makeMirrorObject: (mirrorObj, extraObj) => {
@@ -1982,7 +2559,7 @@ let LoaderUtils = {
 
         return new Proxy(mirrorObj, handler);
     }
-};
+});
 
 {
     LoaderUtils.alphabetUpper = LoaderUtils.alphabet.toUpperCase();
@@ -1999,9 +2576,27 @@ let LoaderUtils = {
     }
 
     LoaderUtils._validUrlRegex = new RegExp(`^${LoaderUtils.urlRegex.source}$`);
-    LoaderUtils._parseScriptRegex = new RegExp(`^${LoaderUtils.codeblockRegex.source}$`);
 
-    LoaderUtils = Object.freeze(LoaderUtils);
+    DiscordUtil._parseScriptRegex = new RegExp(`^${DiscordUtil.codeblockRegex.source}$`);
+    DiscordUtil._parseMessageUrlRegex = new RegExp(
+        `^(?:${DiscordUtil._msgUrlRegex.source})$`,
+        DiscordUtil._msgUrlRegex.flags.replace("g", "")
+    );
+    DiscordUtil._parseAttachmentUrlRegex = new RegExp(
+        `^(?:${DiscordUtil._attachUrlRegex.source})$`,
+        DiscordUtil._attachUrlRegex.flags.replace("g", "")
+    );
+    DiscordUtil = Object.freeze(DiscordUtil);
+
+    LoaderUtils = Object.freeze({
+        ...ArrayUtil,
+        ...ObjectUtil,
+        ...TypeTester,
+        ...DiscordUtil,
+        ...FunctionUtil,
+        ...RegexUtil,
+        ...LoaderUtils
+    });
 }
 
 const IntegrityChecker = (() => {
@@ -2055,6 +2650,18 @@ const IntegrityChecker = (() => {
         "http.request",
         "msg.reply"
     ];
+
+    const expectedUtilKeys = [
+        "version",
+        "env",
+        "timeLimit",
+        "inspectorEnabled",
+        "outCharLimit",
+        "outLineLimit",
+        ...expectedFunctions.filter(path => path.startsWith("util.")).map(path => path.slice(5))
+    ];
+
+    const providedRootNames = ["util", "msg", "vm", "http", "tag"];
 
     const coreRoots = [
         globalThis.Object,
@@ -2111,6 +2718,26 @@ const IntegrityChecker = (() => {
 
     function fail(msg) {
         failures.push(msg);
+    }
+
+    function getOriginalRootObjects() {
+        return {
+            util: originalUtil,
+            msg: originalMsg,
+            vm: originalVm,
+            http: originalHttp,
+            tag: originalTag
+        };
+    }
+
+    function getLiveRootObjects() {
+        const roots = getOriginalRootObjects();
+
+        for (const rootName of providedRootNames) {
+            roots[rootName] = globalThis[rootName] || roots[rootName];
+        }
+
+        return roots;
     }
 
     function stringIncludes(str, pat) {
@@ -2245,51 +2872,22 @@ const IntegrityChecker = (() => {
             }
         }
 
-        if (!matched) {
-            fail("Function " + name + " does not match any accepted shapes: " + str);
-        }
+        if (!matched) fail("Function " + name + " does not match any accepted shapes: " + str);
     }
 
-    function verifyDeepEqual(live, original, path, phase) {
+    function verifyDeepEqual(live, original, path, phase, expectedKeys) {
         const typeL = typeof live,
             typeO = typeof original;
 
         if (live === original) return;
 
-        if (typeL !== typeO) {
-            fail("Type mismatch at " + path);
-        }
+        if (typeL !== typeO) fail("Type mismatch at " + path);
+        if (typeL !== "object" || live == null || original == null) fail("Value mismatch at " + path);
 
-        if (typeL !== "object" || live == null || original == null) {
-            fail("Value mismatch at " + path);
-        }
+        const keysL = reflectOwnKeys(live);
+        expectedKeys ??= reflectOwnKeys(original);
 
-        const keysL = reflectOwnKeys(live),
-            keysO = reflectOwnKeys(original);
-
-        let expectedKeys = keysO;
-
-        if (path === "util") {
-            expectedKeys = [
-                "version",
-                "env",
-                "timeLimit",
-                "inspectorEnabled",
-                "outCharLimit",
-                "outLineLimit",
-                "findUsers",
-                "fetchTag",
-                "findTags",
-                "dumpTags",
-                "fetchMessage",
-                "fetchMessages",
-                "executeTag"
-            ];
-        }
-
-        if (keysL.length !== expectedKeys.length) {
-            fail("Keys length mismatch at " + path);
-        }
+        if (keysL.length < expectedKeys.length) fail("Missing keys at " + path);
 
         for (let expectedIndex = 0; expectedIndex < expectedKeys.length; expectedIndex++) {
             const expectedKey = expectedKeys[expectedIndex];
@@ -2303,13 +2901,49 @@ const IntegrityChecker = (() => {
                 }
             }
 
-            if (!found) {
-                fail("Missing property " + String(expectedKey) + " at " + path);
-            }
+            if (!found) fail("Missing property " + String(expectedKey) + " at " + path);
 
             if (!(path === "msg" && expectedKey === "reply" && phase === "after"))
                 verifyDeepEqual(live[expectedKey], original[expectedKey], path + "." + String(expectedKey), phase);
         }
+    }
+
+    function collectFunctionRefs(val, visited) {
+        if (val == null) return;
+
+        const type = typeof val;
+        if (type !== "object" && type !== "function") return;
+        if (visited.has(val)) return;
+
+        visited.add(val);
+        if (type === "function") allowedHostFunctionRefs.add(val);
+
+        let keys;
+
+        try {
+            keys = reflectOwnKeys(val);
+        } catch (err) {
+            return;
+        }
+
+        for (const key of keys) {
+            let desc;
+
+            try {
+                desc = getProtoDesc(val, key);
+            } catch (err) {
+                continue;
+            }
+
+            if (desc != null && "value" in desc) collectFunctionRefs(desc.value, visited);
+        }
+    }
+
+    function allowOriginalFunctions() {
+        const roots = getOriginalRootObjects(),
+            visited = new Set();
+
+        for (const rootName of providedRootNames) collectFunctionRefs(roots[rootName], visited);
     }
 
     function traverse(val, path, visited) {
@@ -2320,28 +2954,21 @@ const IntegrityChecker = (() => {
 
         if (visited.has(val)) {
             const firstPath = visited.get(val);
-            if (firstPath !== path) {
+            if (firstPath !== path)
                 fail('Duplicate reference detected: path "' + path + '" shares reference with "' + firstPath + '"');
-            }
             return;
         }
 
         visited.set(val, path);
-
-        if (checkPrx(val)) {
-            fail("Proxy detected at path: " + path);
-        }
+        if (checkPrx(val)) fail("Proxy detected at path: " + path);
 
         const proto = reflectGetProto(val);
 
         if (type === "function") {
-            if (proto !== Function.prototype) {
-                fail("Invalid prototype on function at path: " + path);
-            }
+            if (proto !== Function.prototype) fail("Invalid prototype on function at path: " + path);
         } else {
-            if (proto !== Object.prototype && proto !== Array.prototype && proto !== null) {
+            if (proto !== Object.prototype && proto !== Array.prototype && proto !== null)
                 fail("Invalid prototype on object/array at path: " + path);
-            }
         }
 
         const keys = reflectOwnKeys(val);
@@ -2351,18 +2978,15 @@ const IntegrityChecker = (() => {
                 propPath = path ? path + "." + String(key) : String(key);
 
             const desc = getProtoDesc(val, key);
-
             if (desc == null) continue;
 
-            if (desc.get || desc.set) {
-                fail("Property getter/setter detected at path: " + propPath);
-            }
+            if (desc.get || desc.set) fail("Property getter/setter detected at path: " + propPath);
 
             if ("value" in desc) {
                 const propVal = desc.value;
-                if (typeof propVal === "function" && !allowedHostFunctionRefs.has(propVal)) {
+                if (typeof propVal === "function" && !allowedHostFunctionRefs.has(propVal))
                     fail("Unauthorized function found at path: " + propPath);
-                }
+
                 traverse(propVal, propPath, visited);
             }
         }
@@ -2370,6 +2994,7 @@ const IntegrityChecker = (() => {
 
     function walkCore(obj, path, coreVisited, phase) {
         if (obj == null) return;
+
         if (coreVisited.has(obj)) return;
         coreVisited.add(obj);
 
@@ -2410,22 +3035,17 @@ const IntegrityChecker = (() => {
             if (allowedHostFunctionRefs.has(value)) return;
 
             if (phase === "after" && (path === "WebAssembly.Module" || path === "WebAssembly.instantiate")) {
-                if (value.patched !== true || checkPrx(value)) {
+                if (value.patched !== true || checkPrx(value))
                     fail("WebAssembly patch has been tampered with at path: " + path);
-                }
                 return;
             }
 
             if (phase === "after" && (path.startsWith("Promise") || path.includes("Promise"))) {
-                if (checkPrx(value)) {
-                    fail("Polyfilled Promise has been proxied/tampered at path: " + path);
-                }
+                if (checkPrx(value)) fail("Polyfilled Promise has been proxied/tampered at path: " + path);
                 return;
             }
 
-            if (!isNativeFunction(value)) {
-                fail("Non-native function found at path: " + path);
-            }
+            if (!isNativeFunction(value)) fail("Non-native function found at path: " + path);
 
             walkCore(value, path, coreVisited, phase);
         } else if (typeof value === "object" && value != null) walkCore(value, path, coreVisited, phase);
@@ -2454,19 +3074,12 @@ const IntegrityChecker = (() => {
         for (let helperIndex = 0; helperIndex < bootstrapHelpers.length; helperIndex++) {
             const helper = bootstrapHelpers[helperIndex];
 
-            if (checkPrx(helper)) {
-                fail("Bootstrap helper is proxied!");
-            }
-
-            if (helper !== fnToString && objHasOwn.call(helper, "toString")) {
-                fail("Bootstrap helper has own toString!");
-            }
+            if (checkPrx(helper)) fail("Bootstrap helper is proxied!");
+            if (helper !== fnToString && objHasOwn.call(helper, "toString")) fail("Bootstrap helper has own toString!");
 
             const str = fnToString.call(helper);
 
-            if (!nativeRegex.test(str)) {
-                fail("Bootstrap helper is not native: " + str);
-            }
+            if (!nativeRegex.test(str)) fail("Bootstrap helper is not native: " + str);
         }
     }
 
@@ -2474,7 +3087,7 @@ const IntegrityChecker = (() => {
         const msg = globalThis.msg,
             tag = globalThis.tag;
 
-        if (originalUtil != null) verifyDeepEqual(globalThis.util, originalUtil, "util", phase);
+        if (originalUtil != null) verifyDeepEqual(globalThis.util, originalUtil, "util", phase, expectedUtilKeys);
         if (globalThis.vm != null || originalVm != null)
             verifyDeepEqual(globalThis.vm || originalVm, originalVm, "vm", phase);
         if (globalThis.http != null || originalHttp != null)
@@ -2486,65 +3099,34 @@ const IntegrityChecker = (() => {
                 guild = msg.guild,
                 mentions = msg.mentions;
 
-            if (author == null || typeof author !== "object") {
-                fail("msg.author is missing or invalid");
-            }
+            if (author == null || typeof author !== "object") fail("msg.author is missing or invalid");
+            if (channel == null || typeof channel !== "object") fail("msg.channel is missing or invalid");
+            if (msg.authorId !== author.id) fail("msg.authorId mismatch with author.id");
+            if (msg.authorId !== author.userId) fail("msg.authorId mismatch with author.userId");
+            if (msg.channelId !== channel.id) fail("msg.channelId mismatch with channel.id");
+            if (guild != null && typeof guild !== "object") fail("msg.guild is invalid");
 
-            if (channel == null || typeof channel !== "object") {
-                fail("msg.channel is missing or invalid");
-            }
-
-            if (msg.authorId !== author.id) {
-                fail("msg.authorId mismatch with author.id");
-            }
-
-            if (msg.authorId !== author.userId) {
-                fail("msg.authorId mismatch with author.userId");
-            }
-
-            if (msg.channelId !== channel.id) {
-                fail("msg.channelId mismatch with channel.id");
-            }
-
-            if (guild != null && typeof guild !== "object") {
-                fail("msg.guild is invalid");
-            }
-
-            if (msg.guildId != null || (guild != null && guild.id != null)) {
-                if (guild == null || msg.guildId !== guild.id) {
-                    fail("msg.guildId mismatch with guild.id");
-                }
-            }
-
-            if (msg.guildId != null || author.guildId != null) {
-                if (author.guildId !== msg.guildId) {
-                    fail("author.guildId mismatch with msg.guildId");
-                }
-            }
-
-            if (msg.cleanContent !== msg.content) {
-                fail("msg.cleanContent mismatch with msg.content");
-            }
-
-            if (author.tag != null && !stringIncludes(author.tag, author.username)) {
-                fail("author.tag is invalid");
-            }
-
-            if (author.avatar != null && author.avatarURL != null && !stringIncludes(author.avatarURL, author.avatar)) {
+            if (
+                (msg.guildId != null || (guild != null && guild.id != null)) &&
+                (guild == null || msg.guildId !== guild.id)
+            )
+                fail("msg.guildId mismatch with guild.id");
+            if ((msg.guildId != null || author.guildId != null) && author.guildId !== msg.guildId)
+                fail("author.guildId mismatch with msg.guildId");
+            if (msg.cleanContent !== msg.content) fail("msg.cleanContent mismatch with msg.content");
+            if (author.tag != null && !stringIncludes(author.tag, author.username)) fail("author.tag is invalid");
+            if (author.avatar != null && author.avatarURL != null && !stringIncludes(author.avatarURL, author.avatar))
                 fail("author.avatarURL is invalid");
-            }
 
             if (
                 author.avatar != null &&
                 author.displayAvatarURL != null &&
                 !stringIncludes(author.displayAvatarURL, author.avatar)
-            ) {
+            )
                 fail("author.displayAvatarURL is invalid");
-            }
 
-            if (author.banner != null && author.bannerURL != null && !stringIncludes(author.bannerURL, author.banner)) {
+            if (author.banner != null && author.bannerURL != null && !stringIncludes(author.bannerURL, author.banner))
                 fail("author.bannerURL is invalid");
-            }
 
             if (mentions != null && typeof mentions === "object") {
                 if (Array.isArray(mentions.members) && Array.isArray(mentions.users)) {
@@ -2552,13 +3134,8 @@ const IntegrityChecker = (() => {
                         const member = mentions.members[memberIndex];
                         if (member == null || typeof member !== "object") continue;
 
-                        if (member.userId !== member.id) {
-                            fail("Mention member userId mismatch with id");
-                        }
-
-                        if (guild != null && member.guildId !== guild.id) {
-                            fail("Mention member guildId mismatch");
-                        }
+                        if (member.userId !== member.id) fail("Mention member userId mismatch with id");
+                        if (guild != null && member.guildId !== guild.id) fail("Mention member guildId mismatch");
 
                         let found = false;
 
@@ -2571,106 +3148,62 @@ const IntegrityChecker = (() => {
                             }
                         }
 
-                        if (!found) {
-                            fail("Mention member lacks corresponding mention user");
-                        }
+                        if (!found) fail("Mention member lacks corresponding mention user");
                     }
                 }
             }
 
             if (originalMsg != null) {
-                if (msg.id !== originalMsg.id) {
-                    fail("msg.id has been modified");
-                }
-                if (msg.channelId !== originalMsg.channelId) {
-                    fail("msg.channelId has been modified");
-                }
-                if (msg.guildId !== originalMsg.guildId) {
-                    fail("msg.guildId has been modified");
-                }
-                if (msg.createdTimestamp !== originalMsg.createdTimestamp) {
+                if (msg.id !== originalMsg.id) fail("msg.id has been modified");
+                if (msg.channelId !== originalMsg.channelId) fail("msg.channelId has been modified");
+                if (msg.guildId !== originalMsg.guildId) fail("msg.guildId has been modified");
+                if (msg.createdTimestamp !== originalMsg.createdTimestamp)
                     fail("msg.createdTimestamp has been modified");
-                }
-                if (msg.type !== originalMsg.type) {
-                    fail("msg.type has been modified");
-                }
-                if (msg.system !== originalMsg.system) {
-                    fail("msg.system has been modified");
-                }
-                if (msg.content !== originalMsg.content) {
-                    fail("msg.content has been modified");
-                }
-                if (msg.authorId !== originalMsg.authorId) {
-                    fail("msg.authorId has been modified");
-                }
-                if (msg.pinned !== originalMsg.pinned) {
-                    fail("msg.pinned has been modified");
-                }
-                if (msg.tts !== originalMsg.tts) {
-                    fail("msg.tts has been modified");
-                }
-                if (msg.nonce !== originalMsg.nonce) {
-                    fail("msg.nonce has been modified");
-                }
-                if (msg.position !== originalMsg.position) {
-                    fail("msg.position has been modified");
-                }
-                if (msg.webhookId !== originalMsg.webhookId) {
-                    fail("msg.webhookId has been modified");
-                }
-                if (msg.applicationId !== originalMsg.applicationId) {
-                    fail("msg.applicationId has been modified");
-                }
-                if (msg.flags !== originalMsg.flags) {
-                    fail("msg.flags has been modified");
-                }
-                if (msg.cleanContent !== originalMsg.cleanContent) {
-                    fail("msg.cleanContent has been modified");
-                }
+                if (msg.type !== originalMsg.type) fail("msg.type has been modified");
+                if (msg.system !== originalMsg.system) fail("msg.system has been modified");
+                if (msg.content !== originalMsg.content) fail("msg.content has been modified");
+                if (msg.authorId !== originalMsg.authorId) fail("msg.authorId has been modified");
+                if (msg.pinned !== originalMsg.pinned) fail("msg.pinned has been modified");
+                if (msg.tts !== originalMsg.tts) fail("msg.tts has been modified");
+                if (msg.nonce !== originalMsg.nonce) fail("msg.nonce has been modified");
+                if (msg.position !== originalMsg.position) fail("msg.position has been modified");
+                if (msg.webhookId !== originalMsg.webhookId) fail("msg.webhookId has been modified");
+                if (msg.applicationId !== originalMsg.applicationId) fail("msg.applicationId has been modified");
+                if (msg.flags !== originalMsg.flags) fail("msg.flags has been modified");
+                if (msg.cleanContent !== originalMsg.cleanContent) fail("msg.cleanContent has been modified");
             }
         }
 
         if (tag != null) {
             if (originalTag != null) {
-                if (tag.name !== originalTag.name) {
-                    fail("tag.name has been modified");
-                }
-                if (tag.body !== originalTag.body) {
-                    fail("tag.body has been modified");
-                }
-                if (tag.owner !== originalTag.owner) {
-                    fail("tag.owner has been modified");
-                }
-                if (tag.args !== originalTag.args) {
-                    fail("tag.args has been modified");
-                }
+                if (tag.name !== originalTag.name) fail("tag.name has been modified");
+                if (tag.body !== originalTag.body) fail("tag.body has been modified");
+                if (tag.owner !== originalTag.owner) fail("tag.owner has been modified");
+                if (tag.args !== originalTag.args) fail("tag.args has been modified");
             }
         }
 
-        const visited = new Map();
+        const roots = getLiveRootObjects(),
+            visited = new Map();
 
-        if (globalThis.util != null || originalUtil != null) traverse(globalThis.util || originalUtil, "util", visited);
-        if (globalThis.msg != null || originalMsg != null) traverse(globalThis.msg || originalMsg, "msg", visited);
-        if (globalThis.vm != null || originalVm != null) traverse(globalThis.vm || originalVm, "vm", visited);
-        if (globalThis.http != null || originalHttp != null) traverse(globalThis.http || originalHttp, "http", visited);
-        if (globalThis.tag != null || originalTag != null) traverse(globalThis.tag || originalTag, "tag", visited);
+        for (const rootName of providedRootNames) {
+            const root = roots[rootName];
+            if (root != null) traverse(root, rootName, visited);
+        }
     }
 
     function verifyProvidedFunctions(phase) {
         allowedHostFunctionRefs = new Set();
+        allowOriginalFunctions();
 
-        const rootObjects = {
-            util: originalUtil,
-            msg: globalThis.msg || originalMsg,
-            vm: globalThis.vm || originalVm,
-            http: globalThis.http || originalHttp,
-            tag: globalThis.tag || originalTag
-        };
+        const rootObjects = getLiveRootObjects();
+        rootObjects.util = originalUtil;
 
         for (let functionIndex = 0; functionIndex < expectedFunctions.length; functionIndex++) {
             const path = expectedFunctions[functionIndex],
-                parts = primitiveSplit(path, "."),
-                rootName = parts[0],
+                parts = primitiveSplit(path, ".");
+
+            const rootName = parts[0],
                 funcName = parts[1];
 
             const rootObj = rootObjects[rootName];
@@ -2684,15 +3217,12 @@ const IntegrityChecker = (() => {
             }
 
             if (phase === "after" && path === "msg.reply") {
-                if (fn.patched !== true || checkPrx(fn)) {
+                if (fn.patched !== true || checkPrx(fn))
                     fail("msg.reply has been tampered with or is missing expected patch");
-                }
 
                 const str = fnToString.call(fn);
 
-                if (!customReplyShape.test(str)) {
-                    fail("msg.reply shape is tampered");
-                }
+                if (!customReplyShape.test(str)) fail("msg.reply shape is tampered");
             } else checkFunctionShape(fn, path);
 
             allowedHostFunctionRefs.add(fn);
@@ -2777,16 +3307,14 @@ const IntegrityChecker = (() => {
         check(phase, label) {
             failures = [];
 
-            if (!verifyToStringNative()) {
-                fail("Function.prototype.toString has been tampered with!");
-            }
+            if (!verifyToStringNative()) fail("Function.prototype.toString has been tampered with!");
 
             verifyBootstrap();
             verifyProvidedFunctions(phase);
             verifyProvidedProperties(phase);
             verifyCoreRoots(phase);
 
-            if (failures.length > 0) {
+            if (!LoaderUtils.empty(failures)) {
                 const msg = label == null ? "Integrity check failed" : "Integrity check failed at " + label;
 
                 if (config.enableDebugger) exit(msg + ":\n" + failures.join("\n"));
@@ -2964,7 +3492,7 @@ const HttpUtil = Object.freeze({
             throw new TypeError("URL part must be a string");
         }
 
-        if (HttpUtil.protocolRegex.test(firstPart) && input.length > 1) {
+        if (HttpUtil.protocolRegex.test(firstPart) && LoaderUtils.multiple(input)) {
             firstPart = input.shift() + firstPart;
         }
 
@@ -2977,7 +3505,7 @@ const HttpUtil = Object.freeze({
                 throw new TypeError("URL part must be a string");
             }
 
-            if (part.length < 1) continue;
+            if (LoaderUtils.empty(part)) continue;
 
             if (i > 0) part = part.replace(HttpUtil.leadingSlashRegex, "");
             part = part.replace(HttpUtil.trailingSlashRegex, i === input.length - 1 ? "/" : "");
@@ -2991,13 +3519,13 @@ const HttpUtil = Object.freeze({
         str = str.replace(HttpUtil.paramSlashRegex, "$1");
 
         const [beforeHash, afterHash] = str.split("#"),
-            hash = afterHash?.length > 0 ? "#" + afterHash : "";
+            hash = LoaderUtils.empty(afterHash) ? "" : "#" + afterHash;
 
         let paramParts = beforeHash.split(HttpUtil.paramSplitRegex);
-        paramParts = paramParts.filter(part => part.length > 0);
+        paramParts = paramParts.filter(part => !LoaderUtils.empty(part));
 
         const beforeParams = paramParts.shift(),
-            params = (paramParts.length > 0 ? "?" : "") + paramParts.join("&");
+            params = (LoaderUtils.empty(paramParts) ? "" : "?") + paramParts.join("&");
 
         str = beforeParams + params + hash;
         return str;
@@ -3014,7 +3542,7 @@ const HttpUtil = Object.freeze({
             if (value != null) query.push(key + "=" + encodeURIComponent(value));
         }
 
-        if (query.length < 1) return "";
+        if (LoaderUtils.empty(query)) return "";
         return `?${query.join("&")}`;
     },
 
@@ -3091,9 +3619,14 @@ const HttpUtil = Object.freeze({
 });
 
 let UploadUtil = {
+    _sendUploadReqDefaults: {
+        returnType: FileDataTypes.text,
+        headers: {}
+    },
     _sendUploadReq(url, formInfo, formData, options = {}) {
-        const returnType = options.returnType ?? "text",
-            headers = options.headers ?? {};
+        options = ObjectUtil.setValuesWithDefaults({}, options, UploadUtil._sendUploadReqDefaults);
+
+        const { returnType, headers } = options;
 
         if (true || util.env) {
             headers["Content-Type"] = formInfo.formCtype;
@@ -3132,14 +3665,21 @@ let UploadUtil = {
             throw new LoaderError("Upload failed with code: " + status, status);
         }
     },
+
+    _uploadToCustomDefaults: {
+        fileField: "file",
+        fields: {}
+    },
     uploadToCustom: (apiUrl, data, ext, options = {}) => {
         if (ext.startsWith(".")) ext = ext.slice(1);
 
-        const fileFieldName = options.fileField ?? "file",
-            otherFields = options.fields ?? {},
+        options = ObjectUtil.setValuesWithDefaults({}, options, UploadUtil._uploadToCustomDefaults);
+
+        const fileFieldName = options.fileField,
+            otherFields = options.fields,
             contentType = options.contentType ?? HttpUtil.getContentType(ext);
 
-        data = LoaderUtils.asUint8Array(data);
+        data = TypeTester.asUint8Array(data);
 
         const formBoundary = HttpUtil.getFormBoundary(),
             formMeta = [];
@@ -3181,10 +3721,14 @@ let UploadUtil = {
         permanent: "https://catbox.moe/user/api.php",
         litter: "https://litterbox.catbox.moe/resources/internals/api.php"
     },
+    _uploadToCatboxDefaults: {
+        litter: false,
+        expiryTime: "1h"
+    },
     uploadToCatbox: (data, ext, options = {}) => {
-        const litter = options.litter ?? false,
-            userhash = options.userhash,
-            expiryTime = options.expiryTime ?? "1h";
+        options = ObjectUtil.setValuesWithDefaults({}, options, UploadUtil._uploadToCatboxDefaults);
+
+        const { litter, userhash, expiryTime } = options;
 
         if (!litter && !LoaderUtils.nonemptyString(userhash)) {
             throw new UtilError("No userhash provided");
@@ -3211,11 +3755,18 @@ let UploadUtil = {
     },
 
     _filecanBase: "http://api.example.com/",
+    _uploadToFilecanDefaults: {
+        password: "",
+        expiryTime: 1,
+        passwordRequired: true
+    },
     uploadToFilecan: (data, ext, options = {}) => {
-        const password = options.password ?? "",
-            expiryTime = Math.floor((options.expiryTime ?? 1) * 3600000);
+        options = ObjectUtil.setValuesWithDefaults({}, options, UploadUtil._uploadToFilecanDefaults);
 
-        if (options.passwordRequired ?? true) {
+        const password = options.password,
+            expiryTime = Math.floor(options.expiryTime * 3600000);
+
+        if (options.passwordRequired) {
             if (!LoaderUtils.nonemptyString(password)) {
                 throw new UtilError("No password provided");
             } else if (!LoaderUtils.nonemptyString(token)) {
@@ -3379,7 +3930,7 @@ class Benchmark {
     }
 
     static clearExcept(...keys) {
-        const clearKeys = Object.keys(this.data).filter(key => !keys.includes(key));
+        const clearKeys = ArrayUtil.diff(Object.keys(this.data), keys).removed;
 
         for (const key of clearKeys) {
             delete this.data[key];
@@ -3390,7 +3941,7 @@ class Benchmark {
     }
 
     static clearExceptLast(n = 1) {
-        const clearKeys = Object.keys(this.data).slice(0, -n);
+        const clearKeys = LoaderUtils.before(Object.keys(this.data), -n);
 
         for (const key of clearKeys) {
             delete this.data[key];
@@ -3403,7 +3954,7 @@ class Benchmark {
     static getSum(...keys) {
         let sumTimes = [];
 
-        if (keys.length > 0) {
+        if (!LoaderUtils.empty(keys)) {
             sumTimes = keys
                 .map(key => {
                     key = this._formatTimeKey(key);
@@ -3414,7 +3965,7 @@ class Benchmark {
             sumTimes = Object.values(this.data);
         }
 
-        return sumTimes.reduce((a, b) => a + b, 0);
+        return ArrayUtil.sum(sumTimes);
     }
 
     static getAll(...includeSum) {
@@ -3423,11 +3974,11 @@ class Benchmark {
         if (typeof format === "boolean") includeSum.pop();
         else format = true;
 
-        let useSum = includeSum.length > 0,
+        let useSum = !LoaderUtils.empty(includeSum),
             sum;
 
         if (useSum) {
-            const allKeys = includeSum[0] === true,
+            const allKeys = LoaderUtils.first(includeSum) === true,
                 keys = allKeys ? [] : includeSum;
 
             sum = this.getSum(...keys);
@@ -3439,7 +3990,7 @@ class Benchmark {
 
             return times.join(",\n");
         } else {
-            const times = Object.assign({}, this.data);
+            const times = ObjectUtil.assign({}, this.data, "keys");
             if (useSum) times["sum"] = sum;
 
             return times;
@@ -3755,11 +4306,11 @@ class ModuleCacheManager {
 }
 
 class ModuleGlobalsUtil {
-    static cleanGlobal = LoaderUtils.shallowClone(globalThis, "nonenum");
+    static cleanGlobal = ObjectUtil.shallowClone(globalThis, "nonenum");
     static globalKeys = ["global", "globalThis"];
 
     static createGlobalsObject(obj) {
-        obj = LoaderUtils.makeNonConfigurableObject(obj);
+        obj = ObjectUtil.makeNonConfigurableObject(obj);
         return new Proxy(obj, this._globalsProxyHandler);
     }
 
@@ -3789,20 +4340,20 @@ class ModuleGlobalsUtil {
 
 class ModuleRequireUtil {
     static fakeRequire = function (id) {
-        return LoaderUtils.makeInfiniteObject();
+        return ObjectUtil.makeInfiniteObject();
     };
 
     static createFakeRequire(obj = {}) {
         return function (id) {
             if (typeof id !== "string") {
-                return LoaderUtils.makeInfiniteObject();
+                return ObjectUtil.makeInfiniteObject();
             }
 
             const ret = obj[id];
 
             switch (typeof ret) {
                 case "undefined":
-                    return LoaderUtils.makeInfiniteObject();
+                    return ObjectUtil.makeInfiniteObject();
                 case "function":
                     if (!/^class[\s{]/.test(ret.toString())) {
                         return ret(id);
@@ -3841,9 +4392,9 @@ return [false, null];
             errName: "_" + LoaderUtils.randomString(32)
         };
 
-        if (LoaderUtils.isObject(names)) Object.assign(names, randomNames);
+        if (TypeTester.isObject(names)) ObjectUtil.assign(names, randomNames, "keys");
 
-        return LoaderUtils.templateReplace(this.moduleCodeTemplate, {
+        return RegexUtil.templateReplace(this.moduleCodeTemplate, {
             moduleCode,
             ...randomNames
         });
@@ -3919,19 +4470,13 @@ class ModuleLoader {
             old = {};
         }
 
-        if (vars.length === 0) {
+        if (LoaderUtils.empty(vars)) {
             vars.push(...this._tagConfigVars);
         }
 
+        vars = TypeTester.normalizeEnums(vars, this._tagConfigVars, "config variable", LoaderError);
+
         for (const name of vars) {
-            if (!(name in config) || !(name in this)) {
-                throw new LoaderError(`Variable ${name} doesn't exist`);
-            }
-
-            if (!this._tagConfigVars.includes(name)) {
-                throw new LoaderError(`Variable ${name} can't be set`);
-            }
-
             const defaultValue = config[name];
             if (useCb) old[name] = this[name];
 
@@ -3942,21 +4487,30 @@ class ModuleLoader {
             try {
                 return cb();
             } finally {
-                Object.assign(this, old);
+                ObjectUtil.assign(this, old, "keys");
             }
         }
     }
+
+    static _getModuleCodeFromUrlDefaults = {
+        returnResponse: false,
+        cache: true,
+        forceReload: false
+    };
 
     static getModuleCodeFromUrl(url, returnType = FileDataTypes.module, options = {}) {
         if (LoaderUtils.empty(url)) {
             throw new LoaderError("Invalid URL");
         }
 
-        const codename = `${options.name ?? url}:${returnType}`;
+        options = ObjectUtil.setValuesWithDefaults({}, options, this._getModuleCodeFromUrlDefaults);
 
-        const returnRes = options.returnResponse ?? false,
-            cache = this.enableCache && (options.cache ?? true) && !returnRes,
-            forceReload = options.forceReload ?? false;
+        const name = options.name ?? url,
+            codename = `${name}:${returnType}`;
+
+        const returnRes = options.returnResponse,
+            cache = this.enableCache && options.cache && !returnRes,
+            forceReload = options.forceReload;
 
         if (cache && !forceReload) {
             const foundCode = this._Cache.getCodeByName(codename);
@@ -3981,15 +4535,24 @@ class ModuleLoader {
         return moduleCode;
     }
 
+    static _getModuleCodeFromTagDefaults = {
+        cache: true,
+        forceReload: false,
+        encoded: false
+    };
+
     static getModuleCodeFromTag(tagName, returnType = FileDataTypes.module, options = {}) {
         if (tagName == null) {
             throw new LoaderError("Invalid tag name");
         }
 
-        const codename = `${options.name ?? tagName}:${returnType}`;
+        options = ObjectUtil.setValuesWithDefaults({}, options, this._getModuleCodeFromTagDefaults);
 
-        const cache = this.enableCache && (options.cache ?? true),
-            forceReload = options.forceReload ?? false;
+        const name = options.name ?? tagName,
+            codename = `${name}:${returnType}`;
+
+        const cache = this.enableCache && options.cache,
+            forceReload = options.forceReload;
 
         if (cache && !forceReload) {
             const foundCode = this._Cache.getCodeByName(codename);
@@ -3997,7 +4560,7 @@ class ModuleLoader {
         }
 
         const owner = options.owner ?? this.tagOwner,
-            encoded = options.encoded ?? false,
+            encoded = options.encoded,
             buf_size = options.buf_size;
 
         let moduleCode = this._fetchTagBody(tagName, owner, options);
@@ -4017,7 +4580,14 @@ class ModuleLoader {
     }
 
     static getModuleCode(url, tagName, ...args) {
-        switch (this.loadSource) {
+        const loadSource = TypeTester.normalizeEnum(
+            this.loadSource,
+            this._loadSources,
+            "load source",
+            LoaderError
+        );
+
+        switch (loadSource) {
             case "url":
                 if (url == null) {
                     return;
@@ -4030,18 +4600,24 @@ class ModuleLoader {
                 }
 
                 return this.getModuleCodeFromTag(tagName, ...args);
-            default:
-                throw new LoaderError("Invalid load source: " + this.loadSource, this.loadSource);
         }
     }
+
+    static _loadModuleFromSourceDefaults = {
+        cache: true,
+        forceReload: false,
+        wrapErrors: true
+    };
 
     static loadModuleFromSource(moduleCode, loadScope, breakpoint, options = {}) {
         loadScope ??= {};
         breakpoint ??= this.breakpoint;
 
+        options = ObjectUtil.setValuesWithDefaults({}, options, this._loadModuleFromSourceDefaults);
+
         const moduleName = options.name,
-            cache = this.enableCache && (options.cache ?? true),
-            forceReload = options.forceReload ?? false;
+            cache = this.enableCache && options.cache,
+            forceReload = options.forceReload;
 
         if (cache && moduleName != null && !forceReload) {
             const foundModule = this._Cache.getModuleByName(moduleName);
@@ -4077,7 +4653,7 @@ class ModuleLoader {
         if (cache) this._Cache.addModule(module, null, forceReload);
 
         const isolateGlobals = options.isolateGlobals ?? this.isolateGlobals,
-            wrapErrors = options.wrapErrors ?? true;
+            wrapErrors = options.wrapErrors;
 
         const randomNames = {};
 
@@ -4091,7 +4667,7 @@ class ModuleLoader {
             customGlobalKeys = [];
 
         for (const [key, value] of Object.entries(loadScope)) {
-            if (!LoaderUtils.isObject(value)) {
+            if (!TypeTester.isObject(value)) {
                 newLoadScope[key] = value;
                 continue;
             }
@@ -4103,21 +4679,21 @@ class ModuleLoader {
             } else newLoadScope[key] = value;
         }
 
-        let filteredGlobals = LoaderUtils.removeNullValues({ ...globals, ...loadGlobals }),
-            filteredScope = LoaderUtils.removeNullValues(newLoadScope);
+        let filteredGlobals = ObjectUtil.removeNullValues({ ...globals, ...loadGlobals }),
+            filteredScope = ObjectUtil.removeNullValues(newLoadScope);
 
         const loadScopeThis = filteredScope.this ?? undefined;
-        filteredScope = LoaderUtils.filterObject(filteredScope, key => key !== "this");
+        filteredScope = ObjectUtil.filterObject(filteredScope, key => key !== "this");
 
         let originalGlobal, patchedGlobal;
 
         if (isolateGlobals) {
-            originalGlobal = LoaderUtils.shallowClone(globalThis, "enum");
+            originalGlobal = ObjectUtil.shallowClone(globalThis, "enum");
 
-            patchedGlobal = LoaderUtils.shallowClone(ModuleGlobalsUtil.cleanGlobal);
-            LoaderUtils.assign(patchedGlobal, filteredGlobals, "enum");
+            patchedGlobal = ObjectUtil.shallowClone(ModuleGlobalsUtil.cleanGlobal);
+            ObjectUtil.assign(patchedGlobal, filteredGlobals, "enum");
         } else {
-            patchedGlobal = LoaderUtils.makeMirrorObject(globalThis, filteredGlobals);
+            patchedGlobal = ObjectUtil.makeMirrorObject(globalThis, filteredGlobals);
         }
 
         const newGlobalKeys = ModuleGlobalsUtil.globalKeys.concat(customGlobalKeys),
@@ -4138,7 +4714,7 @@ class ModuleLoader {
 
             Patches.patchGlobalContext(patchedGlobal);
         } else {
-            Object.assign(scopeObj, filteredGlobals);
+            ObjectUtil.assign(scopeObj, filteredGlobals, "keys");
         }
 
         const loadParams = Object.keys(scopeObj),
@@ -4181,7 +4757,7 @@ class ModuleLoader {
             cleanup();
 
             if (!loaded) {
-                if (loadErr && typeof loadErr === "object") {
+                if (TypeTester.isObject(loadErr)) {
                     try {
                         loadErr.stack = ModuleStackTraceUtil.rewriteStackTrace(loadErr, randomNames, module.name);
                     } catch (stackErr) {}
@@ -4207,13 +4783,21 @@ class ModuleLoader {
         return module.exports;
     }
 
+    static _loadModuleDefaults = {
+        cache: true,
+        forceReload: false,
+        returnType: FileDataTypes.module
+    };
+
     static loadModuleFromUrl(url, options = {}) {
+        options = ObjectUtil.setValuesWithDefaults({}, options, this._loadModuleDefaults);
+
         const [codeArgs, loadArgs] = this._getLoadArgs(url, options);
 
-        const cache = this.enableCache && (options.cache ?? true),
-            forceReload = options.forceReload ?? false;
+        const cache = this.enableCache && options.cache,
+            forceReload = options.forceReload;
 
-        const isModule = (options.returnType ?? FileDataTypes.module) === FileDataTypes.module;
+        const isModule = options.returnType === FileDataTypes.module;
 
         if (cache && isModule && !forceReload) {
             const foundModule = this._Cache.getModuleByName(url);
@@ -4227,12 +4811,14 @@ class ModuleLoader {
     }
 
     static loadModuleFromTag(tagName, options = {}) {
+        options = ObjectUtil.setValuesWithDefaults({}, options, this._loadModuleDefaults);
+
         const [codeArgs, loadArgs] = this._getLoadArgs(tagName, options);
 
-        const cache = this.enableCache && (options.cache ?? true),
-            forceReload = options.forceReload ?? false;
+        const cache = this.enableCache && options.cache,
+            forceReload = options.forceReload;
 
-        const isModule = (options.returnType ?? FileDataTypes.module) === FileDataTypes.module;
+        const isModule = options.returnType === FileDataTypes.module;
 
         if (cache && isModule && !forceReload) {
             const foundModule = this._Cache.getModuleByName(tagName);
@@ -4246,7 +4832,14 @@ class ModuleLoader {
     }
 
     static loadModule(url, tagName, options) {
-        switch (this.loadSource) {
+        const loadSource = TypeTester.normalizeEnum(
+            this.loadSource,
+            this._loadSources,
+            "load source",
+            LoaderError
+        );
+
+        switch (loadSource) {
             case "url":
                 if (url == null) {
                     throw new LoaderError("No URL provided");
@@ -4259,8 +4852,6 @@ class ModuleLoader {
                 }
 
                 return this.loadModuleFromTag(tagName, options);
-            default:
-                throw new LoaderError("Invalid load source: " + this.loadSource, this.loadSource);
         }
     }
 
@@ -4268,7 +4859,8 @@ class ModuleLoader {
         return this._Cache.clearAll();
     }
 
-    static _tagConfigVars = ["loadSource", "isolateGlobals", "tagOwner"];
+    static _loadSources = Object.freeze(["url", "tag"]);
+    static _tagConfigVars = Object.freeze(["loadSource", "isolateGlobals", "tagOwner"]);
 
     static _isolateGlobalsError =
         "You're not allowed to have functions defined via the function keyword or vars in the same scope as the load call. Use an object or an IIFE to isolate them.";
@@ -4276,8 +4868,9 @@ class ModuleLoader {
     static _Cache = new ModuleCacheManager();
 
     static _returnTypeToRes(returnType, allowJson = false) {
+        returnType = TypeTester.normalizeEnum(returnType, FileDataTypes, "return type", LoaderError);
+
         switch (returnType) {
-            default:
             case FileDataTypes.text:
             case FileDataTypes.module:
                 return "text";
@@ -4288,12 +4881,21 @@ class ModuleLoader {
         }
     }
 
-    static _fetchFromUrl(url, returnType, options = {}) {
-        const method = options.requestMethod ?? "get",
-            optionsConfig = options.requestOptions ?? {};
+    static _fetchFromUrlDefaults = {
+        requestMethod: "get",
+        requestOptions: {},
+        parseError: true,
+        returnResponse: false
+    };
 
-        const parseError = options.parseError ?? true,
-            returnRes = options.returnResponse ?? false;
+    static _fetchFromUrl(url, returnType, options = {}) {
+        options = ObjectUtil.setValuesWithDefaults({}, options, this._fetchFromUrlDefaults);
+
+        const method = options.requestMethod,
+            optionsConfig = options.requestOptions;
+
+        const parseError = options.parseError,
+            returnRes = options.returnResponse;
 
         const config = {
             url,
@@ -4339,13 +4941,13 @@ class ModuleLoader {
                 throw new LoaderError("Invalid tag name");
             }
 
-            const tag = LoaderUtils.fetchTag(tagName, owner);
-            body = LoaderUtils.getTagBody(tag);
+            const tag = DiscordUtil.fetchTag(tagName, owner);
+            body = DiscordUtil.getTagBody(tag);
         } else {
             let tagNames = [];
 
             if (useArray) tagNames = tagName;
-            else if (usePattern) tagNames = LoaderUtils.dumpTags(tagName);
+            else if (usePattern) tagNames = DiscordUtil.dumpTags(tagName);
             else {
                 throw new LoaderError("Invalid tag name");
             }
@@ -4355,7 +4957,7 @@ class ModuleLoader {
             const tags = tagNames
                 .map(name => {
                     try {
-                        return LoaderUtils.fetchTag(name, owner);
+                        return DiscordUtil.fetchTag(name, owner);
                     } catch (err) {
                         if (err.name === "UtilError") return null;
                         throw err;
@@ -4367,16 +4969,18 @@ class ModuleLoader {
                 throw new LoaderError(`No matching tag(s) found: ${tagName}`, tagName);
             }
 
-            body = tags.map(tag => LoaderUtils.getTagBody(tag)).join("");
+            body = tags.map(tag => DiscordUtil.getTagBody(tag)).join("");
         }
 
         return body;
     }
 
     static _parseModuleCode(moduleCode, returnType) {
+        returnType = TypeTester.normalizeEnum(returnType, FileDataTypes, "return type", LoaderError);
+
         if (!util.env) {
-            if (moduleCode instanceof ArrayBuffer) moduleCode = new Uint8Array(moduleCode);
-            else if (LoaderUtils.isObject(moduleCode) && moduleCode?.type === "Buffer") {
+            if (moduleCode instanceof ArrayBuffer) moduleCode = TypeTester.asUint8Array(moduleCode);
+            else if (TypeTester.isObject(moduleCode) && moduleCode?.type === "Buffer") {
                 moduleCode = new Uint8Array(moduleCode.data);
             }
         }
@@ -4384,22 +4988,20 @@ class ModuleLoader {
         switch (returnType) {
             case FileDataTypes.text:
             case FileDataTypes.module:
-                if (LoaderUtils.isArray(moduleCode)) {
+                if (TypeTester.isArray(moduleCode)) {
                     return LoaderTextEncoder.bytesToString(moduleCode);
                 } else return moduleCode;
             case FileDataTypes.json:
-                const jsonString = LoaderUtils.isArray(moduleCode)
+                const jsonString = TypeTester.isArray(moduleCode)
                     ? LoaderTextEncoder.bytesToString(moduleCode)
                     : moduleCode;
 
                 return JSON.parse(jsonString);
             case FileDataTypes.binary:
-                if (LoaderUtils.isArray(moduleCode)) return moduleCode;
+                if (TypeTester.isArray(moduleCode)) return moduleCode;
                 else {
                     return LoaderTextEncoder.stringToBytes(moduleCode);
                 }
-            default:
-                throw new LoaderError("Unknown return type: " + returnType, returnType);
         }
     }
 
@@ -4412,7 +5014,7 @@ class ModuleLoader {
 
         if (
             typeof globalThis.Base64 !== "undefined" &&
-            LoaderUtils.isObject(globalThis.Base64) &&
+            TypeTester.isObject(globalThis.Base64) &&
             typeof globalThis.Base64.decode === "function"
         ) {
             return globalThis.Base64.decode(moduleCode);
@@ -4454,25 +5056,25 @@ class ModuleLoader {
         return fastDecodeBase127(moduleCode);
     }
 
-    static _decodeModuleCode(moduleCode, encoder, buf_size) {
-        if (typeof encoder !== "string") {
-            throw new LoaderError("Invalid encoder: " + encoder, encoder);
-        }
+    static _encoders = Object.freeze(["base64", "base2n", "base127"]);
 
-        switch (encoder.toLowerCase()) {
+    static _decodeModuleCode(moduleCode, encoder, buf_size) {
+        encoder = TypeTester.normalizeEnum(encoder, this._encoders, "encoder", LoaderError, {
+            normalize: value => String(value).toLowerCase()
+        });
+
+        switch (encoder) {
             case "base64":
                 return this._decodeBase64Code(moduleCode);
             case "base2n":
                 return this._decodeBase2nCode(moduleCode, buf_size);
             case "base127":
                 return this._decodeBase127Code(moduleCode);
-            default:
-                throw new LoaderError("Unknown encoder: " + encoder, encoder);
         }
     }
 
     static _getLoadArgs(name, options) {
-        if (!LoaderUtils.isObject(options)) {
+        if (!TypeTester.isObject(options)) {
             throw new LoaderError("Options must be an object");
         }
 
@@ -4482,7 +5084,7 @@ class ModuleLoader {
             forceReload: options.forceReload
         };
 
-        const codeOpts = {
+        const codeOpts = ObjectUtil.removeUndefinedValues({
             ...commonOpts,
 
             requestOptions: options.requestOptions,
@@ -4492,13 +5094,13 @@ class ModuleLoader {
             owner: options.owner,
             encoded: options.encoded,
             buf_size: options.buf_size
-        };
+        });
 
-        const loadOpts = {
+        const loadOpts = ObjectUtil.removeUndefinedValues({
             ...commonOpts,
 
             isolateGlobals: options.isolateGlobals
-        };
+        });
 
         const codeArgs = [options.returnType, codeOpts],
             loadArgs = [options.scope, options.breakpoint, loadOpts];
@@ -4687,7 +5289,7 @@ const Patches = {
             customReply = (text, reply) => {
                 let content = null;
 
-                if (LoaderUtils.isObject(text)) {
+                if (TypeTester.isObject(text)) {
                     reply = text;
 
                     content = String(reply.content || "");
@@ -4704,7 +5306,7 @@ const Patches = {
             customReply = (text, reply) => {
                 let content = null;
 
-                if (LoaderUtils.isObject(text)) {
+                if (TypeTester.isObject(text)) {
                     reply = text;
 
                     content = String(reply.content || "");
@@ -4716,7 +5318,7 @@ const Patches = {
 
                 const file = reply?.file;
 
-                if (!LoaderUtils.isObject(file)) {
+                if (!TypeTester.isObject(file)) {
                     originalReply(content, reply);
                     return exit();
                 } else delete reply.file;
@@ -4724,11 +5326,11 @@ const Patches = {
                 let fileName = file.name ?? "message.txt",
                     fileData = file.data;
 
-                const fileExt = fileName.includes(".") ? fileName.split(".").pop().toLowerCase() : "";
+                const fileExt = fileName.includes(".") ? LoaderUtils.last(fileName.split(".")).toLowerCase() : "";
 
                 if (typeof fileData === "string") {
                     fileData = LoaderTextEncoder.stringToUtf8(fileData);
-                } else if (!LoaderUtils.isArray(fileData)) {
+                } else if (!TypeTester.isArray(fileData)) {
                     fileData = LoaderTextEncoder.stringToBytes("Empty file");
                 }
 
@@ -4781,26 +5383,19 @@ const Patches = {
     },
 
     patchGlobalContext: objs => {
-        if (!LoaderUtils.isObject(objs)) {
+        if (!TypeTester.isObject(objs)) {
             throw new LoaderError("Invalid patch objects");
         }
 
-        LoaderUtils.assign(globalThis, objs, "enum", {
+        ObjectUtil.assign(globalThis, objs, "enum", {
             configurable: true
         });
     },
 
     removeFromGlobalContext: keys => {
         if (typeof keys === "string") {
-            const option = keys;
-
-            switch (option) {
-                case "nondefault":
-                    keys = Object.keys(globalThis);
-                    break;
-                default:
-                    throw new LoaderError("Invalid removal option: " + option, option);
-            }
+            TypeTester.normalizeEnum(keys, Patches._removeOptions, "removal option", LoaderError);
+            keys = Object.keys(globalThis);
         } else if (!Array.isArray(keys)) {
             throw new LoaderError("Invalid removal keys");
         }
@@ -4811,14 +5406,16 @@ const Patches = {
     },
 
     addContextGlobals: objs => {
-        if (LoaderUtils.isObject(objs)) {
-            LoaderUtils.assign(globals, objs, "enum");
+        if (TypeTester.isObject(objs)) {
+            ObjectUtil.assign(globals, objs, "enum");
         }
 
         Patches._safePatchGlobals(globals);
     },
 
     addGlobalObjects: (library = config.loadLibrary) => {
+        TypeTester.normalizeEnum(library, validLibraries, "library", LoaderError);
+
         globalObjs.CustomError ??= CustomError;
         globalObjs.RefError ??= ReferenceError;
         globalObjs.ExitError ??= ExitError;
@@ -4854,31 +5451,6 @@ const Patches = {
 
         globalObjs.enableDebugger ??= config.enableDebugger;
 
-        switch (library) {
-            case "none":
-                break;
-            case "canvaskit":
-                break;
-            case "cycdraw":
-                break;
-            case "resvg":
-                break;
-            case "lodepng":
-                break;
-            case "gifenc":
-                break;
-            case "h264":
-                break;
-            case "satori":
-                break;
-            case "babel":
-                break;
-            case "dropflow":
-                break;
-            default:
-                throw new LoaderError("Unknown library: " + library, library);
-        }
-
         Patches._safePatchGlobals(globalObjs);
     },
 
@@ -4889,13 +5461,13 @@ const Patches = {
             const patchFuncs = patches.map(patch => {
                 const err = new LoaderError("Unknown patch: " + patch, patch);
 
-                if (!Patches._patchPrefixes.some(prefix => patch.startsWith(prefix))) {
+                if (!LoaderUtils.hasPrefix(Patches._patchPrefixes, patch)) {
                     throw err;
                 }
 
                 const func = Patches[patch];
 
-                if (typeof func !== "function" || func.length > 0) {
+                if (typeof func !== "function" || !LoaderUtils.empty(func)) {
                     throw err;
                 }
 
@@ -4911,6 +5483,8 @@ const Patches = {
     },
 
     applyAll: (library = config.loadLibrary) => {
+        library = TypeTester.normalizeEnum(library, validLibraries, "library", LoaderError);
+
         let timeKey = "apply_patches";
 
         if (library !== config.loadLibrary) {
@@ -4961,10 +5535,6 @@ const Patches = {
                     Patches.polyfillBuffer();
                     Patches.polyfillTextEncoderDecoder();
                     break;
-
-                default:
-                    Benchmark.stopTiming(timeKey, null);
-                    throw new LoaderError("Unknown library: " + library, library);
             }
 
             Patches.addContextGlobals();
@@ -4987,14 +5557,11 @@ const Patches = {
     },
 
     _loadedPatches: [],
-    _patchPrefixes: ["patch", "polyfill"],
+    _patchPrefixes: Object.freeze(["patch", "polyfill"]),
+    _removeOptions: Object.freeze(["nondefault"]),
 
     _loadedPatch: (...names) => {
-        for (const name of names) {
-            if (!Patches._loadedPatches.includes(name)) {
-                Patches._loadedPatches.push(name);
-            }
-        }
+        Patches._loadedPatches = ArrayUtil.unique(Patches._loadedPatches.concat(names));
     },
 
     clearLoadedPatches: () => {
@@ -5042,11 +5609,15 @@ function loadBase64Utils() {
     Patches.patchGlobalContext({ Base64 });
 }
 
+const base2nCharsets = Object.freeze(["normal", "linear", "base64"]);
+
 let wasmBase2nLoaded = false;
 
 function loadBase2nDecoder() {
     function loadJsBase2nDecoder(charset = "normal") {
         if (typeof globalThis.decodeBase2n !== "undefined") return;
+
+        charset = TypeTester.normalizeEnum(charset, base2nCharsets, "charset", LoaderError);
 
         Benchmark.startTiming("load_base2n");
         let base2n, patchedDecode, table;
@@ -5083,8 +5654,6 @@ function loadBase2nDecoder() {
                     charsetRanges = "AZaz09++//";
                     sortRanges = false;
                     break;
-                default:
-                    throw new LoaderError("Unknown charset: " + charset, charset);
             }
 
             table = base2n.Base2nTable.generate(charsetRanges, {
@@ -5317,9 +5886,7 @@ function decompress(data, type) {
             throw new LoaderError("No decompressors loaded");
         }
     } else {
-        if (!(type in decompressors)) {
-            throw new LoaderError("Invalid decompressor type: " + type, type);
-        }
+        type = TypeTester.normalizeEnum(type, Object.keys(decompressors), "decompressor type", LoaderError);
 
         decompressor = decompressors[type];
 
@@ -5804,6 +6371,8 @@ const libraryLoaderFuncs = Object.freeze({
     dropflow: loadDropflow
 });
 
+const validLibraries = Object.freeze(Object.keys(libraryLoaderFuncs));
+
 // main
 function mainPatch(libraries) {
     libraries.forEach(Patches.applyAll);
@@ -5853,8 +6422,6 @@ function decideMiscConfig(library) {
             features.useBase2nDecoder = true;
             features.useZstdDecompressor = true;
             break;
-        default:
-            throw new LoaderError("Unknown library: " + library, library);
     }
 
     if (features.useBase127Decoder) features.useBase64Utils = true;
@@ -5863,7 +6430,7 @@ function decideMiscConfig(library) {
 function mainLoadMisc(libraries) {
     resetFeatures();
 
-    if (libraries.length > 0 && libraries.every(library => loadFuncLibs.has(library))) {
+    if (!LoaderUtils.empty(libraries) && libraries.every(library => loadFuncLibs.has(library))) {
         features.useLoadFuncs = true;
     }
 
@@ -5879,15 +6446,7 @@ function mainLoadMisc(libraries) {
 }
 
 function mainLoadLibrary(libraries) {
-    libraries.forEach(library => {
-        const loader = libraryLoaderFuncs[library];
-
-        if (typeof loader === "undefined") {
-            throw new LoaderError("Unknown library: " + library, library);
-        }
-
-        loader();
-    });
+    libraries.forEach(library => libraryLoaderFuncs[library]());
 }
 
 function wrapLoadFunc(func) {
@@ -5914,8 +6473,14 @@ function addLoadFuncs() {
 }
 
 function mainLoad(loadLibrary) {
+    const libraries = TypeTester.normalizeEnums(
+        ArrayUtil.guaranteeArray(loadLibrary),
+        validLibraries,
+        "library",
+        LoaderError
+    );
+
     Benchmark.restartTiming("load_total");
-    const libraries = LoaderUtils.guaranteeArray(loadLibrary);
 
     mainPatch(libraries);
     mainLoadMisc(libraries);
@@ -5939,6 +6504,7 @@ function insideEval() {
     );
 
     try {
+        // eslint-disable-next-line no-restricted-syntax
         throw new Error();
     } catch (err) {
         return Boolean(err.stack.match(evalExp));

@@ -6,7 +6,8 @@ const utilNameRegex = /\b(\w*Utils?|TypeTester)\b/g;
 const objStartRegex = /^(?:let|const)\s+(\w*Utils?|TypeTester)\s*=\s*(?:Object\.freeze\()?{/m,
     objEndRegex = /^\}\)?;/m;
 
-const funcStartRegex = /^\s{4}([^\W_]\w*):\s*(\([^)]*\)\s*=>\s*\{)/gm,
+const funcStartRegex =
+        /^\s{4}([^\W_]\w*)(?::\s*((?:\([^)]*\)|[A-Za-z_$]\w*)\s*=>\s*\{)|(\([^)]*\)\s*\{))/gm,
     funcEndRegex = /^\s{4}\},?/m;
 
 function readFile(filePath) {
@@ -28,11 +29,15 @@ function readFile(filePath) {
     return text;
 }
 
-function parseUtilFuncs(text) {
+function parseUtilFuncs(text, targetName) {
     let objName, objContent;
 
     {
-        const startMatch = text.match(objStartRegex);
+        const startRegex = targetName
+                ? new RegExp(`^(?:let|const)\\s+(${targetName})\\s*=\\s*(?:Object\\.freeze\\()?{`, "m")
+                : objStartRegex,
+            startMatch = text.match(startRegex);
+
         if (!startMatch) return { name: null, functions: new Set() };
 
         objName = startMatch[1];
@@ -50,7 +55,8 @@ function parseUtilFuncs(text) {
     funcStartRegex.lastIndex = 0;
 
     for (const startMatch of objContent.matchAll(funcStartRegex)) {
-        const [funcName, header] = startMatch.slice(1),
+        const funcName = startMatch[1],
+            header = startMatch[2] ?? startMatch[3],
             startIdx = startMatch.index + startMatch[0].indexOf(header);
 
         const endMatch = objContent.slice(startIdx).match(funcEndRegex);
@@ -67,6 +73,32 @@ function parseUtilFuncs(text) {
     }
 
     return { name: objName, functions };
+}
+
+function parseMainUtils(text) {
+    const utilNames = [
+            "ArrayUtil",
+            "ObjectUtil",
+            "TypeTester",
+            "DiscordUtil",
+            "FunctionUtil",
+            "RegexUtil",
+            "LoaderUtils"
+        ],
+        functions = new Map();
+
+    let found = false;
+
+    for (const utilName of utilNames) {
+        const utilObj = parseUtilFuncs(text, utilName);
+
+        if (utilObj.name === null) continue;
+        found = true;
+
+        utilObj.functions.forEach((funcText, funcName) => functions.set(funcName, funcText));
+    }
+
+    return { name: found ? "LoaderUtils" : null, functions };
 }
 
 const AnsiCodes = Object.freeze({
@@ -132,7 +164,7 @@ function main() {
     const mainFile = readFile(args.mainPath),
         otherFiles = args.otherPaths.map(readFile);
 
-    const main = parseUtilFuncs(mainFile);
+    const main = parseMainUtils(mainFile);
 
     if (main.name === null) {
         console.error(`ERROR: No utils object ending found in file: ${args.mainPath}`);
