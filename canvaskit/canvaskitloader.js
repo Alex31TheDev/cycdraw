@@ -633,6 +633,10 @@ let LoaderUtils = {
         return str.replace(/\s+/g, "");
     },
 
+    splitChars: str => {
+        return [...str];
+    },
+
     _leadingSpacesRegex: /^\s*/,
     _trailingSpacesRegex: /\s*$/,
     capitalize: str => {
@@ -1811,7 +1815,7 @@ let DiscordUtil = {
     },
 
     _attachUrlRegex:
-        /(?<prefix>(?:(https?:)\/\/)?(cdn|media)\.discordapp\.(com|net)\/attachments\/(?<sv_id>\d+)\/(?<ch_id>\d+)\/(?<filename>.+?)(?<ext>\.[^.?]+)?(?=\?|\s|$))\??(?:ex=(?<ex>[0-9a-f]+)&is=(?<is>[0-9a-f]+)&hm=(?<hm>[0-9a-f]+))?/giu,
+        /(?<prefix>(?:(https?:)\/\/)?(cdn|media)\.discordapp\.(com|net)\/attachments\/(?<sv_id>\d+)\/(?<ch_id>\d+)\/(?<filename>[^/?#\s]+?)(?<ext>\.[^.?#\s]+)?(?=\?|\s|$))\??(?:ex=(?<ex>[0-9a-f]+)&is=(?<is>[0-9a-f]+)&hm=(?<hm>[0-9a-f]+))?/giu,
     _attachUrlMatchResult: match => {
         if (!match) return null;
 
@@ -2398,7 +2402,9 @@ const ObjectUtil = Object.freeze({
             if (source[key] != null) continue;
 
             let defaultValue = defaults[key];
-            if (typeof defaultValue !== "function") defaultValue = structuredClone(defaultValue);
+            if (TypeTester.isObject(defaultValue)) {
+                defaultValue = ObjectUtil.shallowClone(defaultValue);
+            }
 
             values[key] = defaultValue;
         }
@@ -3459,7 +3465,7 @@ const EncryptionUtil = Object.freeze({
 
         let alphabet = "";
 
-        let split = str.split(""),
+        let split = LoaderUtils.splitChars(str),
             out;
 
         switch (mode) {
@@ -3491,11 +3497,12 @@ const EncryptionUtil = Object.freeze({
 
                 break;
             case 2:
+                lower = upper.toLowerCase();
+
                 const upper_off = 0,
                     lower_off = upper_off + upper.length,
-                    digit_off = lower_off + upper.length;
+                    digit_off = lower_off + lower.length;
 
-                lower = upper.toLowerCase();
                 alphabet = EncryptionUtil.createShiftedAlphabet(upper + lower + digit, shift);
 
                 out = split.map(char => {
@@ -4977,26 +4984,48 @@ class ModuleLoader {
             const tag = DiscordUtil.fetchTag(tagName, owner);
             body = DiscordUtil.getTagBody(tag);
         } else {
-            let tagNames = [];
-
-            if (useArray) tagNames = tagName;
-            else if (usePattern) tagNames = DiscordUtil.dumpTags(tagName);
-            else {
+            if (!useArray && !usePattern) {
                 throw new LoaderError("Invalid tag name");
             }
 
-            tagNames.sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+            let tags = [];
 
-            const tags = tagNames
-                .map(name => {
-                    try {
-                        return DiscordUtil.fetchTag(name, owner);
-                    } catch (err) {
-                        if (err.name === "UtilError") return null;
-                        throw err;
-                    }
-                })
-                .filter(tag => tag != null);
+            if (util.env) {
+                let tagNames = [];
+
+                if (useArray) tagNames = tagName;
+                else if (usePattern) tagNames = DiscordUtil.dumpTags(tagName);
+
+                tagNames.sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+
+                tags = tagNames
+                    .map(name => {
+                        try {
+                            return DiscordUtil.fetchTag(name, owner);
+                        } catch (err) {
+                            if (err.name === "UtilError") return null;
+                            throw err;
+                        }
+                    })
+                    .filter(tag => tag != null);
+            } else {
+                let filter;
+
+                if (usePattern) {
+                    filter = tagName;
+                } else {
+                    const escaped = tagName.map(RegexUtil.escapeRegex);
+                    filter = new RegExp(`^(?:${escaped.join("|")})$`);
+                }
+
+                tags = util.dumpTags({ filter, full: true });
+
+                if (LoaderUtils.nonemptyString(owner)) {
+                    tags = tags.filter(tag => tag.owner === owner);
+                }
+
+                tags.sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true }));
+            }
 
             if (LoaderUtils.empty(tags)) {
                 throw new LoaderError(`No matching tag(s) found: ${tagName}`, tagName);
