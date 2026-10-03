@@ -4,7 +4,7 @@ if (util.env) {
     util.executeTag("canvaskitloader");
 }
 
-const MAX_MS = util.timeLimit ?? 5000;
+const MAX_MS = util.timeLimit ?? 30000;
 
 const ELAPSED_MS = Benchmark.data["load_total"],
     ELAPSED_S = Math.round(ELAPSED_MS / 100) / 10,

@@ -328,6 +328,9 @@ class Logger {
     }
 
     _formatObject(obj) {
+        if (obj === null) return "null";
+        else if (typeof obj === "undefined") return "undefined";
+
         switch (typeof obj) {
             case "bigint":
             case "number":
@@ -758,25 +761,7 @@ let LoaderUtils = {
     },
 
     utf8ByteLength: str => {
-        let i = 0,
-            len = LoaderUtils.countChars(str);
-
-        let code,
-            length = 0;
-
-        for (; i < len; i++) {
-            code = str.codePointAt(i);
-
-            if (code <= 0x7f) length += 1;
-            else if (code <= 0x7ff) length += 2;
-            else if (code <= 0xffff) length += 3;
-            else {
-                length += 4;
-                i++;
-            }
-        }
-
-        return length;
+        return LoaderTextEncoder.stringUtf8Length(str);
     },
 
     countChars: str => {
@@ -1027,6 +1012,8 @@ let LoaderUtils = {
     },
 
     hasPrefix: (prefixes, str) => {
+        if (typeof str !== "string") return false;
+
         prefixes = [].concat(prefixes);
         return prefixes.some(prefix => str.startsWith(prefix));
     },
@@ -1122,9 +1109,7 @@ let LoaderUtils = {
     },
 
     codeBlock: (str, lang) => {
-        let formatted = "```\n";
-
-        if (!LoaderUtils.empty(lang)) formatted += lang + "\n";
+        let formatted = LoaderUtils.empty(lang) ? "```\n" : `\`\`\`${lang}\n`;
         formatted += str + "```";
 
         return LoaderUtils.exceedsLimits(formatted) ? str : formatted;
@@ -1320,12 +1305,16 @@ let LoaderUtils = {
             t1 = BigInt(t1);
             t2 = BigInt(t2);
             div = BigInt(div);
+
+            const dt = (t2 - t1) / div;
+            return dt < 0n ? -dt : dt;
         } else {
             t1 = Number(t1);
             t2 = Number(t2);
-        }
 
-        return Math.round(Math.abs((t2 - t1) / div));
+            const dt = (t2 - t1) / div;
+            return Math.round(Math.abs(dt));
+        }
     },
 
     _durationDefaults: {
@@ -1896,16 +1885,18 @@ let DiscordUtil = {
         }
 
         const attachInfo = msg.attachInfo ?? DiscordUtil.parseAttachmentUrl(url),
-            contentType = attach?.contentType ?? HttpUtil.getContentType(attachInfo.ext);
+            contentType =
+                attach?.contentType ??
+                (LoaderUtils.nonemptyString(attachInfo?.ext) ? HttpUtil.getContentType(attachInfo.ext) : null);
 
-        const [extensions, ctypePrefs] = ArrayUtil.split(ctypes, type => type.startsWith("."));
+        const [ctypePrefs, extensions] = ArrayUtil.split(ctypes, type => type.startsWith("."));
 
         if (!LoaderUtils.empty(extensions)) {
             if (attachInfo == null || LoaderUtils.empty(attachInfo.ext)) {
                 throw new UtilError("Extension can only be validated for attachment URLs");
-            } else if (!extensions.includes(attachInfo.ext)) {
-                throw new UtilError("Invalid file extension: " + attachInfo.ext, attachInfo.ext);
             }
+
+            TypeTester.normalizeEnum(attachInfo.ext, extensions, "file extension", UtilError);
         }
 
         if (!LoaderUtils.empty(ctypePrefs)) {
@@ -1971,12 +1962,16 @@ let DiscordUtil = {
 
         const isAllowed = tag => {
             if (search) {
+                let matches;
+
                 if (search instanceof RegExp) {
                     search.lastIndex = 0;
-                    return search.test(tag.name);
+                    matches = search.test(tag.name);
+                } else {
+                    matches = tag.name.includes(search);
                 }
 
-                return tag.name.includes(search);
+                if (!matches) return false;
             }
 
             if (tag.owner === config.tagOwner) return false;
@@ -2009,13 +2004,16 @@ let DiscordUtil = {
         tags = tags.filter(tag => validProps(tag) && DiscordUtil.validTagName(tag.name));
 
         for (const tag of tags) {
-            tag.isAlias = tag.hops.length > 1;
+            const hasHops = Array.isArray(tag.hops) && tag.hops.length > 1;
+            tag.isAlias = hasHops || LoaderUtils.nonemptyString(tag.aliasName);
 
             if (tag.isAlias) {
                 tag.isScript = false;
 
-                tag.aliasName = tag.hops[1];
-                tag.name = tag.hops[0];
+                if (hasHops) {
+                    tag.aliasName = tag.hops[1];
+                    tag.name = tag.hops[0];
+                }
 
                 tag.body = "";
             } else {
@@ -2130,6 +2128,8 @@ const FunctionUtil = Object.freeze({
 
     _funcArgsRegex: /(?:\()(.+)+(?:\))/,
     functionArgumentNames: func => {
+        if (typeof func !== "function") return [];
+
         const code = func.toString(),
             match = code.match(FunctionUtil._funcArgsRegex);
 
@@ -2164,6 +2164,7 @@ const TypeTester = Object.freeze({
     isClass: obj => {
         if (typeof obj !== "function") return false;
         else if (obj.toString().startsWith("class")) return true;
+        else if (!obj.prototype) return false;
         else {
             return Object.getOwnPropertyNames(obj.prototype).length > 1;
         }
@@ -2179,13 +2180,15 @@ const TypeTester = Object.freeze({
 
     className: obj => {
         if (obj == null) return "";
-        else if (typeof obj === "function") obj = obj.prototype;
-
-        return obj.constructor.name;
+        else if (typeof obj === "function") {
+            if (obj.name) return obj.name;
+            obj = obj.prototype;
+            if (obj == null) return "Function";
+        } else return obj.constructor?.name ?? "";
     },
 
     charType: char => {
-        if (char?.length !== 1) return "invalid";
+        if (typeof char !== "string" || char.length !== 1) return "invalid";
         const code = char.charCodeAt(0);
 
         if (code === 32) return "space";
@@ -2336,6 +2339,7 @@ const TypeTester = Object.freeze({
     },
 
     bufferIsGif: buf => {
+        if (buf == null || buf.length < 6) return false;
         const header = LoaderTextEncoder.bytesToString(buf.slice(0, 6));
         return ["GIF87a", "GIF89a"].includes(header);
     },
@@ -2465,6 +2469,8 @@ const ObjectUtil = Object.freeze({
     },
 
     shallowClone: (obj, options = "keys") => {
+        if (Array.isArray(obj)) return [...obj];
+
         const clone = Object.create(Object.getPrototypeOf(obj));
         return ObjectUtil.assign(clone, obj, options);
     },
@@ -3541,7 +3547,8 @@ const HttpUtil = Object.freeze({
         }
 
         if (HttpUtil.protocolRegex.test(firstPart) && LoaderUtils.multiple(input)) {
-            firstPart = input.shift() + firstPart;
+            firstPart = input.shift() + input.shift();
+            input.unshift(firstPart);
         }
 
         input[0] = firstPart;
@@ -3596,6 +3603,14 @@ const HttpUtil = Object.freeze({
 
     _statusRegex: /Request failed with status code (\d+)/,
     getHttpErrStatus: (res, reqErr) => {
+        if (
+            reqErr == null &&
+            (res instanceof Error || (res != null && typeof res.message === "string" && typeof res.status !== "number"))
+        ) {
+            reqErr = res;
+            res = null;
+        }
+
         if (util.env && res?.ok === false) return res.status;
         else if (reqErr == null) return null;
 
@@ -3625,11 +3640,13 @@ const HttpUtil = Object.freeze({
         gz: "application/gzip"
     },
     _defaultMimeType: "application/octet-stream",
+
     getContentType: ext => {
+        if (!LoaderUtils.nonemptyString(ext)) return HttpUtil._defaultMimeType;
         if (ext.startsWith(".")) ext = ext.slice(1);
         ext = ext.toLowerCase();
 
-        return HttpUtil._mimeTypes[ext.toLowerCase()] ?? HttpUtil._defaultMimeType;
+        return HttpUtil._mimeTypes[ext] ?? HttpUtil._defaultMimeType;
     },
 
     CRLF: "\r\n",
@@ -3815,17 +3832,13 @@ let UploadUtil = {
         const password = options.password,
             expiryTime = Math.floor(options.expiryTime * 3600000);
 
+        let token = null;
+
         if (options.passwordRequired) {
             if (!LoaderUtils.nonemptyString(password)) {
                 throw new UtilError("No password provided");
-            } else if (!LoaderUtils.nonemptyString(token)) {
-                throw new UtilError("No token provided");
             }
-        }
 
-        let token = null;
-
-        {
             const config = {
                 url: HttpUtil.joinUrl(UploadUtil._filecanBase, "api/auth/authenticate"),
                 method: "post",
@@ -3847,23 +3860,34 @@ let UploadUtil = {
 
             const status = HttpUtil.getHttpErrStatus(res, reqErr);
 
-            if (status === null) token = res?.data.token ?? null;
-            else {
+            if (status !== null) {
                 throw new LoaderError("Filecan auth failed with code: " + status, status);
             }
+
+            token = res?.data?.token ?? null;
+
+            if (!LoaderUtils.nonemptyString(token)) {
+                throw new LoaderError("Filecan auth returned no token");
+            }
+        }
+
+        const headers = token ? { token } : {};
+
+        const fields = {
+            expirylength: expiryTime
+        };
+
+        if (LoaderUtils.nonemptyString(password)) {
+            fields.password = password;
         }
 
         const file = UploadUtil.uploadToCustom(UploadUtil._filecanApi, data, ext, {
             fileField: "files",
-            fields: {
-                password,
-                expirylength: expiryTime
-            },
-
+            fields,
             contentType: options.contentType,
             returnType: "json",
 
-            headers: { token }
+            headers
         }).files[0];
 
         return HttpUtil.joinUrl(UploadUtil._filecanBase, file.filename);
@@ -4404,7 +4428,7 @@ class ModuleRequireUtil {
                 case "undefined":
                     return ObjectUtil.makeInfiniteObject();
                 case "function":
-                    if (!/^class[\s{]/.test(ret.toString())) {
+                    if (!TypeTester.isClass(ret)) {
                         return ret(id);
                     }
                 default: // eslint-disable-line
@@ -5427,7 +5451,7 @@ const Patches = {
         if (WebAssembly.instantiate.patched === true) return;
 
         const original = WebAssembly.instantiate,
-            originalModule = Patches._origWasmModule;
+            originalModule = Patches._origWasmModule ?? WebAssembly.Module;
 
         WebAssembly.instantiate = Benchmark.wrapFunction("wasm_instantiate", (bufferSource, importObject) => {
             const wasmModule =
@@ -5486,6 +5510,9 @@ const Patches = {
         globalObjs.HttpUtil ??= HttpUtil;
         globalObjs.LoaderUtils ??= LoaderUtils;
         globalObjs.LoaderTextEncoder ??= LoaderTextEncoder;
+        globalObjs.ArrayUtil ??= ArrayUtil;
+        globalObjs.ObjectUtil ??= ObjectUtil;
+        globalObjs.TypeTester ??= TypeTester;
         globalObjs.EncryptionUtil ??= EncryptionUtil;
         globalObjs.UploadUtil ??= UploadUtil;
         globalObjs.exit ??= exit;

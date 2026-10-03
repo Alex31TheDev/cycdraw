@@ -7,7 +7,7 @@ const objStartRegex = /^(?:let|const)\s+(\w*Utils?|TypeTester)\s*=\s*(?:Object\.
     objEndRegex = /^\}\)?;/m;
 
 const funcStartRegex =
-        /^\s{4}([^\W_]\w*)(?::\s*((?:\([^)]*\)|[A-Za-z_$]\w*)\s*=>\s*\{)|(\([^)]*\)\s*\{))/gm,
+        /^\s{4}(?:async\s+)?([^\W_]\w*)(?::\s*((?:async\s+)?(?:\([^)]*\)|[A-Za-z_$]\w*)\s*=>\s*\{)|((?:async\s*)?\([^)]*\)\s*\{))/gm,
     funcEndRegex = /^\s{4}\},?/m;
 
 function readFile(filePath) {
@@ -38,13 +38,13 @@ function parseUtilFuncs(text, targetName) {
                 : objStartRegex,
             startMatch = text.match(startRegex);
 
-        if (!startMatch) return { name: null, functions: new Set() };
+        if (!startMatch) return { name: null, functions: new Map() };
 
         objName = startMatch[1];
         const startIdx = startMatch.index;
 
         const endMatch = text.slice(startIdx).match(objEndRegex);
-        if (!endMatch) return { name: objName, functions: new Set() };
+        if (!endMatch) return { name: objName, functions: new Map() };
         const endIdx = startIdx + endMatch.index + 2;
 
         objContent = text.slice(startIdx, endIdx);
@@ -77,6 +77,7 @@ function parseUtilFuncs(text, targetName) {
 
 function parseMainUtils(text) {
     const utilNames = [
+            "Util",
             "ArrayUtil",
             "ObjectUtil",
             "TypeTester",
@@ -87,18 +88,18 @@ function parseMainUtils(text) {
         ],
         functions = new Map();
 
-    let found = false;
+    let primaryName = null;
 
     for (const utilName of utilNames) {
         const utilObj = parseUtilFuncs(text, utilName);
 
         if (utilObj.name === null) continue;
-        found = true;
+        if (primaryName === null) primaryName = utilObj.name;
 
         utilObj.functions.forEach((funcText, funcName) => functions.set(funcName, funcText));
     }
 
-    return { name: found ? "LoaderUtils" : null, functions };
+    return { name: primaryName, functions };
 }
 
 const AnsiCodes = Object.freeze({
@@ -133,28 +134,50 @@ function printDiff(str1, str2) {
     }
 }
 
-const usage = "Usage: node checkutils.cjs mainFile.js other1.js other2.js [...]",
+const usage = "Usage: node checkutils.cjs [-r|--reverse] [-b|--bidirectional] mainFile.js other1.js other2.js [...]",
     helpArgs = ["-h", "--help"];
 
 function parseArgs() {
-    const args = process.argv.slice(2);
+    let args = process.argv.slice(2);
 
     if (args.length < 1 || helpArgs.some(help => args.includes(help))) {
         console.log(usage);
         process.exit(0);
     }
 
+    let reverse = false,
+        bidirectional = false;
+
+    args = args.filter(arg => {
+        if (arg === "-r" || arg === "--reverse") {
+            reverse = true;
+            return false;
+        }
+        if (arg === "-b" || arg === "--bidirectional") {
+            bidirectional = true;
+            return false;
+        }
+        return true;
+    });
+
     if (args.length < 2) {
         console.log(usage);
         process.exit(1);
     }
 
-    const mainPath = path.resolve(args[0]),
+    let mainPath = path.resolve(args[0]),
         otherPaths = args.slice(1).map(p => path.resolve(p));
+
+    if (reverse) {
+        const temp = mainPath;
+        mainPath = otherPaths[0];
+        otherPaths = [temp, ...otherPaths.slice(1)];
+    }
 
     return {
         mainPath,
-        otherPaths
+        otherPaths,
+        bidirectional
     };
 }
 
@@ -190,7 +213,7 @@ function main() {
             otherFunctions.add(funcName);
 
             if (!main.functions.has(funcName)) {
-                console.log(`${AnsiCodes.red}${SymbolChars.x} ${funcName} (missing)${AnsiCodes.reset}`);
+                console.log(`${AnsiCodes.red}${SymbolChars.x} ${funcName} (missing in main)${AnsiCodes.reset}`);
                 return;
             }
 
@@ -205,6 +228,14 @@ function main() {
                 printDiff(funcText, mainText);
             }
         });
+
+        if (args.bidirectional) {
+            const missingInOther = Array.from(main.functions.keys()).filter(fn => !other.functions.has(fn));
+            if (missingInOther.length > 0) {
+                console.log(`\nFunctions in main (${main.name}) missing in ${other.name}:`);
+                missingInOther.forEach(fn => console.log(`${AnsiCodes.yellow}${SymbolChars.star} ${fn}${AnsiCodes.reset}`));
+            }
+        }
     }
 
     const extraInMain = Array.from(main.functions.keys()).filter(func => !otherFunctions.has(func));

@@ -1,5 +1,5 @@
 "use strict";
-/* global help:readonly, usage:readonly, helpOptions:readonly, options:readonly, requireText:readonly, requireImage:readonly, textName:readonly, useTenorApi:readonly, tenorClientConfig:readonly, CanvasKitUtil:readonly, TenorHttpClient:readonly, decodeLibrary:readonly, loadDecodeLibrary */
+/* global help:readonly, usage:readonly, helpOptions:readonly, options:readonly, requireText:readonly, requireImage:readonly, textName:readonly, useKlipyApi:readonly, klipyClientConfig:readonly, CanvasKitUtil:readonly, KlipyHttpClient:readonly, DiscordHttpClient:readonly, DiscordConstants:readonly, decodeLibrary:readonly, loadDecodeLibrary */
 
 // config
 const defaultHelpOptions = ["help", "-help", "--help", "-h", "usage", "-usage", "--usage", "-u"];
@@ -7,9 +7,8 @@ const defaultHelpOptions = ["help", "-help", "--help", "-h", "usage", "-usage", 
 const defaultHelp = "No help text configured.",
     defaultUsage = `See \`%t ${tag.name} help\` for usage.`;
 
-const defaultTenorClientConfig = {
-    key: EncryptionUtil.caesarCipher("QYFqiEQRMdEE2wNFMmTYetr8wO9KX5JHLj6dyAU", -16, 2),
-    client_key: "caption"
+const defaultKlipyClientConfig = {
+    key: EncryptionUtil.caesarCipher("pbtAcTc9RhtQ1cvJsAX7rsOk5Fy3f8hZWYvzM3S3D2qHbRSGHBGThSqEdN7D89Bk", -16, 2)
 };
 
 const config = {
@@ -22,14 +21,14 @@ const config = {
     requireImage: typeof requireImage === "undefined" ? false : requireImage,
     textName: typeof textName === "undefined" ? "" : textName,
 
-    useTenorApi: typeof useTenorApi === "undefined" ? true : useTenorApi,
-    tenorClientConfig: typeof tenorClientConfig === "undefined" ? defaultTenorClientConfig : tenorClientConfig,
+    useKlipyApi: typeof useKlipyApi === "undefined" ? true : useKlipyApi,
+    klipyClientConfig: typeof klipyClientConfig === "undefined" ? defaultKlipyClientConfig : klipyClientConfig,
 
     decodeLibrary: typeof decodeLibrary === "undefined" ? "none" : decodeLibrary,
     loadDecodeLibrary: typeof loadDecodeLibrary === "undefined" ? () => {} : loadDecodeLibrary
 };
 
-const _helpOptions = config.helpOptions.length > 0 ? config.helpOptions : defaultHelpOptions,
+const _helpOptions = !LoaderUtils.empty(config.helpOptions) ? config.helpOptions : defaultHelpOptions,
     _requireText = config.requireText || Boolean(config.textName),
     _textName = config.textName ? config.textName + " " : config.textName;
 
@@ -37,7 +36,8 @@ const _helpOptions = config.helpOptions.length > 0 ? config.helpOptions : defaul
 const urls = {};
 
 const tags = {
-    TenorHttpClient: "ck_tenorhttpclient"
+    KlipyHttpClient: "ck_tenorhttpclient",
+    DiscordHttpClient: "ck_discordhttpclient"
 };
 
 // errors
@@ -52,10 +52,11 @@ let targetMsg, input, text;
 let image, width, height, isGif;
 
 // parse input & attachment
-const tenorRegex = /^(?:(https?:)\/\/)?tenor\.com\/view\/(?<vk>(?<name>\S+?)(?:-gif)?-(?<id>\d+))$/;
+const klipyRegex =
+    /^(?:(https?:)\/\/)?(?:www\.)?klipy\.com\/(?:(?<type>gifs?|stickers?|memes?|clips?)\/)?(?<slug>[a-zA-Z0-9_-]+)/;
 
-function parseTenorUrl(url) {
-    const match = url.match(tenorRegex);
+function parseKlipyUrl(url) {
+    const match = url.match(klipyRegex);
 
     if (!match) {
         return;
@@ -66,10 +67,15 @@ function parseTenorUrl(url) {
     return {
         protocol: match[1] ?? "",
 
-        viewKey: groups.vk,
-        name: groups.name,
-        id: groups.id
+        type: groups.type ?? "gif",
+        slug: groups.slug
     };
+}
+
+const discordAttachRegex = /(?:(https?:)\/\/)?(?:cdn|media)\.discordapp\.(?:com|net)\/attachments\/\d+\/\d+\/[^\s]+/i;
+
+function isDiscordAttachmentUrl(url) {
+    return discordAttachRegex.test(url);
 }
 
 function parseArgs() {
@@ -88,35 +94,59 @@ function parseArgs() {
             }
         }
 
-        if (targetMsg.attachments.length > 0) {
-            const attach = targetMsg.attachments[0];
+        if (!LoaderUtils.empty(targetMsg.attachments)) {
+            const attach = LoaderUtils.first(targetMsg.attachments);
 
             targetMsg.file = attach;
             targetMsg.fileUrl = attach.url;
-            targetMsg.attachInfo = LoaderUtils.parseAttachmentUrl(attach.url);
+
+            if (isDiscordAttachmentUrl(attach.url)) {
+                loadDiscordClient();
+                targetMsg.fileUrl = DiscordHttpClient.normalizeAttachmentUrl(attach.url);
+                targetMsg.attachInfo = DiscordHttpClient.parseAttachmentUrl(targetMsg.fileUrl);
+            } else {
+                targetMsg.attachInfo = LoaderUtils.parseAttachmentUrl(attach.url);
+            }
         } else {
-            const urlMatch = targetMsg.content.match(LoaderUtils.urlRegex);
+            const discordMatch = targetMsg.content.match(discordAttachRegex),
+                urlMatch = discordMatch ?? targetMsg.content.match(LoaderUtils.urlRegex);
 
             if (urlMatch) {
                 const fileUrl = urlMatch[0];
 
-                let attachInfo, tenorInfo;
+                let klipyInfo;
 
-                if ((attachInfo = LoaderUtils.parseAttachmentUrl(fileUrl))) {
-                    const embed = targetMsg.embeds.find(embed => {
+                if (discordMatch || isDiscordAttachmentUrl(fileUrl)) {
+                    loadDiscordClient();
+
+                    let normalizedUrl = DiscordHttpClient.normalizeAttachmentUrl(fileUrl),
+                        attachInfo = DiscordHttpClient.parseAttachmentUrl(normalizedUrl);
+
+                    const embed = targetMsg.embeds?.find(embed => {
                         const thumbnail = embed.thumbnail ?? embed.data?.thumbnail;
-                        return thumbnail && thumbnail.url.startsWith(attachInfo.prefix);
+                        return (
+                            thumbnail &&
+                            (thumbnail.url.includes(attachInfo.channelId) ||
+                                thumbnail.url.startsWith(attachInfo.prefix))
+                        );
                     });
 
-                    if (typeof embed === "undefined") {
+                    if (typeof embed !== "undefined") {
+                        const thumbnail = embed.thumbnail ?? embed.data?.thumbnail;
+                        normalizedUrl = DiscordHttpClient.normalizeAttachmentUrl(thumbnail.url);
+                        attachInfo = DiscordHttpClient.parseAttachmentUrl(normalizedUrl);
+                    } else if (
+                        typeof targetMsg.embeds !== "undefined" &&
+                        !LoaderUtils.empty(targetMsg.embeds) &&
+                        !attachInfo.ex
+                    ) {
                         exit(":warning: Attachment embed not found. (it's needed because discord is dumb)");
                     }
 
-                    const thumbnail = embed.thumbnail ?? embed.data.thumbnail;
-                    targetMsg.fileUrl = thumbnail.url;
+                    targetMsg.fileUrl = normalizedUrl;
                     targetMsg.attachInfo = attachInfo;
-                } else if (config.useTenorApi && (tenorInfo = parseTenorUrl(fileUrl))) {
-                    targetMsg.tenorGif = tenorInfo;
+                } else if (config.useKlipyApi && (klipyInfo = parseKlipyUrl(fileUrl))) {
+                    targetMsg.klipyGif = klipyInfo;
 
                     targetMsg.fileUrl = "placeholder";
                     targetMsg.attachInfo = { ext: ".gif" };
@@ -143,9 +173,9 @@ function parseArgs() {
         let text = input;
 
         const split = text.split(" "),
-            option = split[0];
+            option = LoaderUtils.first(split);
 
-        checkArgs: if (split.length > 0) {
+        checkArgs: if (!LoaderUtils.empty(split)) {
             if (_helpOptions.includes(option)) {
                 exit(`:information_source: ${config.help}`);
             }
@@ -162,7 +192,7 @@ function parseArgs() {
             text = split.join(" ");
         }
 
-        if (_requireText && text.length < 1) {
+        if (_requireText && LoaderUtils.empty(text)) {
             exit(`:warning: No ${_textName}text provided.\n${config.usage}`);
         }
 
@@ -177,20 +207,39 @@ function parseArgs() {
 }
 
 // load libraries
-function loadTenorClient() {
-    if (typeof globalThis.TenorHttpClient !== "undefined") {
+function loadKlipyClient() {
+    if (typeof globalThis.KlipyHttpClient !== "undefined") {
         return;
     }
 
     Benchmark.restartTiming("load_libraries");
 
-    Benchmark.startTiming("load_tenor_client");
-    const TenorHttpClient = ModuleLoader.loadModuleFromTag(tags.TenorHttpClient);
-    Benchmark.stopTiming("load_tenor_client");
+    Benchmark.startTiming("load_klipy_client");
+    const KlipyHttpClient = ModuleLoader.loadModuleFromTag(tags.KlipyHttpClient);
+    Benchmark.stopTiming("load_klipy_client");
 
     Patches.patchGlobalContext({
-        TenorHttpClient,
-        TenorConstants: TenorHttpClient.Constants
+        KlipyHttpClient,
+        KlipyConstants: KlipyHttpClient.Constants
+    });
+
+    Benchmark.stopTiming("load_libraries");
+}
+
+function loadDiscordClient() {
+    if (typeof globalThis.DiscordHttpClient !== "undefined") {
+        return;
+    }
+
+    Benchmark.restartTiming("load_libraries");
+
+    Benchmark.startTiming("load_discord_client");
+    const DiscordHttpClient = ModuleLoader.loadModuleFromTag(tags.DiscordHttpClient);
+    Benchmark.stopTiming("load_discord_client");
+
+    Patches.patchGlobalContext({
+        DiscordHttpClient,
+        DiscordConstants: DiscordHttpClient.Constants
     });
 
     Benchmark.stopTiming("load_libraries");
@@ -269,12 +318,12 @@ function downloadImage(msg) {
 }
 
 function loadImage() {
-    if (typeof targetMsg.tenorGif === "object") {
-        loadTenorClient();
-        const client = new TenorHttpClient(config.tenorClientConfig);
+    if (typeof targetMsg.klipyGif === "object") {
+        loadKlipyClient();
+        const client = new KlipyHttpClient(config.klipyClientConfig);
 
-        targetMsg.fileUrl = client.getGifUrl(targetMsg.tenorGif.id);
-        delete targetMsg.tenorGif;
+        targetMsg.fileUrl = client.getGifUrl(targetMsg.klipyGif.slug);
+        delete targetMsg.klipyGif;
     }
 
     Benchmark.startTiming("load_image");

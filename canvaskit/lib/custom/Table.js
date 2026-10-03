@@ -1,3 +1,7 @@
+"use strict";
+
+class TableError extends CustomError {}
+
 // prettier-ignore
 const charsets = Object.freeze({
     "light": {
@@ -135,7 +139,7 @@ const TableUtil = Object.freeze({
 
                 return " ".repeat(left) + str + " ".repeat(right);
             } else {
-                return " ".repeat(extraSpaces) + str.padEnd(endPad);
+                return " ".repeat(extraSpaces) + str.padEnd(endPad - extraSpaces);
             }
         });
     }
@@ -180,7 +184,16 @@ const Lines = Object.freeze({
 class Table {
     static defaultStyle = "light";
 
+    static defaultOptions = Object.freeze({
+        customCharset: null,
+        extraSpaces: 0,
+        center: false,
+        sideLines: true
+    });
+
     constructor(columns, rows, style, options = {}) {
+        options = LoaderUtils.setValuesWithDefaults({}, options, Table.defaultOptions);
+
         this.columns = columns ?? {};
         this.rows = rows ?? {};
 
@@ -189,27 +202,27 @@ class Table {
         this.options = options;
 
         this.customChars = options.customCharset;
-        this.extraSpaces = options.extraSpaces ?? 0;
-        this.centerText = options.center ?? false;
-        this.sideLines = options.sideLines ?? true;
+        this.extraSpaces = options.extraSpaces;
+        this.centerText = options.center;
+        this.sideLines = options.sideLines;
     }
 
     get charset() {
         if (this.style === "custom") {
-            return this.customChars == null
-                ? (() => {
-                      throw new Error("No custom charset object provided");
-                  })()
-                : this.customChars;
+            if (this.customChars == null) {
+                throw new TableError("No custom charset object provided");
+            }
+
+            return this.customChars;
         }
 
         const charset = charsets[this.style];
 
-        return typeof charset === "undefined"
-            ? (() => {
-                  throw new Error("Invalid style: " + this.style);
-              })()
-            : charset;
+        if (typeof charset === "undefined") {
+            throw new TableError("Invalid style: " + this.style);
+        }
+
+        return charset;
     }
 
     get columnIds() {
@@ -316,6 +329,10 @@ class Table {
 }
 
 function drawTable(columns, rows, style, options) {
+    if (typeof options === "number") {
+        options = { extraSpaces: options };
+    }
+
     Object.keys(rows).forEach(id => {
         rows[id] = LoaderUtils.guaranteeArray(rows[id]);
     });

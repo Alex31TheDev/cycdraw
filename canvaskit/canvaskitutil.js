@@ -76,7 +76,7 @@ const CanvasKitUtil = Object.freeze({
         const encodedBytes = image.encodeToBytes(format, quality);
 
         if (encodedBytes === null) {
-            throw new CanvasUtilError("Unkown format or invalid quality");
+            throw new CanvasUtilError("Unknown format or invalid quality");
         }
 
         if (del) image.delete();
@@ -91,7 +91,7 @@ const CanvasKitUtil = Object.freeze({
         return snapshot;
     },
 
-    readSurfacePixels: (surface, del, alphaType) => {
+    readSurfacePixels: (surface, del = false, alphaType) => {
         const snapshot = CanvasKitUtil.snapshotSurface(surface, del);
 
         try {
@@ -101,7 +101,7 @@ const CanvasKitUtil = Object.freeze({
         }
     },
 
-    encodeSurface: (surface, format, quality, del) => {
+    encodeSurface: (surface, format, quality, del = false) => {
         const snapshot = CanvasKitUtil.snapshotSurface(surface, del);
 
         try {
