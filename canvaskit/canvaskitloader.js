@@ -2126,7 +2126,7 @@ const FunctionUtil = Object.freeze({
         };
     },
 
-    _funcArgsRegex: /(?:\()(.+)+(?:\))/,
+    _funcArgsRegex: /^[^(]*\(([^)]*)\)/,
     functionArgumentNames: func => {
         if (typeof func !== "function") return [];
 
@@ -6064,6 +6064,10 @@ function loadCycdraw() {
             tags.CycdrawTagName,
 
             {
+                scope: {
+                    CustomError,
+                    LoaderUtils
+                },
                 cache: false,
                 breakpoint: config.enableDebugger
             }
