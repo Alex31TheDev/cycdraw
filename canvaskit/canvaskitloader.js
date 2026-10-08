@@ -121,7 +121,8 @@ const scripts = `- %t canvaskitexample
 - %t sort`;
 
 const docs = `CanvasKit GitHub: https://github.com/google/skia/tree/main/modules/canvaskit
-CanvasKit API docs: https://github.com/google/skia/blob/a004a27085d7dcc4efc3766c9abe92df03654c7c/modules/canvaskit/npm_build/types/index.d.ts
+CanvasKit API: https://github.com/google/skia/blob/a004a27085d7dcc4efc3766c9abe92df03654c7c/modules/canvaskit/npm_build/types/index.d.ts
+CanvasKit docs: https://blog.form.dev/canvaskit/canvas-kit-docs
 
 Tag repo: https://github.com/Alex31TheDev/cycdraw/tree/main/canvaskit`;
 
