@@ -5,6 +5,60 @@ class DrawingError extends CustomError {}
 
 // structs
 class Color {
+    static fromHex(hex) {
+        if (hex.startsWith("#")) {
+            hex = hex.slice(1);
+        }
+
+        const comps = hex.match(/.{2}/g);
+
+        const r = Number.parseInt(comps[0], 16) || 0,
+            g = Number.parseInt(comps[1], 16) || 0,
+            b = Number.parseInt(comps[2], 16) || 0;
+
+        return new Color(r, g, b);
+    }
+
+    static fromHSV(h, s, v) {
+        h = LoaderUtils.clamp(h || 0, 0, 360);
+        s = LoaderUtils.clamp(s || 0, 0, 1);
+        v = LoaderUtils.clamp(v || 0, 0, 1);
+
+        const c = s * v,
+            x = c * (1 - Math.abs(((h / 60) % 2) - 1)),
+            m = v - c;
+
+        let r = 0,
+            g = 0,
+            b = 0;
+
+        if (h >= 0 && h < 60) {
+            r = c;
+            g = x;
+        } else if (h >= 60 && h < 120) {
+            r = x;
+            g = c;
+        } else if (h >= 120 && h < 180) {
+            g = c;
+            b = x;
+        } else if (h >= 180 && h < 240) {
+            g = x;
+            b = c;
+        } else if (h >= 240 && h < 300) {
+            r = x;
+            b = c;
+        } else {
+            r = c;
+            b = x;
+        }
+
+        r = (r + m) * 255;
+        g = (g + m) * 255;
+        b = (b + m) * 255;
+
+        return new Color(r, g, b);
+    }
+
     constructor(r, g, b, a) {
         if (r instanceof Color) {
             const clr = r,
@@ -56,62 +110,8 @@ class Color {
         return Math.sqrt(distance) <= tolerance;
     }
 
-    static fromHex(hex) {
-        if (hex.startsWith("#")) {
-            hex = hex.slice(1);
-        }
-
-        const comps = hex.match(/.{2}/g);
-
-        const r = Number.parseInt(comps[0], 16) || 0,
-            g = Number.parseInt(comps[1], 16) || 0,
-            b = Number.parseInt(comps[2], 16) || 0;
-
-        return new Color(r, g, b);
-    }
-
     toHex() {
         return `#${this.r.toString(16)}${this.g.toString(16)}${this.b.toString(16)}`;
-    }
-
-    static fromHSV(h, s, v) {
-        h = LoaderUtils.clamp(h || 0, 0, 360);
-        s = LoaderUtils.clamp(s || 0, 0, 1);
-        v = LoaderUtils.clamp(v || 0, 0, 1);
-
-        const c = s * v,
-            x = c * (1 - Math.abs(((h / 60) % 2) - 1)),
-            m = v - c;
-
-        let r = 0,
-            g = 0,
-            b = 0;
-
-        if (h >= 0 && h < 60) {
-            r = c;
-            g = x;
-        } else if (h >= 60 && h < 120) {
-            r = x;
-            g = c;
-        } else if (h >= 120 && h < 180) {
-            g = c;
-            b = x;
-        } else if (h >= 180 && h < 240) {
-            g = x;
-            b = c;
-        } else if (h >= 240 && h < 300) {
-            r = x;
-            b = c;
-        } else {
-            r = c;
-            b = x;
-        }
-
-        r = (r + m) * 255;
-        g = (g + m) * 255;
-        b = (b + m) * 255;
-
-        return new Color(r, g, b);
     }
 
     toHSV() {
@@ -180,6 +180,13 @@ class Color {
 }
 
 class Point {
+    static fromPolar(phase, length) {
+        const re = length * Math.cos(phase),
+            im = length * Math.sin(phase);
+
+        return new Point(re, im);
+    }
+
     constructor(x, y) {
         if (x instanceof Point) {
             const p = x;
@@ -276,13 +283,6 @@ class Point {
 
     complexPhase() {
         return Math.atan2(this.y, this.x);
-    }
-
-    static fromPolar(phase, length) {
-        const re = length * Math.cos(phase),
-            im = length * Math.sin(phase);
-
-        return new Point(re, im);
     }
 
     toPolar() {
@@ -593,18 +593,6 @@ class Image {
         return this.stride * w * h;
     }
 
-    constructor(w, h) {
-        if (w <= 0 || h <= 0) {
-            throw new DrawingError("Invalid image size");
-        }
-
-        this.w = Math.floor(w);
-        this.h = Math.floor(h);
-        this.aspect = this.w / this.h;
-
-        this.pixels = new Uint8Array(Image.getBufSize(this)).fill(0);
-    }
-
     static fromPixels(pixels, w, h) {
         const hasAlpha = pixels.length % 4 === 0;
 
@@ -653,6 +641,18 @@ class Image {
         const pixels = CanvasKitUtil.readImagePixels(image, del, alphaType);
 
         return Image.fromPixels(pixels, width, height);
+    }
+
+    constructor(w, h) {
+        if (w <= 0 || h <= 0) {
+            throw new DrawingError("Invalid image size");
+        }
+
+        this.w = Math.floor(w);
+        this.h = Math.floor(h);
+        this.aspect = this.w / this.h;
+
+        this.pixels = new Uint8Array(Image.getBufSize(this)).fill(0);
     }
 
     get width() {

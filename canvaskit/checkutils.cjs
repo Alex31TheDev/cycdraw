@@ -233,7 +233,9 @@ function main() {
             const missingInOther = Array.from(main.functions.keys()).filter(fn => !other.functions.has(fn));
             if (missingInOther.length > 0) {
                 console.log(`\nFunctions in main (${main.name}) missing in ${other.name}:`);
-                missingInOther.forEach(fn => console.log(`${AnsiCodes.yellow}${SymbolChars.star} ${fn}${AnsiCodes.reset}`));
+                missingInOther.forEach(fn =>
+                    console.log(`${AnsiCodes.yellow}${SymbolChars.star} ${fn}${AnsiCodes.reset}`)
+                );
             }
         }
     }

@@ -2,7 +2,8 @@ const messages = {
     undefined: "Use typeof checks instead of undefined comparisons.",
     emptyString: "Use LoaderUtils.empty instead of direct empty-string comparisons.",
     emptyLength: "Use LoaderUtils.empty instead of direct length/size emptiness comparisons.",
-    singleLength: "Use LoaderUtils.single or LoaderUtils.multiple instead of direct single-item length/size comparisons.",
+    singleLength:
+        "Use LoaderUtils.single or LoaderUtils.multiple instead of direct single-item length/size comparisons.",
     rawError: "Use a repo error class instead of raw Error."
 };
 
@@ -55,8 +56,7 @@ const undefinedSelectors = [
     "BinaryExpression[operator='!=='] > Identifier[name='undefined']"
 ];
 
-const internalUtilsBinarySelector =
-    "VariableDeclarator[id.name=/(?:Utils?|Tester)$/] BinaryExpression";
+const internalUtilsBinarySelector = "VariableDeclarator[id.name=/(?:Utils?|Tester)$/] BinaryExpression";
 
 const excludeInternalUtils = selectors => {
     return selectors.map(selector =>

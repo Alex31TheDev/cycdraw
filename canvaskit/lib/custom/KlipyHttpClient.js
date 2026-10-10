@@ -20,8 +20,7 @@ const KlipyUtil = Object.freeze({
 
         const rawSize = options.size ?? options.type ?? LoaderUtils.first(KlipyConstants.sizes),
             rawFormat = options.format ?? LoaderUtils.first(KlipyConstants.formats),
-            rawFilter =
-                options.filter ?? options.content_filter ?? LoaderUtils.first(KlipyConstants.content_filter);
+            rawFilter = options.filter ?? options.content_filter ?? LoaderUtils.first(KlipyConstants.content_filter);
 
         const size = LoaderUtils.normalizeEnum(rawSize, KlipyConstants.sizes, "size", ClientError),
             format = LoaderUtils.normalizeEnum(rawFormat, KlipyConstants.formats, "format", ClientError),

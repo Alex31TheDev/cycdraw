@@ -314,7 +314,9 @@ class Renderer {
 
     renderFrameDefault(array, marked) {
         this.img.clear(Colors.black);
-        let val, lastVal = 0, color;
+        let val,
+            lastVal = 0,
+            color;
 
         for (let i = 0; i < this.arraySize; i++) {
             val = array[i];
