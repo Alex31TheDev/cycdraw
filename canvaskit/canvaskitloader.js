@@ -2260,15 +2260,53 @@ const TypeTester = Object.freeze({
         return options.ref === false ? out : `${out}: ${input}`;
     },
 
+    _isMissing: value => {
+        if (value == null) {
+            return true;
+        } else if (Array.isArray(value)) {
+            return LoaderUtils.empty(value);
+        }
+
+        switch (typeof value) {
+            case "bigint":
+            case "boolean":
+            case "number":
+            case "function":
+            case "symbol":
+                return false;
+            case "string":
+            case "object":
+                return LoaderUtils.empty(value);
+        }
+    },
+
     _checkEnum(value, valid, options) {
         const input = value,
             allowEmpty = options.allowEmpty ?? false;
 
-        if (!allowEmpty && LoaderUtils.empty(value)) return { input, state: "missing" };
-        if (typeof options.normalize === "function") value = options.normalize(value);
-        if (!valid.has(value)) return { input, state: "unknown" };
+        if (!allowEmpty && TypeTester._isMissing(value)) {
+            return {
+                input,
+                state: "missing"
+            };
+        } else {
+            if (typeof options.normalize === "function") {
+                value = options.normalize(value);
+            }
 
-        return { input, value, state: null };
+            if (!valid.has(value)) {
+                return {
+                    input,
+                    state: "unknown"
+                };
+            } else {
+                return {
+                    input,
+                    value,
+                    state: null
+                };
+            }
+        }
     },
 
     _throwEnum(res, name, errorClass, options) {

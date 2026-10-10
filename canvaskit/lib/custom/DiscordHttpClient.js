@@ -209,10 +209,6 @@ class DiscordHttpClient {
         this.token = config.token;
         this.bot = config.bot ?? false;
 
-        if (!LoaderUtils.nonemptyString(this.token)) {
-            throw new ClientError("No token was provided");
-        }
-
         this.api = config.api ?? discordDefaults.api;
         this.cdn = config.cdn ?? discordDefaults.cdn;
 
@@ -223,11 +219,11 @@ class DiscordHttpClient {
     }
 
     getHeaders() {
-        const token = (this.bot ? "Bot " : "") + this.token;
+        const auth = {};
 
-        const auth = {
-            authorization: token
-        };
+        if (LoaderUtils.nonemptyString(this.token)) {
+            auth.authorization = (this.bot ? "Bot " : "") + this.token;
+        }
 
         const get = {};
 
@@ -273,6 +269,10 @@ class DiscordHttpClient {
     }
 
     apiMethod(route, method, options = {}) {
+        if (!LoaderUtils.nonemptyString(this.token)) {
+            throw new ClientError("No token was provided");
+        }
+
         const reqUrl = HttpUtil.joinUrl(this.api, route);
 
         if (this.verbose) {

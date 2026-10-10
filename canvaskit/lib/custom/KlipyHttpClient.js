@@ -36,18 +36,21 @@ const KlipyUtil = Object.freeze({
 });
 
 const KlipyEndpoints = Object.freeze({
-    items: (slugs, options = {}) => {
+    items: (items, options = {}) => {
         options = LoaderUtils.guaranteeObject(options);
         const { content_filter } = KlipyUtil.getGifOpts(options);
 
-        slugs = LoaderUtils.guaranteeArray(slugs);
+        items = LoaderUtils.guaranteeArray(items);
 
-        if (LoaderUtils.empty(slugs)) {
-            throw new ClientError("No slugs provided");
+        if (LoaderUtils.empty(items)) {
+            throw new ClientError("No items provided");
         }
 
+        const isIds = typeof options.ids !== "undefined" || items.every(item => /^\d+$/.test(String(item))),
+            key = isIds ? "ids" : "slugs";
+
         const params = {
-            slugs: slugs.join(","),
+            [key]: items.join(","),
             content_filter
         };
 
@@ -118,8 +121,8 @@ const KlipyEndpoints = Object.freeze({
             textSearch = typeof options.search !== "undefined" || typeof options.q !== "undefined";
 
         if (slugSearch) {
-            const slugs = options.slugs ?? options.ids;
-            return KlipyEndpoints.items(slugs, options);
+            const items = options.slugs ?? options.ids;
+            return KlipyEndpoints.items(items, options);
         } else if (textSearch) {
             const query = options.search ?? options.q;
             return KlipyEndpoints.search(query, options);
@@ -175,7 +178,11 @@ class KlipyHttpClient {
     }
 
     handleError(err) {
-        const status = HttpUtil.getHttpErrStatus(err);
+        let status = HttpUtil.getHttpErrStatus(err);
+
+        if (status == null || status === -1) {
+            status = err.status ?? err.response?.status ?? err.code;
+        }
 
         switch (status) {
             case 401:
@@ -238,13 +245,39 @@ class KlipyHttpClient {
             options = { size: options };
         }
 
+        const idMatch = String(slug).match(/-(\d+)$/),
+            isNumeric = /^\d+$/.test(String(slug));
+
         const opts = {
-            slugs: [slug],
             limit: 1,
             ...options
         };
 
-        const result = LoaderUtils.first(this.getGifs(opts)),
+        if (isNumeric) {
+            opts.ids = [slug];
+        } else if (idMatch) {
+            opts.ids = [idMatch[1]];
+        } else {
+            opts.slugs = [slug];
+        }
+
+        let items;
+
+        try {
+            items = this.getGifs(opts);
+        } catch (err) {
+            if (idMatch) {
+                const baseSlug = String(slug).slice(0, idMatch.index);
+                opts.slugs = [baseSlug];
+                delete opts.ids;
+
+                items = this.getGifs(opts);
+            } else {
+                throw err;
+            }
+        }
+
+        const result = LoaderUtils.first(items),
             size = opts.size ?? "hd",
             format = opts.format ?? "gif";
 
