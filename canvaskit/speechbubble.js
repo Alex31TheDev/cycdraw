@@ -45,9 +45,6 @@ Adds a speech bubble to the message you replied to.`;
 // errors
 globalThis.ExitError = class extends Error {};
 
-// misc
-const pfpRectKeys = ["x", "y", "width", "height"];
-
 // util
 const Util = Object.freeze({
     calculateLength: (A, B) => {
@@ -60,16 +57,6 @@ const Util = Object.freeze({
             AC = Math.sqrt(Math.pow(C.x - A.x, 2) + Math.pow(C.y - A.y, 2));
 
         return Math.acos((BC * BC + AB * AB - AC * AC) / (2 * BC * AB));
-    },
-
-    decodeObjectFromBuffer: (data, keys) => {
-        const byteCount = keys.length * 2,
-            buffer = Buffer.from(data.subarray(-byteCount));
-
-        const values = Array.from({ length: keys.length }, (_, i) => buffer.readInt16BE(i * 2));
-
-        const obj = Object.fromEntries(keys.map((key, i) => [key, values[i]]));
-        return [obj, data.subarray(0, -byteCount)];
     }
 });
 
@@ -338,7 +325,7 @@ const main = (() => {
                 }
 
                 Benchmark.startTiming("screenshot_req");
-                [imgData, err] = capture(serverId, channelId, messageIds);
+                [imgData, err, pfpRect] = capture(serverId, channelId, messageIds);
                 Benchmark.stopTiming("screenshot_req");
 
                 if (err !== null) {
@@ -363,11 +350,9 @@ const main = (() => {
         Benchmark.stopTiming("capture_message");
 
         loadLodepng();
-        Patches.apply("polyfillBuffer");
 
         Benchmark.restartTiming("capture_message");
 
-        [pfpRect, screenshot] = Util.decodeObjectFromBuffer(screenshot, pfpRectKeys);
         screenshot = Image.fromImageData(lodepng.decode(screenshot));
         height = screenshot.height;
 
@@ -376,9 +361,7 @@ const main = (() => {
 
     // speech bubble
     function findProfilePicture() {
-        const hasProfilePicture = pfpRectKeys.every(key => pfpRect[key] !== 0);
-
-        if (hasProfilePicture) {
+        if (pfpRect != null) {
             x0 = pfpRect.x + pfpRect.width / 2;
             y0 = pfpRect.y + pfpRect.height / 2;
 

@@ -515,10 +515,10 @@ const md5 = (() => {
 
         for (i = 0; i < str.length; i++) {
             const b = str.charCodeAt(i);
-            tail[i >> 2] |= b << (i % 4 << 3);
+            tail[i >> 2] |= b << ((i % 4) << 3);
         }
 
-        tail[i >> 2] |= 0x80 << (i % 4 << 3);
+        tail[i >> 2] |= 0x80 << ((i % 4) << 3);
 
         if (i > 55) {
             md5cycle(state, tail);
@@ -852,8 +852,8 @@ let LoaderUtils = {
 
         options = ObjectUtil.setValuesWithDefaults({}, options, LoaderUtils._splitArgsDefaults);
 
-        const lowercaseFirst = multipleLowercase ? lowercase[0] ?? false : lowercase,
-            lowercaseSecond = multipleLowercase ? lowercase[1] ?? false : false;
+        const lowercaseFirst = multipleLowercase ? (lowercase[0] ?? false) : lowercase,
+            lowercaseSecond = multipleLowercase ? (lowercase[1] ?? false) : false;
 
         let { sep, n } = options;
 
@@ -3488,6 +3488,36 @@ const LoaderTextEncoder = Object.freeze({
         }
 
         return length;
+    },
+
+    encodeObjectToBuffer: obj => {
+        const entries = Object.entries(obj);
+
+        const bytes = new Uint8Array(entries.length * 2),
+            view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+        entries.forEach(([key, value], i) => {
+            if (typeof value !== "number") {
+                throw new UtilError(`Value at key "${key}" is not a number.`);
+            }
+
+            view.setInt16(i * 2, value, false);
+        });
+
+        return bytes;
+    },
+
+    decodeObjectFromBuffer: (data, keys) => {
+        const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : data,
+            byteCount = keys.length * 2;
+
+        const slice = bytes.subarray(-byteCount),
+            view = new DataView(slice.buffer, slice.byteOffset, slice.byteLength);
+
+        const values = Array.from({ length: keys.length }, (_, i) => view.getInt16(i * 2, false));
+
+        const obj = Object.fromEntries(keys.map((key, i) => [key, values[i]]));
+        return [obj, bytes.subarray(0, -byteCount)];
     }
 });
 
@@ -5018,7 +5048,7 @@ class ModuleLoader {
         }
 
         const status = HttpUtil.getHttpErrStatus(res, reqErr);
-        if (status === null) return returnRes ? res : res?.data ?? null;
+        if (status === null) return returnRes ? res : (res?.data ?? null);
 
         let msg = "Could not fetch file.";
 
