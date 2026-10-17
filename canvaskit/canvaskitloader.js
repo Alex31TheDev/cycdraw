@@ -4826,11 +4826,27 @@ class ModuleStackTraceUtil {
             return err ? err.stack : undefined;
         }
 
-        let stackFrames = err.stack.split("\n"),
-            msgLine;
+        const lines = err.stack.split("\n");
 
-        [msgLine, ...stackFrames] = stackFrames;
-        stackFrames = stackFrames.map(frame => frame.trim());
+        let msgLineCount = -1;
+
+        try {
+            const errString = String(err);
+
+            if (err.stack.startsWith(errString)) {
+                msgLineCount = errString.split("\n").length;
+            }
+        } catch (e) {}
+
+        if (msgLineCount === -1) {
+            const firstFrameIdx = lines.findIndex(line => line.trim().startsWith("at "));
+            msgLineCount = firstFrameIdx !== -1 ? firstFrameIdx : 1;
+        }
+
+        msgLineCount = LoaderUtils.clamp(msgLineCount, 1, lines.length);
+
+        let msgLine = lines.slice(0, msgLineCount).join("\n"),
+            stackFrames = lines.slice(msgLineCount).map(frame => frame.trim());
 
         const innerFnLine = stackFrames.findIndex(frame => frame.startsWith(`at ${randomNames.innerFnName}`));
         if (innerFnLine === -1) return err.stack;
@@ -4838,8 +4854,24 @@ class ModuleStackTraceUtil {
         stackFrames[innerFnLine] = this.getNewStackFrame(stackFrames[innerFnLine], moduleName);
         stackFrames.splice(innerFnLine + 1);
 
-        const formattedFrames = stackFrames.map(frame => this.indent + frame);
-        return msgLine + "\n" + formattedFrames.join("\n");
+        const formattedFrames = stackFrames.map(frame => this.indent + frame),
+            newStack = LoaderUtils.empty(formattedFrames) ? msgLine : msgLine + "\n" + formattedFrames.join("\n");
+
+        try {
+            delete err.stack;
+            Object.defineProperty(err, "stack", {
+                value: newStack,
+                configurable: true,
+                writable: true,
+                enumerable: false
+            });
+        } catch (err1) {
+            try {
+                err.stack = newStack;
+            } catch (err2) {}
+        }
+
+        return newStack;
     }
 }
 
