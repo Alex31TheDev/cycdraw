@@ -657,34 +657,24 @@ let LoaderUtils = {
         }
     },
 
-    _camelToWordsRegex: /([a-z])([A-Z])/g,
-    camelCaseToWords: str => {
-        LoaderUtils._camelToWordsRegex.lastIndex = 0;
-
-        const words = str.replace(LoaderUtils._camelToWordsRegex, "$1 $2");
-        return words.toLowerCase();
-    },
-
-    camelCaseToKebab: str => {
-        return LoaderUtils.camelCaseToWords(str).replaceAll(" ", "-");
-    },
-
-    _wordsToCamelRegex: /(?:^\w|[A-Z]|\b\w|\s+)/g,
-    wordsToCamelCase: str => {
-        str = str.toLowerCase();
-        LoaderUtils._wordsToCamelRegex.lastIndex = 0;
-
-        const camel = str.replace(LoaderUtils._wordsToCamelRegex, (match, i) =>
-            match[`to${i ? "Upper" : "Lower"}Case`]()
-        );
-
-        return LoaderUtils.stripSpaces(camel);
-    },
-
-    _camelSplitRegex: /(?<!^)(?=[A-Z])/,
-    splitCamelCase: str => {
+    uncapitalize: str => {
         str = String(str);
-        return str.split(LoaderUtils._camelSplitRegex);
+
+        const leading = str.match(LoaderUtils._leadingSpacesRegex)[0],
+            trailing = str.match(LoaderUtils._trailingSpacesRegex)[0];
+
+        const content = str.slice(leading.length, str.length - trailing.length);
+
+        if (content.length < 1) return str;
+        else {
+            return leading + content[0].toLowerCase() + content.slice(1) + trailing;
+        }
+    },
+
+    toggleCase: str => {
+        str = String(str);
+
+        return [...str].map(char => (char === char.toUpperCase() ? char.toLowerCase() : char.toUpperCase())).join("");
     },
 
     hasDuplicates: (str, sep = "") => {
@@ -1318,62 +1308,227 @@ let LoaderUtils = {
         }
     },
 
-    _durationDefaults: {
-        format: false,
-        largestOnly: false,
-        largestN: 0,
-        whitelist: [],
-        blacklist: ["milli"]
-    },
-    duration: (delta, options) => {
-        options = ObjectUtil.setValuesWithDefaults({}, options, LoaderUtils._durationDefaults);
+    _resolveUnitDurations: (amount, scaleTable, options, defaultBlacklist = [], defaultFallback = "second") => {
+        options = ObjectUtil.guaranteeObject(options);
 
-        const { format, largestOnly, largestN } = options,
-            whitelist = Array.isArray(options.whitelist) ? options.whitelist : [],
-            blacklist = Array.isArray(options.blacklist) ? options.blacklist : ["milli"];
+        const format = options.format ?? false,
+            short = options.short ?? false;
 
-        const durationNames = Object.keys(LoaderUtils.durationSeconds).filter(name => {
-                const inWhitelist = LoaderUtils.empty(whitelist) || whitelist.includes(name),
+        const unit = options.unit,
+            largestOnly = options.largestOnly ?? false,
+            largestN = options.largestN ?? 0;
+
+        const whitelist = Array.isArray(options.whitelist) ? options.whitelist : [],
+            blacklist = Array.isArray(options.blacklist) ? options.blacklist : defaultBlacklist;
+
+        const digits = options.digits;
+
+        const parsedOptions = {
+            format,
+            short,
+            unit,
+            largestOnly,
+            largestN,
+            whitelist,
+            blacklist,
+            digits
+        };
+
+        if (unit != null) {
+            const scale = scaleTable[unit];
+
+            if (typeof scale === "undefined") {
+                throw new LoaderError(`Invalid unit: "${unit}"`);
+            }
+
+            return {
+                options: parsedOptions,
+                durations: {
+                    [unit]: amount / scale
+                }
+            };
+        }
+
+        const availableUnits = Object.keys(scaleTable)
+            .filter(name => {
+                const inWhitelist = whitelist.length ? whitelist.includes(name) : true,
                     inBlacklist = blacklist.includes(name);
 
                 return inWhitelist && !inBlacklist;
-            }),
-            durations = {};
+            })
+            .reverse();
 
-        let seconds = delta * LoaderUtils.durationSeconds.milli;
+        const durations = {};
 
-        if (seconds < 1 && durationNames.includes("second")) durations.second = seconds;
-        else {
+        if (amount < 1 && availableUnits.includes(defaultFallback)) {
+            durations[defaultFallback] = amount;
+        } else {
             let hitFirst = false,
                 n = 0;
 
-            for (const name of durationNames) {
-                const unitSeconds = LoaderUtils.durationSeconds[name],
-                    duration = Math.floor(seconds / unitSeconds);
+            let rem = amount;
+
+            for (const name of availableUnits) {
+                const secs = scaleTable[name],
+                    duration = Math.floor(rem / secs);
 
                 if (duration > 0) {
                     hitFirst = true;
-                    seconds -= duration * unitSeconds;
+
+                    rem -= duration * secs;
                     durations[name] = duration;
 
-                    if (largestOnly) break;
+                    if (largestOnly) {
+                        break;
+                    }
                 }
 
-                if (hitFirst) n++;
-                if (largestN > 0 && n >= largestN) break;
+                if (hitFirst) {
+                    n++;
+                }
+
+                if (largestN > 0 && n >= largestN) {
+                    break;
+                }
             }
         }
 
-        if (!format) return durations;
+        return {
+            options: parsedOptions,
+            durations
+        };
+    },
 
-        return Object.entries(durations)
-            .map(([name, duration]) => {
-                const durationText = LoaderUtils.formatNumber(duration),
-                    suffix = duration !== 1 ? "s" : "";
+    _formatUnitDurations: (durations, namesTable, parsedOptions, spaceOnShort = false) => {
+        if (!parsedOptions.format) {
+            return durations;
+        }
 
-                return `${durationText} ${name}${suffix}`;
-            })
-            .join(", ");
+        const formatted = Object.entries(durations).map(([name, val]) => {
+            const numText = LoaderUtils.formatNumber(val, parsedOptions.digits);
+
+            if (parsedOptions.short) {
+                const shortName = namesTable[name]?.shortName ?? name,
+                    sep = spaceOnShort ? " " : "";
+
+                return `${numText}${sep}${shortName}`;
+            }
+
+            const nameInfo = namesTable[name],
+                label = nameInfo
+                    ? val === 1
+                        ? nameInfo.fullName
+                        : nameInfo.fullNamePlural
+                    : `${name}${val !== 1 ? "s" : ""}`;
+
+            return `${numText} ${label}`;
+        });
+
+        return formatted.join(", ");
+    },
+
+    _durationNames: Object.freeze({
+        milli: {
+            fullName: "millisecond",
+            fullNamePlural: "milliseconds",
+            shortName: "ms"
+        },
+        second: {
+            fullName: "second",
+            fullNamePlural: "seconds",
+            shortName: "s"
+        },
+        minute: {
+            fullName: "minute",
+            fullNamePlural: "minutes",
+            shortName: "m"
+        },
+        hour: {
+            fullName: "hour",
+            fullNamePlural: "hours",
+            shortName: "h"
+        },
+        day: {
+            fullName: "day",
+            fullNamePlural: "days",
+            shortName: "d"
+        },
+        week: {
+            fullName: "week",
+            fullNamePlural: "weeks",
+            shortName: "w"
+        },
+        month: {
+            fullName: "month",
+            fullNamePlural: "months",
+            shortName: "mo"
+        },
+        year: {
+            fullName: "year",
+            fullNamePlural: "years",
+            shortName: "y"
+        }
+    }),
+
+    duration: (delta, options) => {
+        const { options: parsedOptions, durations } = LoaderUtils._resolveUnitDurations(
+            delta * LoaderUtils.durationSeconds.milli,
+            LoaderUtils.durationSeconds,
+            options,
+            ["milli"],
+            "second"
+        );
+
+        return LoaderUtils._formatUnitDurations(durations, LoaderUtils._durationNames, parsedOptions, false);
+    },
+
+    _byteNames: Object.freeze({
+        byte: {
+            fullName: "byte",
+            fullNamePlural: "bytes",
+            shortName: "B"
+        },
+        kilobyte: {
+            fullName: "kilobyte",
+            fullNamePlural: "kilobytes",
+            shortName: "KB"
+        },
+        megabyte: {
+            fullName: "megabyte",
+            fullNamePlural: "megabytes",
+            shortName: "MB"
+        },
+        gigabyte: {
+            fullName: "gigabyte",
+            fullNamePlural: "gigabytes",
+            shortName: "GB"
+        },
+        terabyte: {
+            fullName: "terabyte",
+            fullNamePlural: "terabytes",
+            shortName: "TB"
+        }
+    }),
+
+    formatSize: (size, options) => {
+        options = ObjectUtil.guaranteeObject(options);
+
+        const { options: parsedOptions, durations } = LoaderUtils._resolveUnitDurations(
+            size,
+            LoaderUtils.dataBytes,
+            {
+                format: true,
+                ...options
+            },
+            [],
+            "byte"
+        );
+
+        return LoaderUtils._formatUnitDurations(durations, LoaderUtils._byteNames, parsedOptions, true);
+    },
+
+    getErrorMessage: (err, fallback = "No error message available") => {
+        return (TypeTester.isObject(err) ? (err.stack ?? err.message) : err) ?? fallback;
     }
 };
 
@@ -1719,6 +1874,105 @@ const RegexUtil = Object.freeze({
             key = key.trim();
             return strings[key] ?? match;
         });
+    }
+});
+
+const CaseUtil = Object.freeze({
+    _wordSplitRegex: /\p{Lu}{2,}(?=\p{Lu}\p{Ll}+|\p{N}|\b)|\p{Lu}?\p{Ll}+|\p{Lu}+|\p{N}+/gu,
+
+    _upperLetterRegex: /\p{Lu}/u,
+    _lowerLetterRegex: /\p{Ll}/u,
+
+    _camelPattern: /^[a-z][a-zA-Z0-9]*$/,
+    _pascalPattern: /^[A-Z][a-zA-Z0-9]*$/,
+    _snakePattern: /^[a-z0-9]+(?:_[a-z0-9]+)+$/,
+    _constantPattern: /^[A-Z0-9]+(?:_[A-Z0-9]+)+$/,
+    _kebabPattern: /^[a-z0-9]+(?:-[a-z0-9]+)+$/,
+    _cobolPattern: /^[A-Z0-9]+(?:-[A-Z0-9]+)+$/,
+
+    _splitWords: input => {
+        if (Array.isArray(input)) {
+            return input.flatMap(item => CaseUtil._splitWords(item));
+        } else if (typeof input !== "string" || LoaderUtils.empty(input)) {
+            return [];
+        } else {
+            return input.match(CaseUtil._wordSplitRegex) ?? [];
+        }
+    },
+
+    splitWords: input => {
+        return CaseUtil._splitWords(input);
+    },
+
+    toWords: (input, capitalized = false) => {
+        const words = CaseUtil._splitWords(input);
+        if (LoaderUtils.empty(words)) return "";
+
+        return words
+            .map(word => {
+                const lower = word.toLowerCase();
+                return capitalized ? LoaderUtils.capitalize(lower) : lower;
+            })
+            .join(" ");
+    },
+
+    isCamelCase: str => {
+        if (typeof str !== "string") return false;
+        return CaseUtil._camelPattern.test(str) && CaseUtil._upperLetterRegex.test(str);
+    },
+
+    toCamelCase: input => {
+        const words = CaseUtil._splitWords(input);
+        if (LoaderUtils.empty(words)) return "";
+
+        return words
+            .map((word, i) => {
+                const lower = word.toLowerCase();
+                return i === 0 ? lower : LoaderUtils.capitalize(lower);
+            })
+            .join("");
+    },
+
+    isPascalCase: str => {
+        if (typeof str !== "string") return false;
+        return CaseUtil._pascalPattern.test(str) && CaseUtil._lowerLetterRegex.test(str);
+    },
+
+    toPascalCase: input => {
+        const words = CaseUtil._splitWords(input);
+        if (LoaderUtils.empty(words)) return "";
+
+        return words.map(word => LoaderUtils.capitalize(word.toLowerCase())).join("");
+    },
+
+    isSnakeCase: (str, uppercase = false) => {
+        if (typeof str !== "string") return false;
+
+        const pattern = uppercase ? CaseUtil._constantPattern : CaseUtil._snakePattern;
+        return pattern.test(str);
+    },
+
+    toSnakeCase: (input, uppercase = false) => {
+        const words = CaseUtil._splitWords(input);
+        if (LoaderUtils.empty(words)) return "";
+
+        const snake = words.map(word => word.toLowerCase()).join("_");
+        return uppercase ? snake.toUpperCase() : snake;
+    },
+
+    isKebabCase: (str, uppercase = false) => {
+        if (typeof str !== "string") return false;
+
+        const pattern = uppercase ? CaseUtil._cobolPattern : CaseUtil._kebabPattern;
+        return pattern.test(str);
+    },
+
+    toKebabCase: (input, uppercase = false) => {
+        const words = CaseUtil._splitWords(input);
+        if (LoaderUtils.empty(words)) return "";
+
+        const kebab = words.map(word => word.toLowerCase()).join("-");
+        return uppercase ? kebab.toUpperCase() : kebab;
     }
 });
 
@@ -2687,6 +2941,7 @@ const ObjectUtil = Object.freeze({
         ...DiscordUtil,
         ...FunctionUtil,
         ...RegexUtil,
+        ...CaseUtil,
         ...LoaderUtils
     });
 }
@@ -4317,8 +4572,7 @@ class Benchmark {
             throw new UtilError("Count names must be strings");
         }
 
-        name = name.replaceAll(" ", "_");
-        return name.toLowerCase();
+        return CaseUtil.toSnakeCase(name);
     }
 
     static _formatCountName(name) {
@@ -4326,9 +4580,7 @@ class Benchmark {
             throw new UtilError("Count names must be strings");
         }
 
-        name = name.replaceAll(" ", "_");
-        name += "_count";
-        return name.toUpperCase();
+        return CaseUtil.toSnakeCase(`${name}_count`, true);
     }
 }
 
@@ -5582,6 +5834,7 @@ const Patches = {
         globalObjs.ArrayUtil ??= ArrayUtil;
         globalObjs.ObjectUtil ??= ObjectUtil;
         globalObjs.TypeTester ??= TypeTester;
+        globalObjs.CaseUtil ??= CaseUtil;
         globalObjs.EncryptionUtil ??= EncryptionUtil;
         globalObjs.UploadUtil ??= UploadUtil;
         globalObjs.exit ??= exit;
