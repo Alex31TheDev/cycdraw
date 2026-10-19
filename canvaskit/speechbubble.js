@@ -2,8 +2,10 @@
 /* globals getMessageWindow:readonly, capture:readonly */
 
 // config
-const nomiServerId = "927050775073534012",
-    maxTries = 3;
+const allowedServerIds = new Set(["927050775073534012", "1268768059489783838"]),
+    allowedServerNames = ["Nomi", "MONI"];
+
+const maxTries = 3;
 
 const minWidth = 500,
     minHeight = 0;
@@ -227,6 +229,18 @@ let messageIds;
 let height, pfpRect, speechBubbleY;
 let screenshot, speechBubbleImg, image;
 
+function formatAllowedServers(names) {
+    const boldNames = names.map(name => `**${name}**`);
+
+    if (boldNames.length <= 1) {
+        return boldNames[0] ?? "";
+    } else if (boldNames.length === 2) {
+        return `${boldNames[0]} or ${boldNames[1]}`;
+    } else {
+        return `${boldNames.slice(0, -1).join(", ")}, or ${boldNames[boldNames.length - 1]}`;
+    }
+}
+
 // main
 const main = (() => {
     // parse args
@@ -252,8 +266,8 @@ const main = (() => {
         })();
 
         messageIds = (() => {
-            if (serverId !== nomiServerId) {
-                const out = ":information_source: This tag only works in **Nomi**.";
+            if (!allowedServerIds.has(serverId)) {
+                const out = `:information_source: This tag only works in ${formatAllowedServers(allowedServerNames)}.`;
                 throw new ExitError(out);
             }
 
