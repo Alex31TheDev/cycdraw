@@ -1,3 +1,5 @@
+/* global initSorts:readonly, InstrumentGenerator:writable */
+
 // config
 const width = 400,
     height = 300,
@@ -6,7 +8,8 @@ const width = 400,
 
 const tags = {
     Table: "ck_table",
-    GifEncoder: "ck_gifenc"
+    GifEncoder: "ck_gifenc",
+    Instrument: "nomi:ck_instrument"
 };
 
 // enums
@@ -29,6 +32,11 @@ const Styles = Object.freeze({
     iso: "iso"
 });
 
+const Modes = Object.freeze({
+    gif: "gif",
+    video: "video"
+});
+
 // util
 const Util = Object.freeze({
     camelToWords: str => {
@@ -43,7 +51,9 @@ const Util = Object.freeze({
 });
 
 // errors
-class ExitError extends Error {}
+class ExitError extends Error {
+    name = "ExitError";
+}
 globalThis.ExitError ??= ExitError;
 
 // sorts
@@ -81,13 +91,15 @@ const helpOptions = ["help", "-help", "--help", "-h", "usage", "-usage", "--usag
     sizeOption = "--size";
 
 const sortNames = Object.keys(sorts).map(Util.camelToWords),
-    styleList = Object.values(Styles);
+    styleList = Object.values(Styles),
+    modeList = Object.values(Modes);
 
-const help = `Usage: \`%t ${tag.name} [--show-times] [--size <number>] sort [style = basic]\`
-Creates gifs of sorting algorithms.
+const help = `Usage: \`%t ${tag.name} [--show-times] [--size <number>] sort [style = basic] [mode = gif]\`
+Creates animations of sorting algorithms.
 
 - Sorts: **${sortNames.join("**, **")}**
-- Styles: **${styleList.join("**, **")}**`,
+- Styles: **${styleList.join("**, **")}**
+- Modes: **${modeList.join("**, **")}**`,
     usage = `See \`%t ${tag.name} help\` for usage.`;
 
 // renderer
@@ -97,6 +109,7 @@ class Renderer {
         this.height = options.height;
         this.arraySize = options.arraySize;
         this.style = options.style;
+        this.mode = options.mode ?? Modes.gif;
 
         this.stretchX = this.width / this.arraySize;
         this.stretchY = this.height / this.arraySize;
@@ -106,8 +119,40 @@ class Renderer {
         this.center_x = Math.floor(this.width / 2);
         this.center_y = Math.floor(this.height / 2);
 
-        this.gif = gifenc.GIFEncoder();
         this.img = new Image(this.width, this.height);
+
+        switch (this.mode) {
+            case Modes.video:
+                this.frameRate = options.frameRate ?? 30;
+                this.frameTimeRemainder = 0;
+
+                this.audioSampleRate = 48000;
+                this.audioChannels = 1;
+                this.audioBitrate = 128000;
+
+                this.encoder = H264MP4Encoder.createH264MP4Encoder();
+                this.encoder.outputFilename = "sort.mp4";
+                this.encoder.width = this.width;
+                this.encoder.height = this.height;
+                this.encoder.frameRate = this.frameRate;
+                this.encoder.kbps = 0;
+                this.encoder.speed = 0;
+                this.encoder.quantizationParameter = 10;
+                this.encoder.groupOfPictures = 1;
+                this.encoder.temporalDenoise = false;
+                this.encoder.desiredNaluBytes = 0;
+                this.encoder.audioSampleRate = this.audioSampleRate;
+                this.encoder.audioChannels = this.audioChannels;
+                this.encoder.audioBitrate = this.audioBitrate;
+                this.encoder.initialize();
+
+                this.instrument = new InstrumentGenerator({ sampleRate: this.audioSampleRate });
+                this.phaseStates = [];
+                break;
+            case Modes.gif:
+                this.gif = gifenc.GIFEncoder();
+                break;
+        }
 
         const isRainbow = this.style === Styles.rainbow || this.style === Styles.circle || this.style === Styles.iso;
 
@@ -123,7 +168,9 @@ class Renderer {
             this.usedColors = [Colors.black, Colors.white, Colors.red, ...this.paletteColors];
         }
 
-        this.palette = this.createPalette();
+        if (this.mode === Modes.gif) {
+            this.palette = this.createPalette();
+        }
 
         this.largeDigitFont = new Font(f_1, 1, {
             postProc: glyph => glyph.scale(2)
@@ -381,21 +428,74 @@ class Renderer {
         if (enableDebugger) this.drawStageCounter(stage);
     }
 
+    writeVideoFrame(delay, array, marked) {
+        const frameDuration = 1000 / this.frameRate;
+        this.frameTimeRemainder += delay;
+
+        let count = Math.round(this.frameTimeRemainder / frameDuration);
+        if (count < 1) {
+            count = 1;
+        }
+
+        this.frameTimeRemainder -= count * frameDuration;
+
+        const samplesPerFrame = Math.floor(this.audioSampleRate / this.frameRate),
+            audioSamples = new Int16Array(samplesPerFrame * this.audioChannels),
+            audioBytes = new Uint8Array(audioSamples.buffer);
+
+        const hasMarked = !LoaderUtils.empty(marked),
+            values = hasMarked ? marked.map(idx => array[idx]) : null;
+
+        for (let i = 0; i < count; i++) {
+            this.encoder.addFrameRgba(this.img.pixels);
+
+            this.instrument.fillValues(audioSamples, values, this.arraySize, this.phaseStates);
+
+            this.encoder.addAudioSamples(audioBytes);
+        }
+    }
+
     writeFrame(array, marked, stage, delay) {
         this.drawFrame(array, marked, stage);
-        const index = gifenc.applyPalette(this.img.pixels, this.palette);
-        this.gif.writeFrame(index, this.width, this.height, {
-            palette: this.palette,
-            delay: Math.floor(delay)
-        });
+
+        switch (this.mode) {
+            case Modes.video:
+                this.writeVideoFrame(delay, array, marked);
+                break;
+            case Modes.gif: {
+                const index = gifenc.applyPalette(this.img.pixels, this.palette);
+                this.gif.writeFrame(index, this.width, this.height, {
+                    palette: this.palette,
+                    delay: Math.floor(delay)
+                });
+                break;
+            }
+        }
     }
 
     finish() {
-        this.gif.finish();
+        switch (this.mode) {
+            case Modes.video:
+                this.encoder.finalize();
+                break;
+            case Modes.gif:
+                this.gif.finish();
+                break;
+        }
     }
 
     bytes() {
-        return this.gif.bytes();
+        switch (this.mode) {
+            case Modes.video: {
+                const fileName = this.encoder.outputFilename,
+                    out = this.encoder.FS.readFile(fileName);
+
+                this.encoder.delete();
+                return out;
+            }
+            case Modes.gif:
+                return this.gif.bytes();
+        }
     }
 }
 
@@ -499,9 +599,9 @@ const main = (() => {
     function parseArgs() {
         let input = tag.args ?? "";
 
-        let split = input.split(" ");
-        let showTimes = false;
-        let customSize;
+        let split = input.split(" "),
+            showTimes = false,
+            customSize;
 
         for (let i = 0; i < split.length; i++) {
             if (helpOptions.includes(split[i])) {
@@ -519,41 +619,53 @@ const main = (() => {
                 showTimes = true;
             } else if (token === sizeOption || token.startsWith(sizeOption + "=")) {
                 let sizeStr;
+
                 if (token.startsWith(sizeOption + "=")) {
                     sizeStr = token.slice(sizeOption.length + 1);
                 } else {
-                    if (i + 1 >= split.length || split[i + 1].trim() === "") {
+                    if (i + 1 >= split.length || LoaderUtils.empty(split[i + 1].trim())) {
                         const out = `:warning: No size provided.\n${usage}`;
                         throw new ExitError(out);
                     }
+
                     sizeStr = split[++i];
                 }
+
                 const parsed = Number(sizeStr);
+
                 if (!Number.isInteger(parsed) || parsed < 2) {
                     const out = `:warning: Invalid size.\n${usage}`;
                     throw new ExitError(out);
                 }
+
                 customSize = parsed;
             } else {
                 remaining.push(token);
             }
         }
 
-        if (remaining.length < 1) {
+        if (LoaderUtils.empty(remaining)) {
             const out = `:warning: No input provided.\n${usage}`;
             throw new ExitError(out);
         } else {
             split = remaining.map(s => s.toLowerCase());
         }
 
-        let sort, style;
+        let sort, style, mode;
 
         for (let i = split.length; i > 0; i--) {
             const name = split.slice(0, i).join(" ");
 
             if (sortNames.includes(name)) {
                 sort = name;
-                style = split.slice(i).join(" ");
+                const rest = split.slice(i);
+
+                if (LoaderUtils.single(rest) && modeList.includes(rest[0])) {
+                    mode = rest[0];
+                } else {
+                    style = rest[0];
+                    mode = LoaderUtils.multiple(rest) ? rest.slice(1).join(" ") : undefined;
+                }
                 break;
             }
         }
@@ -572,7 +684,14 @@ const main = (() => {
             throw new ExitError(out);
         }
 
-        return { sort, style, showTimes, size: customSize };
+        mode ||= Modes.gif;
+
+        if (!modeList.includes(mode)) {
+            const out = `:warning: Invalid mode.\n${usage}`;
+            throw new ExitError(out);
+        }
+
+        return { sort, style, mode, showTimes, size: customSize };
     }
 
     function initLoader() {
@@ -586,17 +705,39 @@ const main = (() => {
             util.executeTag("canvaskitloader");
         }
 
-        ModuleLoader.useDefault("tagOwner");
+        // ModuleLoader.useDefault("tagOwner");
         ModuleLoader.enableCache = false;
     }
 
-    function loadGifEncoder() {
+    function loadLibraries(mode) {
         Benchmark.startTiming("load_libraries");
 
-        loadLibrary("gifenc");
+        switch (mode) {
+            case Modes.video:
+                loadLibrary("h264");
+                loadInstrument();
+                break;
+            case Modes.gif:
+                loadLibrary("gifenc");
+                break;
+        }
+
         loadLibrary("cycdraw");
 
         Benchmark.stopTiming("load_libraries");
+    }
+
+    function loadInstrument() {
+        if (typeof globalThis.InstrumentGenerator !== "undefined") return;
+
+        Benchmark.startTiming("load_instrument");
+        const { InstrumentGenerator } = ModuleLoader.loadModuleFromTag(tags.Instrument);
+        Benchmark.stopTiming("load_instrument");
+
+        Patches.patchGlobalContext({ InstrumentGenerator });
+
+        Benchmark.deleteLastCountTime("tag_fetch");
+        Benchmark.deleteLastCountTime("module_load");
     }
 
     function loadTableGen() {
@@ -606,7 +747,7 @@ const main = (() => {
         Benchmark.deleteLastCountTime("module_load");
     }
 
-    function runSession(sortName, styleName, customSize) {
+    function runSession(sortName, styleName, customSize, mode) {
         const styleConfig = styleConfigs[styleName] ?? { sizeMult: 1, delayMult: 1 },
             arraySize = customSize ?? styleConfig.size ?? Math.floor(defaultArraySize * (styleConfig.sizeMult ?? 1));
 
@@ -616,7 +757,8 @@ const main = (() => {
             width,
             height,
             arraySize,
-            style: styleName
+            style: styleName,
+            mode
         });
 
         const viz = new Visualizer(renderer, {
@@ -651,9 +793,9 @@ const main = (() => {
         return [renderer, viz];
     }
 
-    function sendOutput(renderer, viz, sortName, showTimes) {
+    function sendOutput(renderer, viz, sortName, showTimes, mode) {
         Benchmark.startTiming("encode_image");
-        const gifBytes = renderer.bytes();
+        const fileBytes = renderer.bytes();
         Benchmark.stopTiming("encode_image");
 
         let out;
@@ -666,26 +808,36 @@ const main = (() => {
             out = LoaderUtils.codeBlock(table);
         }
 
+        let fileName;
+        switch (mode) {
+            case Modes.video:
+                fileName = "sort.mp4";
+                break;
+            case Modes.gif:
+                fileName = "sort.gif";
+                break;
+        }
+
         try {
             msg.reply(out, {
                 file: {
-                    name: "sort.gif",
-                    data: gifBytes
+                    name: fileName,
+                    data: fileBytes
                 }
             });
         } catch (err) {
-            if (err?.name === "ExitError" || err instanceof (globalThis.ExitError ?? ExitError)) return;
+            if (err?.name === "ExitError" || err instanceof ExitError) return;
             throw err;
         }
     }
 
     return () => {
         initLoader();
-        const { sort, style, showTimes, size } = parseArgs();
-        loadGifEncoder();
+        const { sort, style, mode, showTimes, size } = parseArgs();
+        loadLibraries(mode);
 
-        const [renderer, viz] = runSession(sort, style, size);
-        sendOutput(renderer, viz, sort, showTimes);
+        const [renderer, viz] = runSession(sort, style, size, mode);
+        sendOutput(renderer, viz, sort, showTimes, mode);
     };
 })();
 
@@ -694,6 +846,6 @@ try {
     main();
 } catch (err) {
     // output
-    if (err?.name === "ExitError" || err instanceof (globalThis.ExitError ?? ExitError)) err.message;
+    if (err?.name === "ExitError" || err instanceof ExitError) err.message;
     else throw err;
 }
