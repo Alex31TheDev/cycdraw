@@ -515,10 +515,10 @@ const md5 = (() => {
 
         for (i = 0; i < str.length; i++) {
             const b = str.charCodeAt(i);
-            tail[i >> 2] |= b << ((i % 4) << 3);
+            tail[i >> 2] |= b << (i % 4 << 3);
         }
 
-        tail[i >> 2] |= 0x80 << ((i % 4) << 3);
+        tail[i >> 2] |= 0x80 << (i % 4 << 3);
 
         if (i > 55) {
             md5cycle(state, tail);
@@ -842,8 +842,8 @@ let LoaderUtils = {
 
         options = ObjectUtil.setValuesWithDefaults({}, options, LoaderUtils._splitArgsDefaults);
 
-        const lowercaseFirst = multipleLowercase ? (lowercase[0] ?? false) : lowercase,
-            lowercaseSecond = multipleLowercase ? (lowercase[1] ?? false) : false;
+        const lowercaseFirst = multipleLowercase ? lowercase[0] ?? false : lowercase,
+            lowercaseSecond = multipleLowercase ? lowercase[1] ?? false : false;
 
         let { sep, n } = options;
 
@@ -1528,7 +1528,7 @@ let LoaderUtils = {
     },
 
     getErrorMessage: (err, fallback = "No error message available") => {
-        return (TypeTester.isObject(err) ? (err.stack ?? err.message) : err) ?? fallback;
+        return (TypeTester.isObject(err) ? err.stack ?? err.message : err) ?? fallback;
     }
 };
 
@@ -1544,6 +1544,12 @@ const ArrayUtil = Object.freeze({
         return Array.isArray(val)
             ? val.concat(new Array(LoaderUtils.clamp(length - val.length, 0)).fill())
             : new Array(length).fill(val);
+    },
+
+    guaranteeSet: obj => {
+        if (obj instanceof Set) return obj;
+        else if (obj == null) return new Set();
+        else return new Set(Array.isArray(obj) ? obj : [obj]);
     },
 
     guaranteeFirst: val => {
@@ -1978,7 +1984,22 @@ const CaseUtil = Object.freeze({
 
 let DiscordUtil = {
     _tagNameRegex: /^[A-Za-z0-9\-_]+$/,
+    _normalizeTagName: name => {
+        if (!util.env) {
+            return name;
+        }
+
+        if (typeof name === "string") {
+            return name.replace(/^[^:]+:/, "");
+        } else if (Array.isArray(name)) {
+            return name.map(DiscordUtil._normalizeTagName);
+        }
+
+        return name;
+    },
+
     validTagName: name => {
+        name = DiscordUtil._normalizeTagName(name);
         return name.length > 0 && name.length <= 32 && DiscordUtil._tagNameRegex.test(name);
     },
 
@@ -2171,6 +2192,7 @@ let DiscordUtil = {
     },
 
     fetchTag: (name, owner) => {
+        name = DiscordUtil._normalizeTagName(name);
         const tag = util.fetchTag(name);
 
         if (tag == null) {
@@ -4968,6 +4990,8 @@ class ModuleLoader {
     };
 
     static getModuleCodeFromTag(tagName, returnType = FileDataTypes.module, options = {}) {
+        tagName = DiscordUtil._normalizeTagName(tagName);
+
         if (tagName == null) {
             throw new LoaderError("Invalid tag name");
         }
@@ -5232,6 +5256,7 @@ class ModuleLoader {
     }
 
     static loadModuleFromTag(tagName, options = {}) {
+        tagName = DiscordUtil._normalizeTagName(tagName);
         options = ObjectUtil.setValuesWithDefaults({}, options, this._loadModuleDefaults);
 
         const [codeArgs, loadArgs] = this._getLoadArgs(tagName, options);
@@ -5332,7 +5357,7 @@ class ModuleLoader {
         }
 
         const status = HttpUtil.getHttpErrStatus(res, reqErr);
-        if (status === null) return returnRes ? res : (res?.data ?? null);
+        if (status === null) return returnRes ? res : res?.data ?? null;
 
         let msg = "Could not fetch file.";
 
@@ -5347,6 +5372,8 @@ class ModuleLoader {
     }
 
     static _fetchTagBody(tagName, owner, options = {}) {
+        tagName = DiscordUtil._normalizeTagName(tagName);
+
         const useName = typeof tagName === "string",
             useArray = Array.isArray(tagName),
             usePattern = tagName instanceof RegExp;

@@ -21,8 +21,8 @@ let x0 = 50,
 
 const thickness = 5;
 
-const mode = "angle",
-    value = Math.PI / 10;
+const mode = "length",
+    value = 35;
 
 let showTimes = false;
 
@@ -47,113 +47,125 @@ Adds a speech bubble to the message you replied to.`;
 // errors
 globalThis.ExitError = class extends Error {};
 
-// util
-const Util = Object.freeze({
-    calculateLength: (A, B) => {
-        return Math.sqrt(Math.pow(B.x - A.x, 2) + Math.pow(B.y - A.y, 2));
-    },
-
-    calculateAngle: (A, B, C) => {
-        const AB = Math.sqrt(Math.pow(B.x - A.x, 2) + Math.pow(B.y - A.y, 2)),
-            BC = Math.sqrt(Math.pow(B.x - C.x, 2) + Math.pow(B.y - C.y, 2)),
-            AC = Math.sqrt(Math.pow(C.x - A.x, 2) + Math.pow(C.y - A.y, 2));
-
-        return Math.acos((BC * BC + AB * AB - AC * AC) / (2 * BC * AB));
-    }
-});
-
 // classes
 const SpeechBubble = {
-    step: 0.001,
-    eps1: 0.02,
-    eps2: 2,
-
     ellipsePoint: (radiusX, radiusY, center, angle) => ({
         x: center.x + radiusX * Math.cos(angle),
         y: center.y + radiusY * Math.sin(angle)
     }),
 
-    calcPoints: (radiusX, radiusY, f, x0, y0, thickness, mode, value) => {
-        const center = {
-            x: radiusX,
-            y: 0
-        };
+    calcPoints: (radiusX, radiusY, f, x0, y0, thickness, mode = "angle", value = Math.PI / 10) => {
+        const width = Math.round(radiusX * 2);
 
-        radiusX = Math.floor(radiusX - thickness / 2);
-        const ellipsePoint = SpeechBubble.ellipsePoint.bind(null, radiusX, radiusY, center);
+        const innerRadiusX = Math.max(1, radiusX - thickness / 2),
+            center = { x: radiusX, y: 0 };
+
+        const getPoint = angle => SpeechBubble.ellipsePoint(innerRadiusX, radiusY, center, angle);
 
         const p0 = { x: x0, y: y0 },
-            p1 = ellipsePoint(0),
-            p4 = ellipsePoint(Math.PI);
+            p1 = getPoint(0),
+            p4 = getPoint(Math.PI);
 
-        let stopAngle = f * Math.PI,
-            t;
-
-        let p2, p3;
-
-        const maxVal = Math.PI - stopAngle;
+        let stopAngle = Math.max(0, Math.min(Math.PI, f * Math.PI)),
+            t = 0;
 
         switch (mode) {
             case "fixed":
-                t = value;
+                t = Math.max(0, value);
 
-                if (stopAngle + t >= Math.PI) {
-                    stopAngle = Math.PI - t;
+                if (stopAngle + t > Math.PI) {
+                    stopAngle = Math.max(0, Math.PI - t);
+                    t = Math.PI - stopAngle;
                 }
-
-                p2 = ellipsePoint(stopAngle);
-                p3 = ellipsePoint(stopAngle + t);
 
                 break;
-            case "length":
-                const gapLength = value;
-                p2 = ellipsePoint(stopAngle);
+            case "length": {
+                const targetLen = Math.max(0, value),
+                    maxT = Math.PI - stopAngle;
 
-                for (t = 0; t <= maxVal; t += SpeechBubble.step) {
-                    p3 = ellipsePoint(stopAngle + t);
-                    const len = Util.calculateLength(p2, p3);
+                const p2Candidate = getPoint(stopAngle);
 
-                    if (Math.abs(len - gapLength) < SpeechBubble.eps2) break;
-                }
+                const lenAtMax = Math.hypot(getPoint(Math.PI).x - p2Candidate.x, getPoint(Math.PI).y - p2Candidate.y);
 
-                if (Math.abs(stopAngle + t - Math.PI) < SpeechBubble.eps1) {
-                    for (; stopAngle > 0; stopAngle -= SpeechBubble.step) {
-                        p2 = ellipsePoint(stopAngle);
-                        const len = Util.calculateLength(p2, p3);
+                if (lenAtMax >= targetLen) {
+                    t = SpeechBubble._solveBisection(
+                        delta => {
+                            const pt = getPoint(stopAngle + delta);
+                            return Math.hypot(pt.x - p2Candidate.x, pt.y - p2Candidate.y);
+                        },
+                        targetLen,
+                        0,
+                        maxT
+                    );
+                } else {
+                    const p3End = getPoint(Math.PI),
+                        maxSpanLen = Math.hypot(p3End.x - getPoint(0).x, p3End.y - getPoint(0).y);
 
-                        if (Math.abs(len - gapLength) < SpeechBubble.eps2) break;
+                    if (targetLen >= maxSpanLen) {
+                        stopAngle = 0;
+                    } else {
+                        stopAngle = SpeechBubble._solveBisection(
+                            ang => {
+                                const pt = getPoint(ang);
+                                return -Math.hypot(p3End.x - pt.x, p3End.y - pt.y);
+                            },
+                            -targetLen,
+                            0,
+                            stopAngle
+                        );
                     }
 
                     t = Math.PI - stopAngle;
                 }
 
                 break;
+            }
             case "angle":
-                const tipAngle = value;
-                p2 = ellipsePoint(stopAngle);
+            default: {
+                const targetAngle = Math.max(0, value);
 
-                for (t = 0; t <= maxVal; t += SpeechBubble.step) {
-                    p3 = ellipsePoint(stopAngle + t);
-                    const ang = Util.calculateAngle(p2, p0, p3);
+                const p2Candidate = getPoint(stopAngle),
+                    theta2 = Math.atan2(p2Candidate.y - p0.y, p2Candidate.x - p0.x);
 
-                    if (Math.abs(ang - tipAngle) < SpeechBubble.eps1) break;
-                }
+                const hit = SpeechBubble._rayEllipseIntersect(
+                    p0,
+                    theta2 - targetAngle,
+                    innerRadiusX,
+                    radiusY,
+                    center.x
+                );
 
-                if (Math.abs(stopAngle + t - Math.PI) < SpeechBubble.eps1) {
-                    for (; stopAngle > 0; stopAngle -= SpeechBubble.step) {
-                        p2 = ellipsePoint(stopAngle);
-                        const ang = Util.calculateAngle(p2, p0, p3);
+                if (hit !== null && hit.ang >= stopAngle && hit.ang <= Math.PI) {
+                    t = hit.ang - stopAngle;
+                } else {
+                    const p3End = getPoint(Math.PI),
+                        theta3End = Math.atan2(p3End.y - p0.y, p3End.x - p0.x);
 
-                        if (Math.abs(ang - tipAngle) < SpeechBubble.eps1) break;
+                    const hitClamped = SpeechBubble._rayEllipseIntersect(
+                        p0,
+                        theta3End + targetAngle,
+                        innerRadiusX,
+                        radiusY,
+                        center.x
+                    );
+
+                    if (hitClamped !== null && hitClamped.ang >= 0 && hitClamped.ang <= Math.PI) {
+                        stopAngle = hitClamped.ang;
+                        t = Math.PI - stopAngle;
+                    } else {
+                        stopAngle = 0;
+                        t = Math.PI;
                     }
-
-                    t = Math.PI - stopAngle;
                 }
 
                 break;
+            }
         }
 
-        const info = { radiusX, radiusY, thickness },
+        const p2 = getPoint(stopAngle),
+            p3 = getPoint(stopAngle + t);
+
+        const info = { radiusX: innerRadiusX, radiusY, thickness, width },
             angles = { stopAngle, t },
             points = { center, p0, p1, p2, p3, p4 };
 
@@ -186,7 +198,7 @@ const SpeechBubble = {
         ctx.fillStyle = fillColor;
         ctx.fill();
 
-        ctx.fillStyle = strokeColor;
+        ctx.strokeStyle = strokeColor;
         ctx.lineWidth = thickness;
         ctx.lineJoin = "round";
         ctx.stroke();
@@ -195,10 +207,10 @@ const SpeechBubble = {
     generateSVG: (data, options = {}) => {
         const { info, points } = data;
 
-        const { radiusX, radiusY, thickness } = info,
+        const { radiusX, radiusY, thickness, width } = info,
             { p0, p1, p2, p3, p4 } = points;
 
-        const width = Math.round(radiusX * 2 + thickness),
+        const svgWidth = width ?? Math.round(radiusX * 2 + thickness),
             height = Math.round(Math.max(p0.y, radiusY) + thickness / 2);
 
         const fillColor = options.fillColor ?? "white",
@@ -210,10 +222,60 @@ const SpeechBubble = {
             pathData = `${ellipse1} ${triangle} ${ellipse2}`;
 
         return `
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgWidth} ${height}">
     <path d="${pathData}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="${thickness}" stroke-linejoin="round" />
 </svg>
         `.trim();
+    },
+
+    _rayEllipseIntersect: (p0, theta, a, b, cx) => {
+        const dx = Math.cos(theta),
+            dy = Math.sin(theta);
+
+        const x0c = p0.x - cx;
+
+        const A = (dx * dx) / (a * a) + (dy * dy) / (b * b),
+            B = 2 * ((x0c * dx) / (a * a) + (p0.y * dy) / (b * b)),
+            C = (x0c * x0c) / (a * a) + (p0.y * p0.y) / (b * b) - 1;
+
+        const disc = B * B - 4 * A * C;
+
+        if (disc < 0) {
+            return null;
+        }
+
+        const sqrtDisc = Math.sqrt(disc);
+
+        for (const s of [(-B - sqrtDisc) / (2 * A), (-B + sqrtDisc) / (2 * A)]) {
+            if (s > 0) {
+                const x = p0.x + s * dx,
+                    y = p0.y + s * dy;
+
+                if (y >= -1e-6) {
+                    const clampedY = Math.max(0, y),
+                        clampedX = Math.max(cx - a, Math.min(cx + a, x));
+
+                    const ang = Math.atan2(clampedY / b, (clampedX - cx) / a);
+                    return { x: clampedX, y: clampedY, ang };
+                }
+            }
+        }
+
+        return null;
+    },
+
+    _solveBisection: (fn, target, low, high, iterations = 24) => {
+        for (let i = 0; i < iterations; i++) {
+            const mid = (low + high) / 2;
+
+            if (fn(mid) < target) {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+
+        return (low + high) / 2;
     }
 };
 

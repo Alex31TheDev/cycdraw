@@ -5,6 +5,8 @@
 const defaultScale = 12,
     maxScale = 100;
 
+const defaultMargin = 2;
+
 // sources
 const urls = {};
 
@@ -144,11 +146,14 @@ const main = (() => {
         }
     }
 
-    function drawQrcode(qrcode, scale) {
+    function drawQrcode(qrcode, scale, margin = defaultMargin) {
         qrcode = qrcode.modules ?? qrcode;
 
-        const width = qrcode.size * scale,
-            pixels = new Uint8Array(width * width * 4);
+        const size = qrcode.size + margin * 2,
+            width = size * scale;
+
+        const pixels = new Uint8Array(width * width * 4);
+        pixels.fill(255);
 
         for (let y = 0; y < qrcode.size; y++) {
             for (let x = 0; x < qrcode.size; x++) {
@@ -157,8 +162,8 @@ const main = (() => {
 
                 for (let i = 0; i < scale; i++) {
                     for (let j = 0; j < scale; j++) {
-                        const px = x * scale + j,
-                            py = y * scale + i;
+                        const px = (x + margin) * scale + j,
+                            py = (y + margin) * scale + i;
 
                         const ind2 = (py * width + px) * 4;
 
