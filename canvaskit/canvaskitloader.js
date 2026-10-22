@@ -145,6 +145,8 @@ class ReferenceError extends CustomError {
 
 class ExitError extends CustomError {}
 class LoggerError extends CustomError {}
+class TamperError extends CustomError {}
+globalThis.TamperError ??= TamperError;
 
 class UtilError extends ReferenceError {}
 
@@ -173,13 +175,16 @@ function deleteConfigProps() {
         "inspectorEnabled",
         "outCharLimit",
         "outLineLimit",
-        "findUsers",
+        "delay",
         "fetchTag",
         "findTags",
         "dumpTags",
         "fetchMessage",
         "fetchMessages",
-        "executeTag"
+        "findUserById",
+        "findUsers",
+        "executeTag",
+        "executeTagSafe"
     ];
 
     if (globalThis.util) {
@@ -3001,34 +3006,62 @@ const IntegrityChecker = (() => {
 
     const customReplyShape = /^\(text,\s*reply\)\s*=>\s*\{/;
 
-    const expectedFunctions = [
-        "util.delay",
+    const requiredFunctions = [
+        "util.fetchMessages",
         "util.fetchTag",
         "util.findTags",
         "util.dumpTags",
-        "util.fetchMessage",
-        "util.fetchMessages",
-        "util.findUserById",
-        "util.findUsers",
-        "util.executeTag",
         "util.executeTagSafe",
-        "vm.getCpuTime",
-        "vm.getWallTime",
-        "vm.timeElapsed",
-        "vm.timeRemaining",
+        "util.executeTag",
+        "util.findUsers",
         "http.request",
         "msg.reply"
     ];
 
-    const expectedUtilKeys = [
-        "version",
-        "env",
-        "timeLimit",
-        "inspectorEnabled",
-        "outCharLimit",
-        "outLineLimit",
-        ...expectedFunctions.filter(path => path.startsWith("util.")).map(path => path.slice(5))
+    const optionalFunctions = [
+        "util.delay",
+        "util.fetchMessage",
+        "util.findUserById",
+        "vm.getCpuTime",
+        "vm.getWallTime",
+        "vm.timeElapsed",
+        "vm.timeRemaining"
     ];
+
+    function getExpectedUtilKeys() {
+        const keys = [
+            "version",
+            "env",
+            "timeLimit",
+            "inspectorEnabled",
+            "outCharLimit",
+            "outLineLimit",
+            ...requiredFunctions.filter(path => path.startsWith("util.")).map(path => path.slice(5))
+        ];
+
+        if (originalUtil != null) {
+            for (let i = 0; i < optionalFunctions.length; i++) {
+                const path = optionalFunctions[i];
+
+                if (path.startsWith("util.")) {
+                    const funcName = path.slice(5);
+
+                    if (originalUtil[funcName] != null && !keys.includes(funcName)) keys.push(funcName);
+                }
+            }
+        }
+
+        return keys;
+    }
+
+    const ChannelTypes = Object.freeze({
+        guildText: 0,
+        dm: 1,
+        guildVoice: 2,
+        groupDm: 3,
+        guildCategory: 4,
+        guildAnnouncement: 5
+    });
 
     const providedRootNames = ["util", "msg", "vm", "http", "tag"];
 
@@ -3245,13 +3278,20 @@ const IntegrityChecker = (() => {
     }
 
     function verifyDeepEqual(live, original, path, phase, expectedKeys) {
+        if (live === original) return;
+
         const typeL = typeof live,
             typeO = typeof original;
 
-        if (live === original) return;
+        if (typeL !== typeO) {
+            fail("Type mismatch at " + path);
+            return;
+        }
 
-        if (typeL !== typeO) fail("Type mismatch at " + path);
-        if (typeL !== "object" || live == null || original == null) fail("Value mismatch at " + path);
+        if (typeL !== "object" || live == null || original == null) {
+            fail("Value mismatch at " + path);
+            return;
+        }
 
         const keysL = reflectOwnKeys(live);
         expectedKeys ??= reflectOwnKeys(original);
@@ -3270,7 +3310,10 @@ const IntegrityChecker = (() => {
                 }
             }
 
-            if (!found) fail("Missing property " + String(expectedKey) + " at " + path);
+            if (!found) {
+                fail("Missing property " + String(expectedKey) + " at " + path);
+                continue;
+            }
 
             if (!(path === "msg" && expectedKey === "reply" && phase === "after"))
                 verifyDeepEqual(live[expectedKey], original[expectedKey], path + "." + String(expectedKey), phase);
@@ -3345,6 +3388,8 @@ const IntegrityChecker = (() => {
         for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
             const key = keys[keyIndex],
                 propPath = path ? path + "." + String(key) : String(key);
+
+            if (path === "msg" && (key === "replyMsg" || key === "referencedMessage")) continue;
 
             const desc = getProtoDesc(val, key);
             if (desc == null) continue;
@@ -3456,17 +3501,18 @@ const IntegrityChecker = (() => {
         const msg = globalThis.msg,
             tag = globalThis.tag;
 
+        const expectedUtilKeys = getExpectedUtilKeys();
+
         if (originalUtil != null) verifyDeepEqual(globalThis.util, originalUtil, "util", phase, expectedUtilKeys);
-        if (globalThis.vm != null || originalVm != null)
-            verifyDeepEqual(globalThis.vm || originalVm, originalVm, "vm", phase);
-        if (globalThis.http != null || originalHttp != null)
-            verifyDeepEqual(globalThis.http || originalHttp, originalHttp, "http", phase);
+        if (originalVm != null) verifyDeepEqual(globalThis.vm, originalVm, "vm", phase);
+        else if (globalThis.vm != null) fail("Unexpected global 'vm' introduced");
+        if (originalHttp != null) verifyDeepEqual(globalThis.http, originalHttp, "http", phase);
+        else if (globalThis.http != null) fail("Unexpected global 'http' introduced");
 
         if (msg != null) {
             const author = msg.author,
                 channel = msg.channel,
-                guild = msg.guild,
-                mentions = msg.mentions;
+                guild = msg.guild;
 
             if (author == null || typeof author !== "object") fail("msg.author is missing or invalid");
             if (channel == null || typeof channel !== "object") fail("msg.channel is missing or invalid");
@@ -3475,13 +3521,26 @@ const IntegrityChecker = (() => {
             if (msg.channelId !== channel.id) fail("msg.channelId mismatch with channel.id");
             if (guild != null && typeof guild !== "object") fail("msg.guild is invalid");
 
-            if (
-                (msg.guildId != null || (guild != null && guild.id != null)) &&
-                (guild == null || msg.guildId !== guild.id)
-            )
-                fail("msg.guildId mismatch with guild.id");
-            if ((msg.guildId != null || author.guildId != null) && author.guildId !== msg.guildId)
-                fail("author.guildId mismatch with msg.guildId");
+            if (msg.guildId != null) {
+                if (guild == null || msg.guildId !== guild.id) fail("msg.guildId mismatch with guild.id");
+                if (author.guildId !== msg.guildId) fail("author.guildId mismatch with msg.guildId");
+                if (channel.type === ChannelTypes.dm || channel.type === ChannelTypes.groupDm)
+                    fail("DM channel type present in guild message");
+                if (channel.recipientId != null) fail("channel.recipientId present in guild message");
+            } else {
+                if (guild != null && guild.id != null) fail("guild.id present in DM");
+                if (author.guildId != null) fail("author.guildId present in DM");
+                if (channel.type !== ChannelTypes.dm && channel.type !== ChannelTypes.groupDm)
+                    fail("channel.type is not a DM channel type");
+                if (channel.name != null) fail("channel.name present in DM");
+                if (channel.parentId != null) fail("channel.parentId present in DM");
+                if (channel.topic != null) fail("channel.topic present in DM");
+                if (author.roles != null) fail("author.roles present in DM");
+                if (author.joinedTimestamp != null) fail("author.joinedTimestamp present in DM");
+                if (channel.type === ChannelTypes.dm && channel.recipientId == null)
+                    fail("channel.recipientId missing in DM");
+            }
+
             if (msg.cleanContent !== msg.content) fail("msg.cleanContent mismatch with msg.content");
             if (author.tag != null && !stringIncludes(author.tag, author.username)) fail("author.tag is invalid");
             if (author.avatar != null && author.avatarURL != null && !stringIncludes(author.avatarURL, author.avatar))
@@ -3497,30 +3556,7 @@ const IntegrityChecker = (() => {
             if (author.banner != null && author.bannerURL != null && !stringIncludes(author.bannerURL, author.banner))
                 fail("author.bannerURL is invalid");
 
-            if (mentions != null && typeof mentions === "object") {
-                if (Array.isArray(mentions.members) && Array.isArray(mentions.users)) {
-                    for (let memberIndex = 0; memberIndex < mentions.members.length; memberIndex++) {
-                        const member = mentions.members[memberIndex];
-                        if (member == null || typeof member !== "object") continue;
 
-                        if (member.userId !== member.id) fail("Mention member userId mismatch with id");
-                        if (guild != null && member.guildId !== guild.id) fail("Mention member guildId mismatch");
-
-                        let found = false;
-
-                        for (let userIndex = 0; userIndex < mentions.users.length; userIndex++) {
-                            const user = mentions.users[userIndex];
-
-                            if (user != null && user.id === member.id) {
-                                found = true;
-                                break;
-                            }
-                        }
-
-                        if (!found) fail("Mention member lacks corresponding mention user");
-                    }
-                }
-            }
 
             if (originalMsg != null) {
                 if (msg.id !== originalMsg.id) fail("msg.id has been modified");
@@ -3568,21 +3604,21 @@ const IntegrityChecker = (() => {
         const rootObjects = getLiveRootObjects();
         rootObjects.util = originalUtil;
 
-        for (let functionIndex = 0; functionIndex < expectedFunctions.length; functionIndex++) {
-            const path = expectedFunctions[functionIndex],
-                parts = primitiveSplit(path, ".");
-
-            const rootName = parts[0],
+        const verifyFunction = (path, isRequired) => {
+            const parts = primitiveSplit(path, "."),
+                rootName = parts[0],
                 funcName = parts[1];
 
             const rootObj = rootObjects[rootName];
-            if (rootObj == null) continue;
+            if (rootObj == null || rootObj[funcName] == null) {
+                if (isRequired) fail("Missing function: " + path);
+                return;
+            }
 
             const fn = rootObj[funcName];
-
             if (typeof fn !== "function") {
                 fail("Expected function at: " + path);
-                continue;
+                return;
             }
 
             if (phase === "after" && path === "msg.reply") {
@@ -3590,11 +3626,20 @@ const IntegrityChecker = (() => {
                     fail("msg.reply has been tampered with or is missing expected patch");
 
                 const str = fnToString.call(fn);
-
                 if (!customReplyShape.test(str)) fail("msg.reply shape is tampered");
-            } else checkFunctionShape(fn, path);
+            } else {
+                checkFunctionShape(fn, path);
+            }
 
             allowedHostFunctionRefs.add(fn);
+        };
+
+        for (let functionIndex = 0; functionIndex < requiredFunctions.length; functionIndex++) {
+            verifyFunction(requiredFunctions[functionIndex], true);
+        }
+
+        for (let functionIndex = 0; functionIndex < optionalFunctions.length; functionIndex++) {
+            verifyFunction(optionalFunctions[functionIndex], false);
         }
     }
 
@@ -3684,10 +3729,10 @@ const IntegrityChecker = (() => {
             verifyCoreRoots(phase);
 
             if (!LoaderUtils.empty(failures)) {
-                const msg = label == null ? "Integrity check failed" : "Integrity check failed at " + label;
+                const msg = "Integrity check failed" + (label != null ? " at " + label : "");
 
-                if (config.enableDebugger) exit(msg + ":\n" + failures.join("\n"));
-                else exit(msg);
+                if (config.enableDebugger) throw new TamperError(msg + ":\n" + failures.join("\n"));
+                else throw new TamperError();
             }
         }
     });
@@ -5885,6 +5930,7 @@ const Patches = {
         globalObjs.CustomError ??= CustomError;
         globalObjs.RefError ??= ReferenceError;
         globalObjs.ExitError ??= ExitError;
+        globalObjs.TamperError ??= TamperError;
 
         globalObjs.Benchmark ??= Benchmark;
         globalObjs.HttpUtil ??= HttpUtil;
