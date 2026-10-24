@@ -15,7 +15,7 @@
         "concat-sort": "concat ./canvaskit/algorithms.js ./canvaskit/sort.js -o ./canvaskit/build/sort/sort.js",
         "build-min-cycdraw": "terser \"./new/cycdraw - new.js\" -o \"./new/build/cycdraw - new.js\" -c passes=2",
         "build-min-pngjs": "terser ./pngjs/build/bundle.js -o ./pngjs/build/bundle.min.js -c passes=2 -m --mangle-props \"regex=/^(?!Z_)/\",keep_quoted --toplevel --comments false",
-        "build-min-canvaskitloader": "terser ./canvaskit/canvaskitloader.js -o ./canvaskit/build/loader/canvaskitloader.js -c passes=2",
+        "build-min-canvaskitloader": "terser ./canvaskit/canvaskitloader.js -o ./canvaskit/build/loader/canvaskitloader.js -c passes=2,keep_fnames=/verifyToStringNative/",
         "build-min-base2nwasm": "terser ./canvaskit/lib/custom/Base2nWasmDec.js -o ./canvaskit/build/base2n/Base2nWasmDec.min.js -c passes=2 -m  \"reserved=['Base2nError']\" --mangle-props \"regex=/^#|_$/\" --toplevel",
         "build-min-canvaskit-cycdraw": "terser ./canvaskit/cycdraw.js -o ./canvaskit/build/cycdraw/cycdraw.min.js -c passes=2",
         "build-min-imageloader": "terser ./canvaskit/imageloader.js -o ./canvaskit/build/caption/imageloader.min.js -c passes=2",
@@ -37,14 +37,16 @@
         "check-canvaskit-utils": "node ./canvaskit/checkutils.cjs ./canvaskit/canvaskitloader.js ../el-levert/src/util/Util.js ../el-levert/src/util/ArrayUtil.js ../el-levert/src/util/ObjectUtil.js ../el-levert/src/util/TypeTester.js ../el-levert/src/util/DiscordUtil.js ../el-levert/src/util/misc/FunctionUtil.js ../el-levert/src/util/misc/RegexUtil.js"
     },
     "dependencies": {
-        "axios": "^1.12.2",
         "pngjs": "^7.0.0"
     },
     "devDependencies": {
+        "@babel/parser": "^7.29.11",
         "browserify": "^17.0.0",
         "concat": "^1.0.3",
+        "diff": "^9.0.0",
         "eslint": "^8.57.1",
         "prettier": "^3.2.5",
-        "terser": "^5.36.0"
+        "terser": "^5.36.0",
+        "yargs": "^18.2.0"
     }
 }

@@ -1,106 +1,11 @@
-const fs = require("fs");
-const path = require("path");
+const fs = require("node:fs");
+const path = require("node:path");
 
-const utilNameRegex = /\b(\w*Utils?|TypeTester)\b/g;
+const parser = require("@babel/parser");
+const diff = require("diff");
 
-const objStartRegex = /^(?:let|const)\s+(\w*Utils?|TypeTester)\s*=\s*(?:Object\.freeze\()?{/m,
-    objEndRegex = /^\}\)?;/m;
-
-const funcStartRegex =
-        /^\s{4}(?:async\s+)?([^\W_]\w*)(?::\s*((?:async\s+)?(?:\([^)]*\)|[A-Za-z_$]\w*)\s*=>\s*\{)|((?:async\s*)?\([^)]*\)\s*\{))/gm,
-    funcEndRegex = /^\s{4}\},?/m;
-
-function readFile(filePath) {
-    let text;
-
-    try {
-        text = fs.readFileSync(filePath, "utf8");
-    } catch (err) {
-        if (err.code === "ENOENT") {
-            console.error("ERROR: Couldn't find the file at path: " + filePath);
-        } else {
-            console.error(`ERROR: Occured while reading file ${filePath}:`);
-            console.error(err);
-        }
-
-        process.exit(1);
-    }
-
-    return text;
-}
-
-function parseUtilFuncs(text, targetName) {
-    let objName, objContent;
-
-    {
-        const startRegex = targetName
-                ? new RegExp(`^(?:let|const)\\s+(${targetName})\\s*=\\s*(?:Object\\.freeze\\()?{`, "m")
-                : objStartRegex,
-            startMatch = text.match(startRegex);
-
-        if (!startMatch) return { name: null, functions: new Map() };
-
-        objName = startMatch[1];
-        const startIdx = startMatch.index;
-
-        const endMatch = text.slice(startIdx).match(objEndRegex);
-        if (!endMatch) return { name: objName, functions: new Map() };
-        const endIdx = startIdx + endMatch.index + 2;
-
-        objContent = text.slice(startIdx, endIdx);
-    }
-
-    const functions = new Map();
-
-    funcStartRegex.lastIndex = 0;
-
-    for (const startMatch of objContent.matchAll(funcStartRegex)) {
-        const funcName = startMatch[1],
-            header = startMatch[2] ?? startMatch[3],
-            startIdx = startMatch.index + startMatch[0].indexOf(header);
-
-        const endMatch = objContent.slice(startIdx).match(funcEndRegex);
-        if (!endMatch) continue;
-
-        const endIdx = startIdx + endMatch.index + endMatch[0].length;
-
-        utilNameRegex.lastIndex = 0;
-        let funcBody = " ".repeat(4) + objContent.slice(startIdx, endIdx);
-        funcBody = funcBody.replace(utilNameRegex, "MAIN_UTIL");
-        funcBody = funcBody.endsWith(",") ? funcBody.slice(0, -1) : funcBody;
-
-        functions.set(funcName, funcBody);
-    }
-
-    return { name: objName, functions };
-}
-
-function parseMainUtils(text) {
-    const utilNames = [
-            "Util",
-            "ArrayUtil",
-            "ObjectUtil",
-            "TypeTester",
-            "DiscordUtil",
-            "FunctionUtil",
-            "RegexUtil",
-            "LoaderUtils"
-        ],
-        functions = new Map();
-
-    let primaryName = null;
-
-    for (const utilName of utilNames) {
-        const utilObj = parseUtilFuncs(text, utilName);
-
-        if (utilObj.name === null) continue;
-        if (primaryName === null) primaryName = utilObj.name;
-
-        utilObj.functions.forEach((funcText, funcName) => functions.set(funcName, funcText));
-    }
-
-    return { name: primaryName, functions };
-}
+const yargs = require("yargs");
+const { hideBin } = require("yargs/helpers");
 
 const AnsiCodes = Object.freeze({
     green: "\x1b[32m",
@@ -115,60 +20,212 @@ const SymbolChars = Object.freeze({
     star: "★"
 });
 
-function printDiff(str1, str2) {
-    const lines1 = str1.split("\n").map(line => line.trimEnd()),
-        lines2 = str2.split("\n").map(line => line.trimEnd());
+const utilNameRegex = /\b(\w*Utils?|TypeTester)\b/g;
 
-    const maxLength = Math.max(lines1.length, lines2.length);
+function isUtilName(name) {
+    return /^(?:\w*Utils?|TypeTester)$/.test(name);
+}
 
-    for (let i = 0; i < maxLength; i++) {
-        const line1 = lines1[i] ?? "",
-            line2 = lines2[i] ?? "";
+function readFile(filePath) {
+    let text;
 
-        if (line1 !== line2) {
-            console.log(`${AnsiCodes.green}- ${line1}${AnsiCodes.reset}`);
-            console.log(`${AnsiCodes.red}+ ${line2}${AnsiCodes.reset}`);
+    try {
+        text = fs.readFileSync(filePath, "utf8");
+    } catch (err) {
+        if (err.code === "ENOENT") {
+            console.error("ERROR: Couldn't find the file at path: " + filePath);
         } else {
-            console.log(`  ${line1}`);
+            console.error(`ERROR: Occurred while reading file ${filePath}:`);
+            console.error(err);
+        }
+
+        process.exit(1);
+    }
+
+    return text;
+}
+
+function parseAst(text) {
+    try {
+        return parser.parse(text, {
+            sourceType: "unambiguous",
+            plugins: ["exportDefaultFrom"]
+        });
+    } catch (err) {
+        console.error("ERROR: Occurred while parsing AST:", err);
+        return null;
+    }
+}
+
+function parseUtilFuncs(text, targetName) {
+    const ast = parseAst(text);
+    if (!ast) return { name: null, functions: new Map() };
+
+    let objName = null,
+        objNode = null;
+
+    function unwrap(node) {
+        if (
+            node &&
+            node.type === "CallExpression" &&
+            node.callee?.property?.name === "freeze" &&
+            node.arguments?.length > 0
+        ) {
+            return node.arguments[0];
+        }
+
+        return node;
+    }
+
+    function matchName(name) {
+        if (!name) return false;
+        if (targetName) return name === targetName;
+        return isUtilName(name);
+    }
+
+    for (const stmt of ast.program.body) {
+        let decl = stmt;
+
+        if (stmt.type === "ExportNamedDeclaration" && stmt.declaration) {
+            decl = stmt.declaration;
+        }
+
+        if (stmt.type === "ExportDefaultDeclaration" && stmt.declaration) {
+            const init = unwrap(stmt.declaration);
+
+            if (init?.type === "ObjectExpression" && (!targetName || targetName === "default")) {
+                objName = targetName ?? "default";
+                objNode = init;
+                break;
+            }
+        }
+
+        if (decl.type === "VariableDeclaration") {
+            for (const d of decl.declarations) {
+                if (!matchName(d.id?.name)) continue;
+
+                const init = unwrap(d.init);
+
+                if (init?.type === "ObjectExpression") {
+                    objName = d.id.name;
+                    objNode = init;
+                    break;
+                }
+            }
+        }
+
+        if (objNode) break;
+    }
+
+    const functions = new Map();
+    if (!objNode) return { name: null, functions };
+
+    for (const prop of objNode.properties) {
+        if (prop.type === "SpreadElement") continue;
+
+        const funcName = prop.key.name || prop.key.value;
+        if (!funcName) continue;
+
+        let funcBody = text.slice(prop.start, prop.end);
+
+        utilNameRegex.lastIndex = 0;
+        funcBody = funcBody
+            .replace(utilNameRegex, "MAIN_UTIL")
+            .split("\n")
+            .map(l => l.trimEnd())
+            .join("\n")
+            .trim();
+
+        functions.set(funcName, funcBody);
+    }
+
+    return { name: objName, functions };
+}
+
+function parseMainUtils(text) {
+    const utilNames = [
+            "LoaderUtils",
+            "Util",
+            "ArrayUtil",
+            "ObjectUtil",
+            "TypeTester",
+            "DiscordUtil",
+            "FunctionUtil",
+            "RegexUtil"
+        ],
+        functions = new Map(),
+        objects = new Map();
+
+    let primaryName = null;
+
+    for (const utilName of utilNames) {
+        const utilObj = parseUtilFuncs(text, utilName);
+
+        if (utilObj.name === null) continue;
+        if (primaryName === null) primaryName = utilObj.name;
+
+        objects.set(utilObj.name, utilObj.functions);
+        utilObj.functions.forEach((funcText, funcName) => {
+            if (!functions.has(funcName)) {
+                functions.set(funcName, funcText);
+            }
+        });
+    }
+
+    return { name: primaryName, functions, objects };
+}
+
+function printDiff(str1, str2, log = console.log) {
+    const changes = diff.diffLines(str1, str2);
+
+    for (const part of changes) {
+        const color = part.added ? AnsiCodes.green : part.removed ? AnsiCodes.red : AnsiCodes.reset,
+            prefix = part.added ? "+ " : part.removed ? "- " : "  ",
+            lines = part.value.split("\n");
+
+        if (lines.length > 0 && lines[lines.length - 1] === "") {
+            lines.pop();
+        }
+
+        for (const line of lines) {
+            log(`${color}${prefix}${line}${AnsiCodes.reset}`);
         }
     }
 }
 
-const usage = "Usage: node checkutils.cjs [-r|--reverse] [-b|--bidirectional] mainFile.js other1.js other2.js [...]",
-    helpArgs = ["-h", "--help"];
-
 function parseArgs() {
-    let args = process.argv.slice(2);
+    const argv = yargs(hideBin(process.argv))
+        .usage("Usage: node checkutils.cjs [options] <mainFile> <otherFiles...>")
+        .options({
+            reverse: {
+                alias: "r",
+                type: "boolean",
+                default: false,
+                describe: "Swap mainFile and the first otherFile"
+            },
+            bidirectional: {
+                alias: "b",
+                type: "boolean",
+                default: false,
+                describe: "Also check for functions in main missing in other files"
+            },
+            output: {
+                alias: "o",
+                type: "string",
+                describe: "Output file path to save check results and diffs"
+            }
+        })
+        .demandCommand(2, "You must provide a main file and at least one other file to check.")
+        .alias("help", "h")
+        .help("help")
+        .version(false)
+        .parseSync();
 
-    if (args.length < 1 || helpArgs.some(help => args.includes(help))) {
-        console.log(usage);
-        process.exit(0);
-    }
+    let files = argv._.map(f => path.resolve(String(f))),
+        mainPath = files[0],
+        otherPaths = files.slice(1);
 
-    let reverse = false,
-        bidirectional = false;
-
-    args = args.filter(arg => {
-        if (arg === "-r" || arg === "--reverse") {
-            reverse = true;
-            return false;
-        }
-        if (arg === "-b" || arg === "--bidirectional") {
-            bidirectional = true;
-            return false;
-        }
-        return true;
-    });
-
-    if (args.length < 2) {
-        console.log(usage);
-        process.exit(1);
-    }
-
-    let mainPath = path.resolve(args[0]),
-        otherPaths = args.slice(1).map(p => path.resolve(p));
-
-    if (reverse) {
+    if (argv.reverse) {
         const temp = mainPath;
         mainPath = otherPaths[0];
         otherPaths = [temp, ...otherPaths.slice(1)];
@@ -177,12 +234,23 @@ function parseArgs() {
     return {
         mainPath,
         otherPaths,
-        bidirectional
+        bidirectional: argv.bidirectional,
+        outputPath: argv.output ? path.resolve(argv.output) : null
     };
 }
 
 function main() {
     const args = parseArgs();
+
+    const outputLines = [];
+
+    function log(str = "") {
+        console.log(str);
+
+        if (args.outputPath) {
+            outputLines.push(str.replace(/\x1b\[[0-9;]*m/g, ""));
+        }
+    }
 
     const mainFile = readFile(args.mainPath),
         otherFiles = args.otherPaths.map(readFile);
@@ -194,7 +262,7 @@ function main() {
         process.exit(1);
     }
 
-    console.log(`Main utils object: ${main.name}`);
+    log(`Main utils object: ${main.name}`);
 
     const otherFunctions = new Set();
 
@@ -207,35 +275,41 @@ function main() {
             continue;
         }
 
-        console.log(`\nChecking object: ${other.name} in file: ${otherPath}`);
+        log(`\nChecking object: ${other.name} in file: ${otherPath}`);
+
+        const targetMain =
+            main.objects.get(other.name) ??
+            (other.name === "Util" ? main.objects.get("LoaderUtils") : null) ??
+            (other.name === "LoaderUtils" ? main.objects.get("Util") : null);
 
         other.functions.forEach((funcText, funcName) => {
             otherFunctions.add(funcName);
 
-            if (!main.functions.has(funcName)) {
-                console.log(`${AnsiCodes.red}${SymbolChars.x} ${funcName} (missing in main)${AnsiCodes.reset}`);
+            const mainText = targetMain?.get(funcName) ?? main.functions.get(funcName);
+
+            if (!mainText) {
+                log(`${AnsiCodes.red}${SymbolChars.x} ${funcName} (missing in main)${AnsiCodes.reset}`);
                 return;
             }
 
-            const mainText = main.functions.get(funcName);
-
             if (mainText === funcText) {
-                console.log(`${AnsiCodes.green}${SymbolChars.check} ${funcName}${AnsiCodes.reset}`);
+                log(`${AnsiCodes.green}${SymbolChars.check} ${funcName}${AnsiCodes.reset}`);
             } else {
-                console.log(`${AnsiCodes.red}${SymbolChars.x} ${funcName} (different)${AnsiCodes.reset}`);
+                log(`${AnsiCodes.red}${SymbolChars.x} ${funcName} (different)${AnsiCodes.reset}`);
 
-                console.log(`--- diff ---`);
-                printDiff(funcText, mainText);
+                log(`--- diff ---`);
+                printDiff(funcText, mainText, log);
             }
         });
 
         if (args.bidirectional) {
-            const missingInOther = Array.from(main.functions.keys()).filter(fn => !other.functions.has(fn));
+            const checkSource = targetMain ?? main.functions,
+                missingInOther = Array.from(checkSource.keys()).filter(fn => !other.functions.has(fn));
+
             if (missingInOther.length > 0) {
-                console.log(`\nFunctions in main (${main.name}) missing in ${other.name}:`);
-                missingInOther.forEach(fn =>
-                    console.log(`${AnsiCodes.yellow}${SymbolChars.star} ${fn}${AnsiCodes.reset}`)
-                );
+                const targetName = targetMain ? (other.name === "Util" ? "LoaderUtils" : other.name) : main.name;
+                log(`\nFunctions in main (${targetName}) missing in ${other.name}:`);
+                missingInOther.forEach(fn => log(`${AnsiCodes.yellow}${SymbolChars.star} ${fn}${AnsiCodes.reset}`));
             }
         }
     }
@@ -243,8 +317,14 @@ function main() {
     const extraInMain = Array.from(main.functions.keys()).filter(func => !otherFunctions.has(func));
 
     if (extraInMain.length > 0) {
-        console.log(`\nFunctions in main (${main.name}) not found in any other files:`);
-        extraInMain.forEach(fn => console.log(`${AnsiCodes.yellow}${SymbolChars.star} ${fn}${AnsiCodes.reset}`));
+        log(`\nFunctions in main (${main.name}) not found in any other files:`);
+        extraInMain.forEach(fn => log(`${AnsiCodes.yellow}${SymbolChars.star} ${fn}${AnsiCodes.reset}`));
+    }
+
+    if (args.outputPath) {
+        fs.mkdirSync(path.dirname(args.outputPath), { recursive: true });
+        fs.writeFileSync(args.outputPath, outputLines.join("\n") + "\n", "utf8");
+        log(`\nOutput written to: ${args.outputPath}`);
     }
 }
 

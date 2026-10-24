@@ -1768,13 +1768,11 @@ const ArrayUtil = Object.freeze({
 const RegexUtil = Object.freeze({
     _regexEscapeRegex: /[.*+?^${}()|[\]\\]/g,
     escapeRegex: str => {
-        RegexUtil._regexEscapeRegex.lastIndex = 0;
         return str.replace(RegexUtil._regexEscapeRegex, "\\$&");
     },
 
     _charClassExcapeRegex: /[-\\\]^]/g,
     escapeCharClass: str => {
-        RegexUtil._charClassExcapeRegex.lastIndex = 0;
         return str.replace(RegexUtil._charClassExcapeRegex, "\\$&");
     },
 
@@ -1839,8 +1837,6 @@ const RegexUtil = Object.freeze({
             const newFlags = LoaderUtils.unique(regex.flags + "g"),
                 globalRegex = new regexCtor(regex.source, newFlags);
 
-            globalRegex.lastIndex = 0;
-
             for (const match of str.matchAll(globalRegex)) {
                 const start = match.index,
                     end = match.index + match[0].length;
@@ -1866,7 +1862,6 @@ const RegexUtil = Object.freeze({
             if (typeof info.replacement === "function") {
                 replaced = info.replacement(fullMatch, ...info.match.slice(1), info.start, str);
             } else {
-                info.regex.lastIndex = 0;
                 replaced = fullMatch.replace(info.regex, info.replacement);
             }
 
@@ -1879,8 +1874,6 @@ const RegexUtil = Object.freeze({
 
     _templateReplaceRegex: /(?<!\\){{(.*?)}}(?!\\)/g,
     templateReplace: (template, strings) => {
-        RegexUtil._templateReplaceRegex.lastIndex = 0;
-
         return template.replace(RegexUtil._templateReplaceRegex, (match, key) => {
             key = key.trim();
             return strings[key] ?? match;
@@ -2010,16 +2003,12 @@ let DiscordUtil = {
 
     _userIdRegex: /\d{17,20}/g,
     findUserIds: str => {
-        DiscordUtil._userIdRegex.lastIndex = 0;
-
         const matches = Array.from(str.matchAll(DiscordUtil._userIdRegex));
         return matches.map(match => match[0]);
     },
 
     _mentionRegex: /<@(\d{17,20})>/g,
     findMentions: str => {
-        DiscordUtil._mentionRegex.lastIndex = 0;
-
         const matches = Array.from(str.matchAll(DiscordUtil._mentionRegex));
         return matches.map(match => match[1]);
     },
@@ -2027,8 +2016,6 @@ let DiscordUtil = {
     codeblockRegex: /(?<!\\)(?:`{3}([\S]+\n)?([\s\S]*?)`{3}|`([^`\n]+)`)/g,
 
     findCodeblocks: str => {
-        DiscordUtil.codeblockRegex.lastIndex = 0;
-
         const matches = str.matchAll(DiscordUtil.codeblockRegex);
         return Array.from(matches).map(match => [match.index, match.index + match[0].length]);
     },
@@ -3958,8 +3945,6 @@ const HttpUtil = Object.freeze({
 
             result.push(part);
         }
-
-        HttpUtil.paramSlashRegex.lastIndex = 0;
 
         let str = result.join("/");
         str = str.replace(HttpUtil.paramSlashRegex, "$1");
