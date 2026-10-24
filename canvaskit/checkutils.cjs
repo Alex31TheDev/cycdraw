@@ -20,6 +20,12 @@ const SymbolChars = Object.freeze({
     star: "★"
 });
 
+const SymbolColors = Object.freeze({
+    [SymbolChars.check]: AnsiCodes.green,
+    [SymbolChars.x]: AnsiCodes.red,
+    [SymbolChars.star]: AnsiCodes.yellow
+});
+
 const utilNameRegex = /\b(\w*Utils?|TypeTester)\b/g;
 
 function isUtilName(name) {
@@ -64,7 +70,7 @@ function parseUtilFuncs(text, targetName) {
     let objName = null,
         objNode = null;
 
-    function unwrap(node) {
+    const unwrap = node => {
         if (
             node &&
             node.type === "CallExpression" &&
@@ -75,13 +81,13 @@ function parseUtilFuncs(text, targetName) {
         }
 
         return node;
-    }
+    };
 
-    function matchName(name) {
+    const matchName = name => {
         if (!name) return false;
         if (targetName) return name === targetName;
         return isUtilName(name);
-    }
+    };
 
     for (const stmt of ast.program.body) {
         let decl = stmt;
@@ -128,7 +134,6 @@ function parseUtilFuncs(text, targetName) {
 
         let funcBody = text.slice(prop.start, prop.end);
 
-        utilNameRegex.lastIndex = 0;
         funcBody = funcBody
             .replace(utilNameRegex, "MAIN_UTIL")
             .split("\n")
@@ -151,7 +156,8 @@ function parseMainUtils(text) {
             "TypeTester",
             "DiscordUtil",
             "FunctionUtil",
-            "RegexUtil"
+            "RegexUtil",
+            "CaseUtil"
         ],
         functions = new Map(),
         objects = new Map();
@@ -175,11 +181,26 @@ function parseMainUtils(text) {
     return { name: primaryName, functions, objects };
 }
 
-function printDiff(str1, str2, log = console.log) {
+function formatLog(msg = "", symbol = null, color = null) {
+    if (symbol && Object.values(AnsiCodes).includes(symbol)) {
+        color = symbol;
+        symbol = null;
+    }
+
+    const char = SymbolChars[symbol] ?? symbol;
+    color = color ?? SymbolColors[symbol] ?? SymbolColors[char];
+
+    const text = char ? `${char} ${msg}` : msg,
+        coloredText = color ? `${color}${text}${AnsiCodes.reset}` : text;
+
+    return { text, coloredText };
+}
+
+function printDiff(str1, str2, log = (msg, symbol, color) => console.log(formatLog(msg, symbol, color).coloredText)) {
     const changes = diff.diffLines(str1, str2);
 
     for (const part of changes) {
-        const color = part.added ? AnsiCodes.green : part.removed ? AnsiCodes.red : AnsiCodes.reset,
+        const color = part.added ? AnsiCodes.green : part.removed ? AnsiCodes.red : null,
             prefix = part.added ? "+ " : part.removed ? "- " : "  ",
             lines = part.value.split("\n");
 
@@ -188,7 +209,7 @@ function printDiff(str1, str2, log = console.log) {
         }
 
         for (const line of lines) {
-            log(`${color}${prefix}${line}${AnsiCodes.reset}`);
+            log(`${prefix}${line}`, null, color);
         }
     }
 }
@@ -244,13 +265,14 @@ function main() {
 
     const outputLines = [];
 
-    function log(str = "") {
-        console.log(str);
+    const log = (msg = "", symbol = null, color = null) => {
+        const { text, coloredText } = formatLog(msg, symbol, color);
+        console.log(coloredText);
 
         if (args.outputPath) {
-            outputLines.push(str.replace(/\x1b\[[0-9;]*m/g, ""));
+            outputLines.push(text);
         }
-    }
+    };
 
     const mainFile = readFile(args.mainPath),
         otherFiles = args.otherPaths.map(readFile);
@@ -288,16 +310,16 @@ function main() {
             const mainText = targetMain?.get(funcName) ?? main.functions.get(funcName);
 
             if (!mainText) {
-                log(`${AnsiCodes.red}${SymbolChars.x} ${funcName} (missing in main)${AnsiCodes.reset}`);
+                log(`${funcName} (missing in main)`, SymbolChars.x);
                 return;
             }
 
             if (mainText === funcText) {
-                log(`${AnsiCodes.green}${SymbolChars.check} ${funcName}${AnsiCodes.reset}`);
+                log(funcName, SymbolChars.check);
             } else {
-                log(`${AnsiCodes.red}${SymbolChars.x} ${funcName} (different)${AnsiCodes.reset}`);
+                log(`${funcName} (different)`, SymbolChars.x);
 
-                log(`--- diff ---`);
+                log("--- diff ---");
                 printDiff(funcText, mainText, log);
             }
         });
@@ -309,7 +331,7 @@ function main() {
             if (missingInOther.length > 0) {
                 const targetName = targetMain ? (other.name === "Util" ? "LoaderUtils" : other.name) : main.name;
                 log(`\nFunctions in main (${targetName}) missing in ${other.name}:`);
-                missingInOther.forEach(fn => log(`${AnsiCodes.yellow}${SymbolChars.star} ${fn}${AnsiCodes.reset}`));
+                missingInOther.forEach(fn => log(fn, SymbolChars.star));
             }
         }
     }
@@ -318,7 +340,7 @@ function main() {
 
     if (extraInMain.length > 0) {
         log(`\nFunctions in main (${main.name}) not found in any other files:`);
-        extraInMain.forEach(fn => log(`${AnsiCodes.yellow}${SymbolChars.star} ${fn}${AnsiCodes.reset}`));
+        extraInMain.forEach(fn => log(fn, SymbolChars.star));
     }
 
     if (args.outputPath) {

@@ -15,7 +15,8 @@
         "concat-sort": "concat ./canvaskit/algorithms.js ./canvaskit/sort.js -o ./canvaskit/build/sort/sort.js",
         "build-min-cycdraw": "terser \"./new/cycdraw - new.js\" -o \"./new/build/cycdraw - new.js\" -c passes=2",
         "build-min-pngjs": "terser ./pngjs/build/bundle.js -o ./pngjs/build/bundle.min.js -c passes=2 -m --mangle-props \"regex=/^(?!Z_)/\",keep_quoted --toplevel --comments false",
-        "build-min-canvaskitloader": "terser ./canvaskit/canvaskitloader.js -o ./canvaskit/build/loader/canvaskitloader.js -c passes=2,keep_fnames=/verifyToStringNative/",
+        "build-min-canvaskitloader": "terser ./canvaskit/canvaskitloader.js -o ./canvaskit/build/loader/canvaskitloader.js -c passes=4,unsafe=true,unsafe_math=true,unsafe_proto=true,unsafe_arrows=true,unsafe_methods=true,hoist_funs=true,keep_fnames=/verifyToStringNative/ -m keep_fnames=/verifyToStringNative/ --toplevel --comments false --ecma 2020",
+        "build-min-argparser": "terser ./canvaskit/argparser.js -o ./canvaskit/build/loader/argparser.js -p bare_returns -c passes=2",
         "build-min-base2nwasm": "terser ./canvaskit/lib/custom/Base2nWasmDec.js -o ./canvaskit/build/base2n/Base2nWasmDec.min.js -c passes=2 -m  \"reserved=['Base2nError']\" --mangle-props \"regex=/^#|_$/\" --toplevel",
         "build-min-canvaskit-cycdraw": "terser ./canvaskit/cycdraw.js -o ./canvaskit/build/cycdraw/cycdraw.min.js -c passes=2",
         "build-min-imageloader": "terser ./canvaskit/imageloader.js -o ./canvaskit/build/caption/imageloader.min.js -c passes=2",
@@ -34,7 +35,9 @@
         "build-cycdraw-split-loader": "node ./split-loader/build-split-loader.cjs ./new/split ./new/split/split_loader.js default cycdraw_split cycdraw \"https://github.com/Alex31TheDev/cycdraw/tree/main/new\"",
         "build-pngjs-split-loader": "node ./split-loader/build-split-loader.cjs ./pngjs/split ./pngjs/split/split_loader.js default pngjs_split pngjs \"https://github.com/Alex31TheDev/cycdraw/tree/main/pngjs\"",
         "build-canvaskit-split-loader": "node ./split-loader/build-split-loader.cjs ./canvaskit/split ./canvaskit/split/split_loader.js default ck_loader canvaskitloader \"https://github.com/Alex31TheDev/cycdraw/blob/main/canvaskit/canvaskitloader.js\"",
-        "check-canvaskit-utils": "node ./canvaskit/checkutils.cjs ./canvaskit/canvaskitloader.js ../el-levert/src/util/Util.js ../el-levert/src/util/ArrayUtil.js ../el-levert/src/util/ObjectUtil.js ../el-levert/src/util/TypeTester.js ../el-levert/src/util/DiscordUtil.js ../el-levert/src/util/misc/FunctionUtil.js ../el-levert/src/util/misc/RegexUtil.js"
+        "check-canvaskit-utils": "node ./canvaskit/checkutils.cjs ./canvaskit/canvaskitloader.js ../el-levert/src/util/Util.js ../el-levert/src/util/ArrayUtil.js ../el-levert/src/util/ObjectUtil.js ../el-levert/src/util/TypeTester.js ../el-levert/src/util/DiscordUtil.js ../el-levert/src/util/misc/FunctionUtil.js ../el-levert/src/util/misc/RegexUtil.js ../el-levert/src/util/misc/CaseUtil.js",
+        "test-canvaskit-utils": "node --test ./canvaskit/test/canvaskit_utils.test.cjs",
+        "verify-canvaskit-dts": "tsc --project canvaskit"
     },
     "dependencies": {
         "pngjs": "^7.0.0"
@@ -47,6 +50,7 @@
         "eslint": "^8.57.1",
         "prettier": "^3.2.5",
         "terser": "^5.36.0",
+        "typescript": "^7.0.2",
         "yargs": "^18.2.0"
     }
 }

@@ -128,29 +128,42 @@ Tag repo: https://github.com/Alex31TheDev/cycdraw/tree/main/canvaskit`;
 
 // errors
 class CustomError extends Error {
+    name = "CustomError";
+
     constructor(message = "", ...args) {
         super(message, ...args);
 
-        this.name = this.constructor.name;
         Error.captureStackTrace(this, this.constructor);
     }
 }
 
 class ReferenceError extends CustomError {
+    name = "ReferenceError";
+
     constructor(message = "", ref, ...args) {
         super(message, ...args);
         this.ref = ref;
     }
 }
 
-class ExitError extends CustomError {}
-class LoggerError extends CustomError {}
-class TamperError extends CustomError {}
+class ExitError extends CustomError {
+    name = "ExitError";
+}
+class LoggerError extends CustomError {
+    name = "LoggerError";
+}
+class TamperError extends CustomError {
+    name = "TamperError";
+}
 globalThis.TamperError ??= TamperError;
 
-class UtilError extends ReferenceError {}
+class UtilError extends ReferenceError {
+    name = "UtilError";
+}
 
 class LoaderError extends ReferenceError {
+    name = "LoaderError";
+
     constructor(message = "", ref, ...args) {
         if (ref instanceof Error) {
             super(message, ref, ...args);
@@ -276,7 +289,7 @@ class Logger {
         const logText = this.getLogs(level, last);
         if (LoaderUtils.empty(logText)) return;
 
-        const codeBlock = LoaderUtils.codeBlock(logText);
+        const codeBlock = DiscordUtil.codeBlock(logText);
         msg.reply(codeBlock);
     }
 
@@ -372,7 +385,45 @@ function exit(out) {
     throw new ExitError(out);
 }
 
-const FileDataTypes = Object.freeze({
+const createEnum = (definitions, modifier) => {
+    const isArray = Array.isArray(definitions),
+        entries = isArray ? definitions.map(key => [key, key]) : Object.entries(definitions);
+
+    const obj = Object.fromEntries(entries),
+        keys = entries.map(([key]) => key),
+        values = entries.map(([, val]) => val);
+
+    const valid = new Set(values),
+        descriptors = {};
+
+    if (!("keys" in obj)) {
+        descriptors.keys = { value: Object.freeze(keys) };
+    }
+
+    if (!("values" in obj)) {
+        descriptors.values = { value: Object.freeze(values) };
+    }
+
+    if (!("valid" in obj)) {
+        descriptors.valid = { value: valid, writable: true, configurable: true };
+    }
+
+    if (!("has" in obj)) {
+        descriptors.has = { value: val => obj.valid.has(val) };
+    }
+
+    descriptors[Symbol.iterator] = { value: () => obj.valid[Symbol.iterator]() };
+    Object.defineProperties(obj, descriptors);
+
+    if (typeof modifier === "function") {
+        const res = modifier(obj);
+        if (res instanceof Set) obj.valid = res;
+    }
+
+    return Object.freeze(obj);
+};
+
+const FileDataTypes = createEnum({
     text: "text",
     json: "json",
     binary: "binary",
@@ -575,8 +626,8 @@ let LoaderUtils = {
         minute: 60,
         hour: 3600,
         day: 86400,
-        month: 2592000,
         week: 604800,
+        month: 2592000,
         year: 31536000
     }),
 
@@ -586,6 +637,15 @@ let LoaderUtils = {
         megabyte: 1048576,
         gigabyte: 1073741824,
         terabyte: 1099511627776
+    }),
+
+    lengthTypes: createEnum(["array", "string"]),
+
+    countTypes: createEnum(["chars", "lines"]),
+
+    boolStrings: Object.freeze({
+        truthy: new Set(["true", "yes", "y", "t"]),
+        falsy: new Set(["false", "no", "n", "f"])
     }),
 
     numbers: "0123456789",
@@ -615,8 +675,8 @@ let LoaderUtils = {
         if (typeof str !== "string") return defaultValue ?? null;
         str = str.trim().toLowerCase();
 
-        if (LoaderUtils.truthyStrings.has(str)) return true;
-        else if (LoaderUtils.falsyStrings.has(str)) return false;
+        if (LoaderUtils.boolStrings.truthy.has(str)) return true;
+        else if (LoaderUtils.boolStrings.falsy.has(str)) return false;
         else return defaultValue ?? null;
     },
 
@@ -636,6 +696,97 @@ let LoaderUtils = {
         }
 
         return num.toLocaleString("en-US", options);
+    },
+
+    splitAt: (str, sep = " ") => {
+        const idx = str.indexOf(sep);
+
+        const first = idx === -1 ? str : str.slice(0, idx),
+            second = idx === -1 ? "" : str.slice(idx);
+
+        return [first, second];
+    },
+
+    _splitArgsDefaults: {
+        sep: [" ", "\n"],
+        n: 1
+    },
+    splitArgs: (str, lowercase = false, options = {}) => {
+        let multipleLowercase = Array.isArray(lowercase);
+
+        if (!multipleLowercase && TypeTester.isObject(lowercase)) {
+            options = ObjectUtil.guaranteeObject(lowercase);
+
+            lowercase = options.lowercase ?? false;
+            multipleLowercase = Array.isArray(lowercase);
+        }
+
+        options = ObjectUtil.setValuesWithDefaults({}, options, LoaderUtils._splitArgsDefaults);
+
+        const lowercaseFirst = multipleLowercase ? lowercase[0] ?? false : lowercase,
+            lowercaseSecond = multipleLowercase ? lowercase[1] ?? false : false;
+
+        let { sep, n } = options;
+
+        if (LoaderUtils.empty(sep)) {
+            return [lowercaseFirst ? str.toLowerCase() : str, ""];
+        } else sep = ArrayUtil.guaranteeArray(sep);
+
+        let idx = -1,
+            sepLength;
+
+        if (LoaderUtils.single(sep)) {
+            sep = sep[0] ?? sep;
+
+            idx = str.indexOf(sep);
+            sepLength = sep.length;
+
+            if (n > 1) {
+                for (let i = 1; i < n; i++) {
+                    idx = str.indexOf(sep, idx + 1);
+                    if (idx === -1) break;
+                }
+            }
+        } else {
+            const escaped = sep.map(item => RegexUtil.escapeRegex(item)),
+                exp = new RegExp(escaped.join("|"), "g");
+
+            exp.lastIndex = 0;
+            if (n <= 1) {
+                const match = exp.exec(str);
+
+                if (match) {
+                    idx = match.index;
+                    sepLength = match[0].length;
+                }
+            } else {
+                let match;
+
+                for (let i = 1; (match = exp.exec(str)) !== null; i++) {
+                    if (i === n) {
+                        idx = match.index;
+                        sepLength = match[0].length;
+
+                        break;
+                    } else if (i > n) {
+                        idx = -1;
+                        break;
+                    }
+                }
+            }
+        }
+
+        let first, second;
+
+        if (idx === -1) {
+            first = str;
+            second = "";
+        } else {
+            first = str.slice(0, idx);
+            second = str.slice(idx + sepLength);
+        }
+
+        return [lowercaseFirst ? first.toLowerCase() : first, lowercaseSecond ? second.toLowerCase() : second];
     },
 
     stripSpaces: str => {
@@ -778,139 +929,37 @@ let LoaderUtils = {
         return count;
     },
 
-    getCount: (str, countType) => {
-        if (!LoaderUtils.nonemptyString(countType)) {
-            throw new UtilError("No count type provided");
-        }
-
-        let countFunc = null;
-
+    _countFunc: countType => {
         switch (countType) {
-            case "chars":
-                countFunc = LoaderUtils.countChars;
-                break;
-            case "lines":
-                countFunc = LoaderUtils.countLines;
-                break;
+            case LoaderUtils.countTypes.chars:
+                return LoaderUtils.countChars;
+            case LoaderUtils.countTypes.lines:
+                return LoaderUtils.countLines;
             default:
                 throw new UtilError("Invalid count type: " + countType, countType);
         }
-
-        return countFunc(str);
     },
 
-    overSizeLimits: (obj, charLimit, lineLimit) => {
-        if (obj == null) return false;
+    getCount: (str, countType) => {
+        return LoaderUtils._countFunc(countType)(str);
+    },
+
+    overSizeLimits: (str, charLimit, lineLimit) => {
+        if (typeof str !== "string") return false;
+
+        let count = null;
 
         if (typeof charLimit === "number") {
-            const count = LoaderUtils.countChars(obj);
+            count = LoaderUtils.countChars(str);
             if (count > charLimit) return [count, null];
         }
 
         if (typeof lineLimit === "number") {
-            const count = LoaderUtils.countLines(obj);
+            count = LoaderUtils.countLines(str);
             if (count > lineLimit) return [null, count];
         }
 
         return false;
-    },
-
-    splitAt: (str, sep = " ") => {
-        const idx = str.indexOf(sep);
-
-        let first, second;
-
-        if (idx === -1) {
-            first = str;
-            second = "";
-        } else {
-            first = str.slice(0, idx);
-            second = str.slice(idx);
-        }
-
-        return [first, second];
-    },
-
-    _splitArgsDefaults: {
-        sep: [" ", "\n"],
-        n: 1
-    },
-    splitArgs: (str, lowercase = false, options = {}) => {
-        let multipleLowercase = Array.isArray(lowercase);
-
-        if (!multipleLowercase && TypeTester.isObject(lowercase)) {
-            options = ObjectUtil.guaranteeObject(lowercase);
-
-            lowercase = options.lowercase ?? false;
-            multipleLowercase = Array.isArray(lowercase);
-        }
-
-        options = ObjectUtil.setValuesWithDefaults({}, options, LoaderUtils._splitArgsDefaults);
-
-        const lowercaseFirst = multipleLowercase ? lowercase[0] ?? false : lowercase,
-            lowercaseSecond = multipleLowercase ? lowercase[1] ?? false : false;
-
-        let { sep, n } = options;
-
-        if (LoaderUtils.empty(sep)) {
-            return [lowercaseFirst ? str.toLowerCase() : str, ""];
-        } else sep = ArrayUtil.guaranteeArray(sep);
-
-        let idx = -1,
-            sepLength;
-
-        if (LoaderUtils.single(sep)) {
-            sep = sep[0] ?? sep;
-
-            idx = str.indexOf(sep);
-            sepLength = sep.length;
-
-            if (n > 1) {
-                for (let i = 1; i < n; i++) {
-                    idx = str.indexOf(sep, idx + 1);
-                    if (idx === -1) break;
-                }
-            }
-        } else {
-            const escaped = sep.map(item => RegexUtil.escapeRegex(item)),
-                exp = new RegExp(escaped.join("|"), "g");
-
-            exp.lastIndex = 0;
-            if (n <= 1) {
-                const match = exp.exec(str);
-
-                if (match) {
-                    idx = match.index;
-                    sepLength = match[0].length;
-                }
-            } else {
-                let match;
-
-                for (let i = 1; (match = exp.exec(str)) !== null; i++) {
-                    if (i === n) {
-                        idx = match.index;
-                        sepLength = match[0].length;
-
-                        break;
-                    } else if (i > n) {
-                        idx = -1;
-                        break;
-                    }
-                }
-            }
-        }
-
-        let first, second;
-
-        if (idx === -1) {
-            first = str;
-            second = "";
-        } else {
-            first = str.slice(0, idx);
-            second = str.slice(idx + sepLength);
-        }
-
-        return [lowercaseFirst ? first.toLowerCase() : first, lowercaseSecond ? second.toLowerCase() : second];
     },
 
     _trimStringDefaults: {
@@ -1018,49 +1067,43 @@ let LoaderUtils = {
         return LoaderUtils.overSizeLimits(str, LoaderUtils.outCharLimit, LoaderUtils.outLineLimit);
     },
 
-    length: obj => {
-        return obj?.length ?? obj?.size ?? 0;
+    length: val => {
+        return val?.length ?? val?.size ?? 0;
     },
 
-    stringLength: obj => {
-        return obj == null ? 0 : String(obj).length;
+    stringLength: val => {
+        return val == null ? 0 : String(val).length;
     },
 
-    getLength: (val, lengthType) => {
-        if (!LoaderUtils.nonemptyString(lengthType)) {
-            throw new UtilError("No length type provided");
-        }
-
-        let lengthFunc = null;
-
+    _lengthFunc: lengthType => {
         switch (lengthType) {
-            case "array":
-                lengthFunc = LoaderUtils.length;
-                break;
-            case "string":
-                lengthFunc = LoaderUtils.stringLength;
-                break;
+            case LoaderUtils.lengthTypes.array:
+                return LoaderUtils.length;
+            case LoaderUtils.lengthTypes.string:
+                return LoaderUtils.stringLength;
             default:
                 throw new UtilError("Invalid length type: " + lengthType, lengthType);
         }
+    },
 
-        return lengthFunc(val);
+    getLength: (val, lengthType) => {
+        return LoaderUtils._lengthFunc(lengthType)(val);
     },
 
     nonemptyString: str => {
-        return typeof str === "string" && str.length > 0;
+        return typeof str === "string" && !LoaderUtils.empty(str);
     },
 
-    empty: obj => {
-        return LoaderUtils.length(obj) === 0;
+    empty: val => {
+        return LoaderUtils.length(val) === 0;
     },
 
-    single: obj => {
-        return LoaderUtils.length(obj) === 1;
+    single: val => {
+        return LoaderUtils.length(val) === 1;
     },
 
-    multiple: obj => {
-        return LoaderUtils.length(obj) > 1;
+    multiple: val => {
+        return LoaderUtils.length(val) > 1;
     },
 
     first: (val, start = 0, n = 1) => {
@@ -1102,128 +1145,6 @@ let LoaderUtils = {
     setRandomElement(array, value, a = 0, b = array.length) {
         array[a + ~~(Math.random() * (b - a))] = value;
         return array;
-    },
-
-    codeBlock: (str, lang) => {
-        let formatted = LoaderUtils.empty(lang) ? "```\n" : `\`\`\`${lang}\n`;
-        formatted += str + "```";
-
-        return LoaderUtils.exceedsLimits(formatted) ? str : formatted;
-    },
-
-    _escapeMarkdownDefaults: {
-        codeBlock: true,
-        inlineCode: true,
-        bold: true,
-        italic: true,
-        underline: true,
-        strikethrough: true,
-        spoiler: true,
-        codeBlockContent: true,
-        inlineCodeContent: true,
-        escape: true,
-        heading: true,
-        bulletedList: true,
-        numberedList: true,
-        maskedLink: true
-    },
-    escapeMarkdown: (text, options = {}) => {
-        options = ObjectUtil.setValuesWithDefaults({}, options, LoaderUtils._escapeMarkdownDefaults);
-
-        const {
-            codeBlock,
-            inlineCode,
-            bold,
-            italic,
-            underline,
-            strikethrough,
-            spoiler,
-            codeBlockContent,
-            inlineCodeContent,
-            escape,
-            heading,
-            bulletedList,
-            numberedList,
-            maskedLink
-        } = options;
-
-        if (!codeBlockContent) {
-            return text
-                .split("```")
-                .map((sub, i, arr) => {
-                    if (i % 2 && i !== arr.length - 1) return sub;
-
-                    return LoaderUtils.escapeMarkdown(sub, {
-                        ...options,
-                        codeBlockContent: true
-                    });
-                })
-                .join(codeBlock ? "\\`\\`\\`" : "```");
-        }
-
-        if (!inlineCodeContent) {
-            return text
-                .split(/(?<=^|[^`])`(?=[^`]|$)/g)
-                .map((sub, i, arr) => {
-                    if (i % 2 && i !== arr.length - 1) return sub;
-
-                    return LoaderUtils.escapeMarkdown(sub, {
-                        ...options,
-                        inlineCodeContent: true
-                    });
-                })
-                .join(inlineCode ? "\\`" : "`");
-        }
-
-        let res = text;
-
-        if (escape) res = res.replaceAll("\\", "\\\\");
-        if (inlineCode)
-            res = res.replaceAll(/(?<=^|[^`])``?(?=[^`]|$)/g, match => (match.length === 2 ? "\\`\\`" : "\\`"));
-        if (codeBlock) res = res.replaceAll("```", "\\`\\`\\`");
-
-        if (italic) {
-            let idx = 0;
-
-            res = res.replaceAll(/(?<=^|[^*])\*([^*]|\*\*|$)/g, (_, match) => {
-                if (match === "**") return ++idx % 2 ? `\\*${match}` : `${match}\\*`;
-                return `\\*${match}`;
-            });
-
-            idx = 0;
-
-            res = res.replaceAll(/(?<=^|[^_])(?<!<a?:.+|https?:\/\/\S+)_(?!:\d+>)([^_]|__|$)/g, (_, match) => {
-                if (match === "__") return ++idx % 2 ? `\\_${match}` : `${match}\\_`;
-                return `\\_${match}`;
-            });
-        }
-
-        if (bold) {
-            let idx = 0;
-
-            res = res.replaceAll(/\*\*(\*)?/g, (_, match) => {
-                if (match) return ++idx % 2 ? `${match}\\*\\*` : `\\*\\*${match}`;
-                return "\\*\\*";
-            });
-        }
-
-        if (underline) {
-            let idx = 0;
-
-            res = res.replaceAll(/(?<!<a?:.+|https?:\/\/\S+)__(_)?(?!:\d+>)/g, (_, match) => {
-                if (match) return ++idx % 2 ? `${match}\\_\\_` : `\\_\\_${match}`;
-                return "\\_\\_";
-            });
-        }
-
-        if (strikethrough) res = res.replaceAll("~~", "\\~\\~");
-        if (spoiler) res = res.replaceAll("||", "\\|\\|");
-        if (heading) res = res.replaceAll(/^( {0,2})([*-] )?( *)(#{1,3} )/gm, "$1$2$3\\$4");
-        if (bulletedList) res = res.replaceAll(/^( *)([*-])( +)/gm, "$1\\$2$3");
-        if (numberedList) res = res.replaceAll(/^( *\d+)\./gm, "$1\\.");
-        if (maskedLink) res = res.replaceAll(/\[.+]\(.+\)/gm, "\\$&");
-
-        return res;
     },
 
     clamp: (x, a, b) => {
@@ -1285,6 +1206,53 @@ let LoaderUtils = {
         }
 
         return num;
+    },
+
+    bytesToHex: bytes => {
+        if (bytes == null) return "";
+
+        if (ArrayBuffer.isView(bytes)) {
+            const u8 = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+            let str = "";
+            for (let i = 0; i < u8.length; i++) {
+                str += u8[i].toString(16).padStart(2, "0");
+            }
+            return str;
+        } else if (Array.isArray(bytes)) {
+            let str = "";
+            for (let i = 0; i < bytes.length; i++) {
+                str += (bytes[i] & 0xff).toString(16).padStart(2, "0");
+            }
+            return str;
+        }
+
+        return "";
+    },
+
+    hexToBytes: hex => {
+        if (hex == null) {
+            return new Uint8Array(0);
+        }
+
+        if (ArrayBuffer.isView(hex)) {
+            return new Uint8Array(hex.buffer, hex.byteOffset, hex.byteLength);
+        } else if (Array.isArray(hex)) {
+            return Uint8Array.from(hex);
+        } else if (typeof hex !== "string") {
+            return new Uint8Array(0);
+        }
+
+        const cleanHex = hex.startsWith("0x") || hex.startsWith("0X") ? hex.slice(2) : hex,
+            normalizedHex = cleanHex.length % 2 === 0 ? cleanHex : `0${cleanHex}`;
+
+        const len = normalizedHex.length / 2,
+            bytes = new Uint8Array(len);
+
+        for (let i = 0; i < len; i++) {
+            bytes[i] = Number.parseInt(normalizedHex.slice(i * 2, i * 2 + 2), 16);
+        }
+
+        return bytes;
     },
 
     urlRegex: /(\S*?):\/\/(?:([^/.]+)\.)?([^/.]+)\.([^/\s]+)\/?(\S*)?/,
@@ -1534,6 +1502,42 @@ let LoaderUtils = {
 
     getErrorMessage: (err, fallback = "No error message available") => {
         return (TypeTester.isObject(err) ? err.stack ?? err.message : err) ?? fallback;
+    },
+
+    sameValue: (a, b) => {
+        if (a === b) {
+            return true;
+        } else if (a == null || b == null || typeof a !== typeof b) {
+            return false;
+        } else if (
+            (ArrayBuffer.isView(a) || a instanceof ArrayBuffer) &&
+            (ArrayBuffer.isView(b) || b instanceof ArrayBuffer)
+        ) {
+            if (a.byteLength !== b.byteLength) return false;
+
+            const viewA = a instanceof Uint8Array ? a : new Uint8Array(a.buffer ?? a, a.byteOffset ?? 0, a.byteLength),
+                viewB = b instanceof Uint8Array ? b : new Uint8Array(b.buffer ?? b, b.byteOffset ?? 0, b.byteLength);
+
+            for (let i = 0; i < viewA.byteLength; i++) {
+                if (viewA[i] !== viewB[i]) return false;
+            }
+
+            return true;
+        } else if (TypeTester.isObject(a) && TypeTester.isObject(b)) {
+            return JSON.stringify(a) === JSON.stringify(b);
+        } else {
+            return false;
+        }
+    },
+
+    createEnum,
+
+    parseRanges: (str, base = 16) => {
+        const split = str.split(/\s+/).filter(Boolean);
+        return split.map(range => {
+            const [first, last] = range.split("-").map(x => LoaderUtils.parseInt(x, base));
+            return [first, last ?? first];
+        });
     }
 };
 
@@ -1559,29 +1563,6 @@ const ArrayUtil = Object.freeze({
 
     guaranteeFirst: val => {
         return Array.isArray(val) ? val[0] : val;
-    },
-
-    _indexFunc: (array, item) => {
-        switch (typeof item) {
-            case "number":
-                return item;
-            case "function":
-                const callback = item;
-                return array.findIndex(callback);
-            default:
-                return array.indexOf(item);
-        }
-    },
-    _valueFunc: callback => {
-        switch (typeof callback) {
-            case "string":
-                const propName = callback;
-                return obj => obj[propName];
-            case "function":
-                return callback;
-            default:
-                return val => val;
-        }
     },
 
     sum: (array, callback) => {
@@ -1762,6 +1743,54 @@ const ArrayUtil = Object.freeze({
 
     maxLength: (array, lengthType = "string") => {
         return Math.max(...array.map(x => LoaderUtils.getLength(x, lengthType)));
+    },
+
+    toUint8Array: data => {
+        if (data == null) {
+            return new Uint8Array(0);
+        } else if (data.constructor === Uint8Array) {
+            return data;
+        } else if (TypeTester.isTypedArray(data)) {
+            return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+        } else if (data instanceof ArrayBuffer) {
+            return new Uint8Array(data);
+        } else if (typeof data === "string") {
+            return LoaderTextEncoder.stringToUtf8(data);
+        } else if (Array.isArray(data)) {
+            return Uint8Array.from(data);
+        } else if (TypeTester.isObject(data)) {
+            if (Array.isArray(data.data)) {
+                return Uint8Array.from(data.data);
+            } else {
+                return Uint8Array.from(Object.values(data));
+            }
+        } else {
+            return Uint8Array.from(data);
+        }
+    },
+
+    _indexFunc: (array, item) => {
+        switch (typeof item) {
+            case "number":
+                return item;
+            case "function":
+                const callback = item;
+                return array.findIndex(callback);
+            default:
+                return array.indexOf(item);
+        }
+    },
+
+    _valueFunc: callback => {
+        switch (typeof callback) {
+            case "string":
+                const propName = callback;
+                return obj => obj[propName];
+            case "function":
+                return callback;
+            default:
+                return val => val;
+        }
     }
 });
 
@@ -1827,48 +1856,108 @@ const RegexUtil = Object.freeze({
         return new regexCtor(expText, expFlags);
     },
 
-    multipleReplace: (str, ...rules) => {
+    _substituteRegex: /\$([$&`']|\d{1,2}|<([^>]+)>)/g,
+
+    _evaluateReplacement: (replacement, match, str) => {
+        if (typeof replacement === "function") {
+            return replacement(match[0], ...match.slice(1), match.index, str);
+        }
+
+        if (typeof replacement !== "string" || !replacement.includes("$")) {
+            return String(replacement ?? "");
+        }
+
+        return replacement.replace(RegexUtil._substituteRegex, (fullToken, token, groupName) => {
+            switch (token) {
+                case "$":
+                    return "$";
+                case "&":
+                    return match[0];
+                case "`":
+                    return str.slice(0, match.index);
+                case "'":
+                    return str.slice(match.index + match[0].length);
+            }
+
+            if (groupName && match.groups) {
+                return match.groups[groupName] ?? "";
+            }
+
+            const num = Number(token);
+
+            if (!Number.isNaN(num) && num > 0 && num < match.length) {
+                return match[num] ?? "";
+            }
+
+            return fullToken;
+        });
+    },
+
+    multipleReplace: (str, rules = []) => {
         if (LoaderUtils.empty(rules)) return str;
 
-        const regexCtor = rules[0][0].constructor,
-            matchInfo = [];
+        const regexCtor = rules[0][0].constructor;
 
-        for (const [regex, replacement] of rules) {
-            const newFlags = LoaderUtils.unique(regex.flags + "g"),
-                globalRegex = new regexCtor(regex.source, newFlags);
+        const ruleEntries = rules.map(([regex, replacement], idx) => {
+            const isGlobal = regex.flags.includes("g"),
+                newFlags = LoaderUtils.unique(regex.flags + "g");
 
-            for (const match of str.matchAll(globalRegex)) {
-                const start = match.index,
-                    end = match.index + match[0].length;
+            return {
+                idx,
+                regex,
+                replacement,
+                isGlobal,
+                scanner: new regexCtor(regex.source, newFlags)
+            };
+        });
 
-                matchInfo.push({ regex, replacement, match, start, end });
+        const activeRules = new Set(ruleEntries),
+            out = [];
+
+        let cursor = 0;
+
+        while (cursor < str.length && activeRules.size > 0) {
+            let bestMatch = null,
+                bestRule = null;
+
+            for (const rule of activeRules) {
+                rule.scanner.lastIndex = cursor;
+                const match = rule.scanner.exec(str);
+
+                if (match === null) {
+                    activeRules.delete(rule);
+                    continue;
+                }
+
+                const isEarlier = bestMatch === null || match.index < bestMatch.index,
+                    isTieBreak = bestMatch !== null && match.index === bestMatch.index && rule.idx < bestRule.idx;
+
+                if (isEarlier || isTieBreak) {
+                    bestMatch = match;
+                    bestRule = rule;
+
+                    if (bestMatch.index === cursor && bestRule.idx === 0) {
+                        break;
+                    }
+                }
+            }
+
+            if (bestMatch === null) {
+                break;
+            }
+
+            out.push(str.slice(cursor, bestMatch.index));
+            out.push(RegexUtil._evaluateReplacement(bestRule.replacement, bestMatch, str));
+
+            const matchLength = Math.max(bestMatch[0].length, 1);
+            cursor = bestMatch.index + matchLength;
+
+            if (!bestRule.isGlobal) {
+                activeRules.delete(bestRule);
             }
         }
 
-        matchInfo.sort((a, b) => a.start - b.start || b.end - a.end);
-
-        let out = [],
-            lastIndex = 0;
-
-        for (const info of matchInfo) {
-            if (info.start < lastIndex) continue;
-
-            out.push(str.slice(lastIndex, info.start));
-            lastIndex = info.end;
-
-            const fullMatch = info.match[0];
-            let replaced;
-
-            if (typeof info.replacement === "function") {
-                replaced = info.replacement(fullMatch, ...info.match.slice(1), info.start, str);
-            } else {
-                replaced = fullMatch.replace(info.regex, info.replacement);
-            }
-
-            out.push(replaced ?? "");
-        }
-
-        out.push(str.slice(lastIndex));
+        out.push(str.slice(cursor));
         return out.join("");
     },
 
@@ -1981,36 +2070,78 @@ const CaseUtil = Object.freeze({
 });
 
 let DiscordUtil = {
-    _tagNameRegex: /^[A-Za-z0-9\-_]+$/,
-    _normalizeTagName: name => {
-        if (!util.env) {
-            return name;
-        }
+    msgCharLimit: 2000,
+    embedCharLimit: 4096,
 
-        if (typeof name === "string") {
-            return name.replace(/^[^:]+:/, "");
-        } else if (Array.isArray(name)) {
-            return name.map(DiscordUtil._normalizeTagName);
-        }
-
-        return name;
-    },
-
-    validTagName: name => {
-        name = DiscordUtil._normalizeTagName(name);
-        return name.length > 0 && name.length <= 32 && DiscordUtil._tagNameRegex.test(name);
-    },
-
-    _userIdRegex: /\d{17,20}/g,
+    userIdRegex: /\d{17,20}/g,
     findUserIds: str => {
-        const matches = Array.from(str.matchAll(DiscordUtil._userIdRegex));
+        const matches = Array.from(str.matchAll(DiscordUtil.userIdRegex));
         return matches.map(match => match[0]);
     },
 
-    _mentionRegex: /<@(\d{17,20})>/g,
+    mentionRegex: /<@!?(\d{17,20})>/g,
     findMentions: str => {
-        const matches = Array.from(str.matchAll(DiscordUtil._mentionRegex));
+        const matches = Array.from(str.matchAll(DiscordUtil.mentionRegex));
         return matches.map(match => match[1]);
+    },
+
+    formatUser: (user, id = null, discord = false, options) => {
+        options = ObjectUtil.guaranteeObject(options);
+
+        const format = options.format ?? "default",
+            possessive = options.possessive ?? false;
+
+        let username = null,
+            nickname = options.nickname ?? null;
+
+        if (TypeTester.isObject(user)) {
+            const targetUser = user.user ?? user;
+
+            username = targetUser.username;
+            id = targetUser.id ?? id;
+            nickname ??= user.nickname ?? null;
+        } else if (id !== null) {
+            username = user;
+        } else {
+            id = user;
+        }
+
+        if (id === "0" || (LoaderUtils.empty(id) && LoaderUtils.empty(username))) {
+            return "invalid";
+        }
+
+        switch (format) {
+            case "owner": {
+                if (LoaderUtils.empty(username)) {
+                    const formattedId = discord ? `\`${id}\`` : id;
+                    return possessive ? `${formattedId}'s` : formattedId;
+                }
+
+                const formattedUsername = discord ? `\`${username}\`` : username,
+                    base = possessive ? `${formattedUsername}'s` : formattedUsername;
+
+                if (!LoaderUtils.nonemptyString(nickname)) {
+                    return base;
+                }
+
+                const formattedNick = discord ? `**${DiscordUtil.escapeMarkdown(nickname)}**` : nickname;
+                return `${base} (also known as ${formattedNick})`;
+            }
+
+            case "default": {
+                const formattedId = discord ? `\`${id}\`` : id;
+
+                if (LoaderUtils.nonemptyString(username)) {
+                    const name = possessive ? `${username}'s` : username;
+                    return LoaderUtils.nonemptyString(id) ? `${name} (${formattedId})` : name;
+                }
+
+                return possessive ? `${formattedId}'s` : formattedId;
+            }
+
+            default:
+                throw new UtilError("Invalid user format: " + format, format);
+        }
     },
 
     codeblockRegex: /(?<!\\)(?:`{3}([\S]+\n)?([\s\S]*?)`{3}|`([^`\n]+)`)/g,
@@ -2024,25 +2155,162 @@ let DiscordUtil = {
         return LoaderUtils.maskRanges(str, DiscordUtil.findCodeblocks(str), mask);
     },
 
-    _parseScriptResult: (body, isScript = false, lang = "") => ({ body, isScript, lang }),
-    parseScript: script => {
-        const match = script.match(DiscordUtil._parseScriptRegex);
-        if (!match) return DiscordUtil._parseScriptResult(script);
+    codeBlock: (lang, content) => {
+        if (typeof content === "undefined") {
+            content = lang;
+            lang = "";
+        }
 
-        const body = (match[2] ?? match[3])?.trim(),
-            lang = match[1]?.trim() ?? "";
+        return `\`\`\`${lang ? lang + "\n" : ""}${content}\`\`\``;
+    },
 
-        return typeof body === "undefined"
-            ? DiscordUtil._parseScriptResult(script)
-            : DiscordUtil._parseScriptResult(body, true, lang);
+    _escapeMarkdownDefaults: {
+        codeBlock: true,
+        inlineCode: true,
+        bold: true,
+        italic: true,
+        underline: true,
+        strikethrough: true,
+        spoiler: true,
+        codeBlockContent: true,
+        inlineCodeContent: true,
+        escape: true,
+        heading: true,
+        bulletedList: true,
+        numberedList: true,
+        maskedLink: true
+    },
+    escapeMarkdown: (text, options = {}) => {
+        if (!LoaderUtils.nonemptyString(text)) return "";
+        options = ObjectUtil.setValuesWithDefaults({}, options, DiscordUtil._escapeMarkdownDefaults);
+
+        const {
+            codeBlock,
+            inlineCode,
+            bold,
+            italic,
+            underline,
+            strikethrough,
+            spoiler,
+            codeBlockContent,
+            inlineCodeContent,
+            escape,
+            heading,
+            bulletedList,
+            numberedList,
+            maskedLink
+        } = options;
+
+        if (!codeBlockContent) {
+            return text
+                .split("```")
+                .map((sub, i, arr) => {
+                    if (i % 2 && i !== arr.length - 1) return sub;
+
+                    return DiscordUtil.escapeMarkdown(sub, {
+                        ...options,
+                        codeBlockContent: true
+                    });
+                })
+                .join(codeBlock ? "\\`\\`\\`" : "```");
+        }
+
+        if (!inlineCodeContent) {
+            return text
+                .split(/(?<=^|[^`])`(?=[^`]|$)/g)
+                .map((sub, i, arr) => {
+                    if (i % 2 && i !== arr.length - 1) return sub;
+
+                    return DiscordUtil.escapeMarkdown(sub, {
+                        ...options,
+                        inlineCodeContent: true
+                    });
+                })
+                .join(inlineCode ? "\\`" : "`");
+        }
+
+        let res = text;
+
+        if (escape) res = res.replaceAll("\\", "\\\\");
+        if (inlineCode)
+            res = res.replaceAll(/(?<=^|[^`])``?(?=[^`]|$)/g, match => (match.length === 2 ? "\\`\\`" : "\\`"));
+        if (codeBlock) res = res.replaceAll("```", "\\`\\`\\`");
+
+        if (italic) {
+            let idx = 0;
+
+            res = res.replaceAll(/(?<=^|[^*])\*([^*]|\*\*|$)/g, (_, match) => {
+                if (match === "**") return ++idx % 2 ? `\\*${match}` : `${match}\\*`;
+                return `\\*${match}`;
+            });
+
+            idx = 0;
+
+            res = res.replaceAll(/(?<=^|[^_])(?<!<a?:.+|https?:\/\/\S+)_(?!:\d+>)([^_]|__|$)/g, (_, match) => {
+                if (match === "__") return ++idx % 2 ? `\\_${match}` : `${match}\\_`;
+                return `\\_${match}`;
+            });
+        }
+
+        if (bold) {
+            let idx = 0;
+
+            res = res.replaceAll(/\*\*(\*)?/g, (_, match) => {
+                if (match) return ++idx % 2 ? `${match}\\*\\*` : `\\*\\*${match}`;
+                return "\\*\\*";
+            });
+        }
+
+        if (underline) {
+            let idx = 0;
+
+            res = res.replaceAll(/(?<!<a?:.+|https?:\/\/\S+)__(_)?(?!:\d+>)/g, (_, match) => {
+                if (match) return ++idx % 2 ? `${match}\\_\\_` : `\\_\\_${match}`;
+                return "\\_\\_";
+            });
+        }
+
+        if (strikethrough) res = res.replaceAll("~~", "\\~\\~");
+        if (spoiler) res = res.replaceAll("||", "\\|\\|");
+        if (heading) res = res.replaceAll(/^( {0,2})([*-] )?( *)(#{1,3} )/gm, "$1$2$3\\$4");
+        if (bulletedList) res = res.replaceAll(/^( *)([*-])( +)/gm, "$1\\$2$3");
+        if (numberedList) res = res.replaceAll(/^( *\d+)\./gm, "$1\\.");
+        if (maskedLink) res = res.replaceAll(/\[.+]\(.+\)/gm, "\\$&");
+
+        return res;
+    },
+
+    formatErrorEmbed: (header, err, options = {}) => {
+        options = ObjectUtil.guaranteeObject(options);
+
+        const charLimit = options.charLimit ?? DiscordUtil.embedCharLimit,
+            lang = options.lang ?? options.language ?? "";
+
+        const errMsg = LoaderUtils.getErrorMessage(err),
+            formatted = LoaderUtils.empty(lang) ? DiscordUtil.codeBlock(errMsg) : DiscordUtil.codeBlock(lang, errMsg);
+
+        const res = {
+            content: header ?? ""
+        };
+
+        if (formatted.length <= charLimit) {
+            res.embed = {
+                description: formatted
+            };
+        } else {
+            res.content = `${header ? header + "\n" : ""}${errMsg}`;
+        }
+
+        return res;
     },
 
     getMessageUrl: (serverId, channelId, messageId) => {
         return `https://www.discord.com/channels/${serverId}/${channelId}/${messageId}`;
     },
 
-    _msgUrlRegex:
-        /(?:(https?:)\/\/)?(?:(www|ptb)\.)?discord\.com\/channels\/(?<sv_id>\d{18,19}|@me)\/(?<ch_id>\d{18,19})(?:\/(?<msg_id>\d{18,19}))/gi,
+    msgUrlRegex:
+        /(?:(https?:)\/\/)?(?:(www|ptb|canary)\.)?discord\.com\/channels\/(?<sv_id>\d{18,19}|@me)\/(?<ch_id>\d{18,19})(?:\/(?<msg_id>\d{18,19}))/gi,
+
     _msgUrlMatchResult: match => {
         if (!match) return null;
 
@@ -2053,6 +2321,10 @@ let DiscordUtil = {
             protocol: match[1] ?? "",
             subdomain: match[2] ?? "",
 
+            sv_id: groups.sv_id,
+            ch_id: groups.ch_id,
+            msg_id: groups.msg_id,
+
             serverId: groups.sv_id,
             channelId: groups.ch_id,
             messageId: groups.msg_id
@@ -2060,19 +2332,20 @@ let DiscordUtil = {
     },
 
     parseMessageUrl: url => {
-        const match = url.match(DiscordUtil._parseMessageUrlRegex);
+        const match = url.match(DiscordUtil.singleMsgRegex);
         return DiscordUtil._msgUrlMatchResult(match);
     },
 
     findMessageUrls: str => {
-        DiscordUtil._msgUrlRegex.lastIndex = 0;
+        DiscordUtil.msgUrlRegex.lastIndex = 0;
 
-        const matches = Array.from(str.matchAll(DiscordUtil._msgUrlRegex));
+        const matches = Array.from(str.matchAll(DiscordUtil.msgUrlRegex));
         return matches.map(match => DiscordUtil._msgUrlMatchResult(match));
     },
 
-    _attachUrlRegex:
+    attachUrlRegex:
         /(?<prefix>(?:(https?:)\/\/)?(cdn|media)\.discordapp\.(com|net)\/attachments\/(?<sv_id>\d+)\/(?<ch_id>\d+)\/(?<filename>[^/?#\s]+?)(?<ext>\.[^.?#\s]+)?(?=\?|\s|$))\??(?:ex=(?<ex>[0-9a-f]+)&is=(?<is>[0-9a-f]+)&hm=(?<hm>[0-9a-f]+))?/giu,
+
     _attachUrlMatchResult: match => {
         if (!match) return null;
 
@@ -2087,6 +2360,8 @@ let DiscordUtil = {
             subdomain: match[3],
             tld: match[4],
 
+            sv_id: groups.sv_id,
+            ch_id: groups.ch_id,
             serverId: groups.sv_id,
             channelId: groups.ch_id,
 
@@ -2101,16 +2376,30 @@ let DiscordUtil = {
         };
     },
 
+    isAttachmentUrl: url => {
+        if (!LoaderUtils.nonemptyString(url)) return false;
+
+        DiscordUtil.singleAttachRegex.lastIndex = 0;
+        return DiscordUtil.singleAttachRegex.test(url.trim());
+    },
+
     parseAttachmentUrl: url => {
-        const match = url.match(DiscordUtil._parseAttachmentUrlRegex);
+        const match = url.match(DiscordUtil.singleAttachRegex);
         return DiscordUtil._attachUrlMatchResult(match);
     },
 
     findAttachmentUrls: str => {
-        DiscordUtil._attachUrlRegex.lastIndex = 0;
+        DiscordUtil.attachUrlRegex.lastIndex = 0;
 
-        const matches = Array.from(str.matchAll(DiscordUtil._attachUrlRegex));
+        const matches = Array.from(str.matchAll(DiscordUtil.attachUrlRegex));
         return matches.map(match => DiscordUtil._attachUrlMatchResult(match));
+    },
+
+    hasAttachmentUrls: str => {
+        if (!LoaderUtils.nonemptyString(str)) return false;
+
+        DiscordUtil.attachUrlRegex.lastIndex = 0;
+        return DiscordUtil.attachUrlRegex.test(str);
     },
 
     discordEpoch: 1420070400000,
@@ -2127,6 +2416,224 @@ let DiscordUtil = {
             timestamp = Number(snowflakeBits >> 22n);
 
         return new Date(timestamp + DiscordUtil.discordEpoch);
+    },
+
+    getEmbedData: embed => embed?.data ?? embed,
+
+    formatEmbed: (options = {}) => {
+        const embed = {};
+        if (options.title != null) embed.title = String(options.title);
+        if (options.description != null) embed.description = String(options.description);
+        if (options.color != null) embed.color = options.color;
+        if (Array.isArray(options.fields)) embed.fields = options.fields;
+        if (options.footer != null)
+            embed.footer = typeof options.footer === "string" ? { text: options.footer } : options.footer;
+        if (options.author != null)
+            embed.author = typeof options.author === "string" ? { name: options.author } : options.author;
+        if (options.image != null)
+            embed.image = typeof options.image === "string" ? { url: options.image } : options.image;
+        if (options.thumbnail != null)
+            embed.thumbnail = typeof options.thumbnail === "string" ? { url: options.thumbnail } : options.thumbnail;
+        if (options.timestamp != null) embed.timestamp = options.timestamp;
+        return embed;
+    },
+
+    EmbedCountAreas: LoaderUtils.createEnum(
+        {
+            body: "body",
+            content: "content",
+            details: "details",
+            fields: "fields",
+            all: "all"
+        },
+        obj => new Set(obj.values.filter(area => area !== obj.all))
+    ),
+
+    getEmbedSize: (embed, options) => {
+        options = ObjectUtil.guaranteeObject(options);
+
+        let countType = options.count ?? LoaderUtils.countTypes.chars,
+            countAreas = options.areas ?? DiscordUtil.EmbedCountAreas.all,
+            countURLs = options.urls ?? false;
+
+        const embedData = DiscordUtil.getEmbedData(embed);
+        if (embedData == null) return 0;
+
+        const count = LoaderUtils._countFunc(countType);
+        let size = 0;
+
+        if (countAreas === DiscordUtil.EmbedCountAreas.all) {
+            countAreas = Array.from(DiscordUtil.EmbedCountAreas.valid);
+        } else {
+            countAreas = ArrayUtil.guaranteeArray(countAreas).map(area =>
+                TypeTester.normalizeEnum(area, DiscordUtil.EmbedCountAreas, "count areas", UtilError)
+            );
+        }
+
+        const hasContent = countAreas.includes(DiscordUtil.EmbedCountAreas.content),
+            hasBody = countAreas.includes(DiscordUtil.EmbedCountAreas.body),
+            hasDetails = countAreas.includes(DiscordUtil.EmbedCountAreas.details),
+            hasFields = countAreas.includes(DiscordUtil.EmbedCountAreas.fields);
+
+        if (hasContent) {
+            size += count(embedData.title);
+            size += count(embedData.description);
+        } else if (hasBody) {
+            size += count(embedData.description);
+        }
+
+        if (hasDetails) {
+            size += count(embedData.author?.name);
+            size += count(embedData.timestamp);
+            size += count(embedData.footer?.text);
+
+            if (countType === LoaderUtils.countTypes.chars && countURLs) {
+                size += count(embedData.url);
+                size += count(embedData.thumbnail?.url);
+                size += count(embedData.image?.url);
+
+                size += count(embedData.author?.icon_url);
+                size += count(embedData.author?.url);
+
+                size += count(embedData.footer?.icon_url);
+            }
+        }
+
+        if (!hasFields) return size;
+
+        const fieldsSize = (embedData.fields ?? []).reduce((sum, field, i) => {
+            const { name, value, inline } = field;
+
+            if (countType === LoaderUtils.countTypes.lines && i > 0 && inline) {
+                return sum;
+            }
+
+            let nameSize = count(name),
+                valueSize = count(value);
+
+            if (countType === LoaderUtils.countTypes.lines && name) {
+                nameSize++;
+            }
+
+            return sum + nameSize + valueSize;
+        }, 0);
+
+        return size + fieldsSize;
+    },
+
+    embedOverSizeLimit: (embed, charLimit, lineLimit, options) => {
+        if (!TypeTester.isObject(embed)) return false;
+
+        options = ObjectUtil.guaranteeObject(options);
+
+        let count = 0;
+
+        if (typeof charLimit === "number") {
+            count = DiscordUtil.getEmbedSize(embed, {
+                ...options,
+                count: LoaderUtils.countTypes.chars
+            });
+
+            if (count > charLimit) return [count, null];
+        }
+
+        if (typeof lineLimit === "number") {
+            count = DiscordUtil.getEmbedSize(embed, {
+                ...options,
+                count: LoaderUtils.countTypes.lines
+            });
+
+            if (count > lineLimit) return [null, count];
+        }
+
+        return false;
+    },
+    embedOverSizeLimits: (embed, charLimit, lineLimit, options) =>
+        DiscordUtil.embedOverSizeLimit(embed, charLimit, lineLimit, options),
+
+    _mdDelimiters: [
+        { pattern: "```", length: 3 },
+        { pattern: "**", length: 2 },
+        { pattern: "__", length: 2 },
+        { pattern: "~~", length: 2 },
+        { pattern: "||", length: 2 },
+        { pattern: "*", length: 1 },
+        { pattern: "_", length: 1 },
+        { pattern: "`", length: 1 }
+    ],
+    markdownTrimString: (str, charLimit, lineLimit) => {
+        let stack = [],
+            contentCount = 0,
+            i = 0,
+            isEscaped = false;
+
+        while (i < str.length && contentCount < charLimit) {
+            if (str[i] === "\\" && !isEscaped) {
+                isEscaped = true;
+                i++;
+                continue;
+            }
+
+            let mdFound = false;
+
+            if (!isEscaped) {
+                for (const { pattern, length } of DiscordUtil._mdDelimiters) {
+                    const part = str.slice(i, i + length);
+
+                    if (part === pattern) {
+                        const hasContentAfter = part.trim().length > 0;
+
+                        if (hasContentAfter) {
+                            stack[stack.length - 1] === pattern ? stack.pop() : stack.push(pattern);
+                        }
+
+                        i += length;
+                        mdFound = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!mdFound) {
+                if (!isEscaped) contentCount++;
+                isEscaped = false;
+                i++;
+            }
+        }
+
+        const suffix = stack.reverse().join("");
+        return LoaderUtils.trimString(str, charLimit + 2 * suffix.length, lineLimit + 1) + suffix;
+    },
+
+    trimEmbed: (embed, charLimit, lineLimit, options) => {
+        options = ObjectUtil.guaranteeObject(options);
+
+        const embedData = DiscordUtil.getEmbedData(embed);
+
+        let oversized = options.oversized;
+
+        if (oversized === true || oversized == null) {
+            oversized = DiscordUtil.embedOverSizeLimit(embedData, charLimit, lineLimit, {
+                areas: DiscordUtil.EmbedCountAreas.body
+            });
+        }
+
+        if (oversized) {
+            embedData.description = LoaderUtils.trimString(embedData.description, charLimit, lineLimit, {
+                ...options,
+                oversized
+            });
+        }
+
+        if (
+            DiscordUtil.embedOverSizeLimit(embedData, charLimit, lineLimit, {
+                areas: DiscordUtil.EmbedCountAreas.fields
+            })
+        ) {
+            delete embedData.fields;
+        }
+
+        return embedData;
     },
 
     _fetchAttachmentDefaults: {
@@ -2181,6 +2688,37 @@ let DiscordUtil = {
         data = ModuleLoader._parseModuleCode(data, returnType);
 
         return { attach, body: data, contentType };
+    },
+
+    validTagName: name => {
+        name = DiscordUtil._normalizeTagName(name);
+        return name.length > 0 && name.length <= 32 && DiscordUtil._tagNameRegex.test(name);
+    },
+
+    _tagNameRegex: /^[A-Za-z0-9\-_]+$/,
+    _normalizeTagName: name => {
+        if (!util.env) return name;
+
+        if (typeof name === "string") {
+            return name.replace(/^[^:]+:/, "");
+        } else if (Array.isArray(name)) {
+            return name.map(DiscordUtil._normalizeTagName);
+        }
+
+        return name;
+    },
+
+    _parseScriptResult: (body, isScript = false, lang = "") => ({ body, isScript, lang }),
+    parseScript: script => {
+        const match = script.match(DiscordUtil.parseScriptRegex);
+        if (!match) return DiscordUtil._parseScriptResult(script);
+
+        const body = (match[2] ?? match[3])?.trim(),
+            lang = match[1]?.trim() ?? "";
+
+        return typeof body === "undefined"
+            ? DiscordUtil._parseScriptResult(script)
+            : DiscordUtil._parseScriptResult(body, true, lang);
     },
 
     fetchTag: (name, owner) => {
@@ -2299,63 +2837,6 @@ let DiscordUtil = {
         return tags;
     },
 
-    _mdDelimiters: [
-        { pattern: "```", length: 3 },
-        { pattern: "**", length: 2 },
-        { pattern: "__", length: 2 },
-        { pattern: "~~", length: 2 },
-        { pattern: "||", length: 2 },
-        { pattern: "*", length: 1 },
-        { pattern: "_", length: 1 },
-        { pattern: "`", length: 1 }
-    ],
-    markdownTrimString: (str, charLimit, lineLimit) => {
-        let stack = [],
-            contentCount = 0,
-            i = 0,
-            isEscaped = false;
-
-        while (i < str.length && contentCount < charLimit) {
-            if (str[i] === "\\" && !isEscaped) {
-                isEscaped = true;
-                i++;
-
-                continue;
-            }
-
-            let mdFound = false;
-
-            if (!isEscaped) {
-                for (const { pattern, length } of DiscordUtil._mdDelimiters) {
-                    const part = str.slice(i, i + length);
-
-                    if (part === pattern) {
-                        const hasContentAfter = part.trim().length > 0;
-
-                        if (hasContentAfter) {
-                            stack[stack.length - 1] === pattern ? stack.pop() : stack.push(pattern);
-                        }
-
-                        i += length;
-                        mdFound = true;
-
-                        break;
-                    }
-                }
-            }
-
-            if (!mdFound) {
-                if (!isEscaped) contentCount++;
-
-                isEscaped = false;
-                i++;
-            }
-        }
-
-        const suffix = stack.reverse().join("");
-        return LoaderUtils.trimString(str, charLimit + 2 * suffix.length, lineLimit + 1) + suffix;
-    },
-
     _leveretScriptBodyRegex: /^`{3}([\S]+)?\n([\s\S]+)\n`{3}$/u,
     getTagBody: tag => {
         const match = tag.body.match(DiscordUtil._leveretScriptBodyRegex);
@@ -2467,14 +2948,6 @@ const TypeTester = Object.freeze({
         else return "other";
     },
 
-    parseRanges: (str, base = 16) => {
-        const split = str.split(/\s+/).filter(Boolean);
-        return split.map(range => {
-            const [first, last] = range.split("-").map(x => LoaderUtils.parseInt(x, base));
-            return [first, last ?? first];
-        });
-    },
-
     isInRange: (value, range) => {
         return range.some(([first, last]) => value >= first && value <= last);
     },
@@ -2491,7 +2964,7 @@ const TypeTester = Object.freeze({
         }
 
         const check = val => {
-            if (val == null) return true;
+            if (val === null) return false;
             return Number.isNaN(val) || val < min || val > max;
         };
 
@@ -2505,6 +2978,7 @@ const TypeTester = Object.freeze({
 
     _normalizeEnumValues(valid) {
         if (valid instanceof Set) return valid;
+        else if (valid?.valid instanceof Set) return valid.valid;
         else if (TypeTester.isArray(valid)) return new Set(valid);
         else if (TypeTester.isObject(valid)) return new Set(Object.values(valid));
         else return new Set();
@@ -2651,16 +3125,8 @@ const TypeTester = Object.freeze({
         return ["GIF87a", "GIF89a"].includes(header);
     },
 
-    asUint8Array: data => {
-        if (data instanceof Uint8Array) {
-            return data;
-        } else if (TypeTester.isTypedArray(data)) {
-            return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-        } else if (data instanceof ArrayBuffer) {
-            return new Uint8Array(data);
-        } else {
-            throw new LoaderError("Invalid input binary");
-        }
+    asUint8Array: (data, encoding) => {
+        return ArrayUtil.toUint8Array(data, encoding);
     }
 });
 
@@ -2701,8 +3167,19 @@ const ObjectUtil = Object.freeze({
         return ArrayUtil.groupBy(items, callback);
     },
 
-    guaranteeObject: (obj, fallback = {}) => {
-        return TypeTester.isObject(obj) ? obj : fallback;
+    guaranteeObject: (obj, fallback = {}, key = null) => {
+        if (TypeTester.isObject(obj)) return obj;
+
+        if (typeof fallback === "string") {
+            key = fallback;
+            fallback = {};
+        }
+
+        if (LoaderUtils.nonemptyString(key) && obj != null) {
+            return { [key]: obj };
+        }
+
+        return fallback;
     },
 
     setValuesWithDefaults: (target, source, defaults = {}) => {
@@ -2721,6 +3198,18 @@ const ObjectUtil = Object.freeze({
         }
 
         return Object.assign(target, source, values);
+    },
+
+    getBooleanOptions: (options, defaults = {}, objectDefaults = defaults) => {
+        if (typeof defaults === "boolean") {
+            defaults = Object.fromEntries(Object.keys(objectDefaults).map(key => [key, defaults]));
+        }
+
+        if (typeof options === "boolean") {
+            return Object.fromEntries(Object.keys(defaults).map(key => [key, options]));
+        }
+
+        return ObjectUtil.setValuesWithDefaults({}, ObjectUtil.guaranteeObject(options, defaults), objectDefaults);
     },
 
     _validPropOptions: Object.freeze(["both", "enum", "nonenum", "keys"]),
@@ -2935,17 +3424,23 @@ const ObjectUtil = Object.freeze({
         LoaderUtils._validNumberRegexes.set(radix, exp);
     }
 
-    LoaderUtils._validUrlRegex = new RegExp(`^${LoaderUtils.urlRegex.source}$`);
+    LoaderUtils.validUrlRegex = new RegExp(`^${LoaderUtils.urlRegex.source}$`);
+    LoaderUtils._validUrlRegex = LoaderUtils.validUrlRegex;
 
-    DiscordUtil._parseScriptRegex = new RegExp(`^${DiscordUtil.codeblockRegex.source}$`);
-    DiscordUtil._parseMessageUrlRegex = new RegExp(
-        `^(?:${DiscordUtil._msgUrlRegex.source})$`,
-        DiscordUtil._msgUrlRegex.flags.replace("g", "")
-    );
-    DiscordUtil._parseAttachmentUrlRegex = new RegExp(
-        `^(?:${DiscordUtil._attachUrlRegex.source})$`,
-        DiscordUtil._attachUrlRegex.flags.replace("g", "")
-    );
+    DiscordUtil.parseScriptRegex = new RegExp(`^${DiscordUtil.codeblockRegex.source}$`);
+    DiscordUtil._parseScriptRegex = DiscordUtil.parseScriptRegex;
+
+    DiscordUtil.singleMsgRegex = new RegExp(`^${DiscordUtil.msgUrlRegex.source}$`, "i");
+    DiscordUtil._parseMessageUrlRegex = DiscordUtil.singleMsgRegex;
+
+    DiscordUtil.singleAttachRegex = new RegExp(`^(?:${DiscordUtil.attachUrlRegex.source})$`, "iu");
+    DiscordUtil._parseAttachmentUrlRegex = DiscordUtil.singleAttachRegex;
+
+    DiscordUtil._userIdRegex = DiscordUtil.userIdRegex;
+    DiscordUtil._mentionRegex = DiscordUtil.mentionRegex;
+    DiscordUtil._msgUrlRegex = DiscordUtil.msgUrlRegex;
+    DiscordUtil._attachUrlRegex = DiscordUtil.attachUrlRegex;
+
     DiscordUtil = Object.freeze(DiscordUtil);
 
     LoaderUtils = Object.freeze({
@@ -2956,7 +3451,8 @@ const ObjectUtil = Object.freeze({
         ...FunctionUtil,
         ...RegexUtil,
         ...CaseUtil,
-        ...LoaderUtils
+        ...LoaderUtils,
+        DiscordUtil
     });
 }
 
@@ -3543,8 +4039,6 @@ const IntegrityChecker = (() => {
             if (author.banner != null && author.bannerURL != null && !stringIncludes(author.bannerURL, author.banner))
                 fail("author.bannerURL is invalid");
 
-
-
             if (originalMsg != null) {
                 if (msg.id !== originalMsg.id) fail("msg.id has been modified");
                 if (msg.channelId !== originalMsg.channelId) fail("msg.channelId has been modified");
@@ -3817,7 +4311,7 @@ const LoaderTextEncoder = Object.freeze({
     },
 
     decodeObjectFromBuffer: (data, keys) => {
-        const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : data,
+        const bytes = ArrayUtil.toUint8Array(data),
             byteCount = keys.length * 2;
 
         const slice = bytes.subarray(-byteCount),
@@ -4076,9 +4570,7 @@ let UploadUtil = {
             headers["L-Content-Type"] = formInfo.formCtype;
             headers["L-Content-Length"] = formInfo.formSize;
 
-            formData = Array.from(formData)
-                .map(b => b.toString(16).padStart(2, "0"))
-                .join("");
+            formData = LoaderUtils.bytesToHex(formData);
         }
 
         const config = {
@@ -5330,8 +5822,8 @@ class ModuleLoader {
         return this._Cache.clearAll();
     }
 
-    static _loadSources = Object.freeze(["url", "tag"]);
-    static _tagConfigVars = Object.freeze(["loadSource", "isolateGlobals", "tagOwner"]);
+    static _loadSources = LoaderUtils.createEnum(["url", "tag"]);
+    static _tagConfigVars = LoaderUtils.createEnum(["loadSource", "isolateGlobals", "tagOwner"]);
 
     static _isolateGlobalsError =
         "You're not allowed to have functions defined via the function keyword or vars in the same scope as the load call. Use an object or an IIFE to isolate them.";
@@ -5475,9 +5967,8 @@ class ModuleLoader {
         returnType = TypeTester.normalizeEnum(returnType, FileDataTypes, "return type", LoaderError);
 
         if (!util.env) {
-            if (moduleCode instanceof ArrayBuffer) moduleCode = TypeTester.asUint8Array(moduleCode);
-            else if (TypeTester.isObject(moduleCode) && moduleCode?.type === "Buffer") {
-                moduleCode = new Uint8Array(moduleCode.data);
+            if (moduleCode instanceof ArrayBuffer || moduleCode?.type === "Buffer") {
+                moduleCode = ArrayUtil.toUint8Array(moduleCode);
             }
         }
 
@@ -5515,7 +6006,7 @@ class ModuleLoader {
         ) {
             return globalThis.Base64.decode(moduleCode);
         } else if (typeof globalThis.Buffer !== "undefined") {
-            return Uint8Array.from(globalThis.Buffer.from(moduleCode, "base64"));
+            return ArrayUtil.toUint8Array(moduleCode, "base64");
         } else if (typeof globalThis.atob === "function") {
             return LoaderTextEncoder.stringToBytes(atob(moduleCode));
         } else {
@@ -5552,7 +6043,7 @@ class ModuleLoader {
         return fastDecodeBase127(moduleCode);
     }
 
-    static _encoders = Object.freeze(["base64", "base2n", "base127"]);
+    static _encoders = LoaderUtils.createEnum(["base64", "base2n", "base127"]);
 
     static _decodeModuleCode(moduleCode, encoder, buf_size) {
         encoder = TypeTester.normalizeEnum(encoder, this._encoders, "encoder", LoaderError, {
@@ -5826,7 +6317,9 @@ const Patches = {
 
                 if (typeof fileData === "string") {
                     fileData = LoaderTextEncoder.stringToUtf8(fileData);
-                } else if (!TypeTester.isArray(fileData)) {
+                } else if (fileData != null) {
+                    fileData = ArrayUtil.toUint8Array(fileData);
+                } else {
                     fileData = LoaderTextEncoder.stringToBytes("Empty file");
                 }
 
@@ -5918,6 +6411,7 @@ const Patches = {
         globalObjs.TamperError ??= TamperError;
 
         globalObjs.Benchmark ??= Benchmark;
+        globalObjs.DiscordUtil ??= DiscordUtil;
         globalObjs.HttpUtil ??= HttpUtil;
         globalObjs.LoaderUtils ??= LoaderUtils;
         globalObjs.LoaderTextEncoder ??= LoaderTextEncoder;
@@ -5925,6 +6419,8 @@ const Patches = {
         globalObjs.ObjectUtil ??= ObjectUtil;
         globalObjs.TypeTester ??= TypeTester;
         globalObjs.CaseUtil ??= CaseUtil;
+        globalObjs.RegexUtil ??= RegexUtil;
+        globalObjs.FunctionUtil ??= FunctionUtil;
         globalObjs.EncryptionUtil ??= EncryptionUtil;
         globalObjs.UploadUtil ??= UploadUtil;
         globalObjs.exit ??= exit;
@@ -6058,8 +6554,8 @@ const Patches = {
     },
 
     _loadedPatches: [],
-    _patchPrefixes: Object.freeze(["patch", "polyfill"]),
-    _removeOptions: Object.freeze(["nondefault"]),
+    _patchPrefixes: LoaderUtils.createEnum(["patch", "polyfill"]),
+    _removeOptions: LoaderUtils.createEnum(["nondefault"]),
 
     _loadedPatch: (...names) => {
         Patches._loadedPatches = ArrayUtil.unique(Patches._loadedPatches.concat(names));
@@ -6110,7 +6606,7 @@ function loadBase64Utils() {
     Patches.patchGlobalContext({ Base64 });
 }
 
-const base2nCharsets = Object.freeze(["normal", "linear", "base64"]);
+const base2nCharsets = LoaderUtils.createEnum(["normal", "linear", "base64"]);
 
 let wasmBase2nLoaded = false;
 
@@ -6999,29 +7495,19 @@ function main() {
     if (features.useLoadFuncs) addLoadFuncs();
 }
 
-function insideEval() {
-    if (config.loadLibrary === "none") return true;
-
-    const evalExp = new RegExp(
-        globalThis.util && globalThis.util.env
-            ? `^.+\\n\\s+at\\s${insideEval.name}\\s\\(eval\\sat\\s.+\\)\\n\\s+at eval\\s\\(eval at\\s.+\\)`
-            : `^.+\\n\\s+at\\s${insideEval.name}\\s\\(eval\\sat\\s.+?\\(eval\\sat\\s.+\\)\\n\\s+at\\seval\\s\\(eval\\sat\\s.+?\\(eval\\sat\\s.+\\)`
-    );
-
-    try {
-        // eslint-disable-next-line no-restricted-syntax
-        throw new Error();
-    } catch (err) {
-        return Boolean(err.stack.match(evalExp));
-    }
-}
-
 try {
     if (config.integrityChecks) IntegrityChecker.check("before");
     if (config.enableDebugger) debugger;
 
-    // eval check
-    if (!insideEval()) {
+    // direct invocation check
+    const tagName = msg.content.split(" ")[1],
+        realTag = util.fetchTag(tagName);
+
+    const isDirectInvocation =
+        Boolean(realTag?.hops?.includes("canvaskitloader")) ||
+        tagName === "canvaskitloader";
+
+    if (isDirectInvocation) {
         msg.reply(":information_source: This is meant to be used inside eval, not as a standalone tag.", {
             embed: {
                 fields: [
